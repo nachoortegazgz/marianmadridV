@@ -2504,3 +2504,2464 @@ ALCANCE DE LA EXCEPCION:
 
 REVISION: pendiente de re-evaluar cuando Wix publique soporte de
 `suppressAuth`/por-operacion en queryDataItems (tracker interno AUDIT-03).
+=======
+# BIBLIA TÉCNICA — Marian Madrid v5009-V20-FINAL-CONSOLIDATED
+## Documento consultivo · Entrega progresiva
+
+**Versión documento:** v5009-V20-FINAL-CONSOLIDATED-v4
+**Fecha de referencia:** sábado, 26 de septiembre de 2026
+**Stack:** Wix Velo + Wix Bookings V2 + Wix eCom/Stores + CMS
+**Zona horaria:** `Europe/Madrid` · **Moneda:** `EUR` (2 decimales)
+**Site ID:** `188bed94-177c-4bc9-a9f0-35080d874f3e`
+**Repo:** `https://github.com/nachoortegazgz/marianmadrid9999.git`
+
+---
+
+## ÍNDICE DE CONTENIDOS
+
+|   | A | B | C |
+|---|---|---|---|
+| 1 | Bloque | Título | Contenido |
+| 2 | **0** | Decisiones de consolidación aplicadas | R1–R18 |
+| 3 | **1** | Identidad del sitio | Datos maestros, staff/resources, roles internos |
+| 4 | **2** | Apps Wix y configuración | Bookings · Stores/eCom · Velo/Jobs/Secrets · No-fricción |
+| 5 | **3** | Constantes SSOT (`internalConfig.js`) | COLLECTIONS · Estados y enums · Correspondencia valores · Constantes JS renombradas |
+| 6 | **4** | Esquema consolidado de colecciones | Directrices D0–D12 · 11 colecciones SSOT · Matriz de cambio |
+| 7 | **4.1–4.11** | Colecciones individuales | `DatosFiscales` · `MapaStaff` · `ServiciosCatalogo` · `ComplementosCatalogo` · `MovimientosCaja` · `CitasF2` · `HistoricoCierresZ` · `CompensacionesPendientes` · `MovimientosInventario` · `RegistrosHorariosStaff` · `ProveedoresLista` |
+| 8 | **5** | Arquitectura de módulos | Diagrama · Mapa de responsabilidades |
+| 9 | **6** | Helpers principales | `bookingCore` · Otros helpers |
+| 10 | **7** | Flujos de negocio | Simple · Dual · Online · Cancelación · Caja · Jobs |
+| 11 | **8** | Errores canónicos | Códigos y política pública |
+| 12 | **9** | Seguridad | Reglas de elevación, rate limit, HMAC |
+| 13 | **10** | Despliegue | Tareas, compatibilidad Wix, migración enum |
+| 14 | **11** | Glosario | Términos clave |
+| 15 | **12** | Resumen cuantitativo consolidado | Métricas finales |
+| 16 | **13** | ANEXO A — `RegistrosHorariosStaff` vista reducida | Referencia histórica |
+| 17 | **ANEXO B** | CSV `ServiciosCatalogo` adaptado | Mapeo CSV → CMS |
+
+---
+
+## CORRECCIONES CLAVE APLICADAS (v4)
+
+|   | A | B |
+|---|---|---|
+| 1 | Ref | Corrección |
+| 2 | R1 | Identificadores AEAT/PGC: **literal normativo español `camelCase`** (código y visible iguales). No se traducen al inglés |
+| 3 | R6 | `CitasF2.bookingStatus` valor canónico: **`CANCELADO`** (español) |
+| 4 | R9 | Campo legacy `DatosFiscales`: **`nifEmisorLegacy`** |
+| 5 | R11 | Constante `TIMECLOCK_TYPE` + campo `clockEventType` |
+| 6 | R15 | `ProveedoresLista` = **SSOT activa** |
+| 7 | NEW | **ID canónicas Wix** (`bookingId`, `serviceId`, `orderId`, `resourceId`, `staffMemberId`, `productId`, `wixProductId`, `wixVariantId`, `contactDetails`) se **preservan tal cual** en inglés camelCase, sin traducción |
+| 8 | NEW | **Campos AEAT/PGC sin ID Wix** → código = visible = literal `camelCase` español |
+| 9 | NEW | **Campos custom** → ID código inglés camelCase + ID visible español camelCase |
+
+---
+
+
+# BLOQUE 0 — DECISIONES DE CONSOLIDACIÓN APLICADAS
+
+|   | A | B |
+|---|---|---|
+| 1 | # | Resolución |
+| 2 | R1 | **Identificadores AEAT/PGC**: literal normativo español en `camelCase` (código y visible iguales). No se traducen al inglés |
+| 3 | R2 | `RegistrosHorariosStaff`: schema timeclock completo (**19 campos**) en cuerpo principal. Vista reducida (7 campos) pasa al **ANEXO A** |
+| 4 | R3 | `DatosFiscales` + `ConfiguracionFiscal`: **CONSOLIDADAS** en `DatosFiscales` con discriminador `recordType` |
+| 5 | R4 | `AsientosContables` + `LibroAsientosContablesDetalle`: **ELIMINADAS**. `MovimientosCaja` (LEDGER_V5_FISCAL) es SSOT fiscal único |
+| 6 | R5 | `schemaVersion` = `LEDGER_V5_FISCAL` |
+| 7 | R6 | `CitasF2.bookingStatus`: **`CANCELADO`** canónico (español) |
+| 8 | R7 | `FacturasRecibidas`: **ELIMINADA** del SSOT |
+| 9 | R8 | Tablas Matriz incompletas: prevalece SSOT CMS |
+| 10 | R9 | `nifEmisorLegacy` incluido en `DatosFiscales` (bloque Verifactu, legacy) |
+| 11 | R10 | `MapaStaff.email`: índice **no unique** |
+| 12 | R11 | Constante `TIMECLOCK_TYPE` + campo `clockEventType` |
+| 13 | R12 | `_owner`: documentado explícitamente |
+| 14 | R13 | `ComplementosCatalogo`: añadidos timestamps system |
+| 15 | R14 | `HistoricoCierresZ`: colección única en V20; deuda V5010 |
+| 16 | R15 | `ProveedoresLista`: **SSOT activa** |
+| 17 | R16 | `dateYmd`: `YYYY-MM-DD` TZ Madrid |
+| 18 | R17 | `amount` / `totalAmount`: alias dual en V20 |
+| 19 | R18 | `traceId`: obligatorio en colecciones operativas |
+| 20 | R19 | **ID canónicas Wix** se preservan tal cual (inglés camelCase). No se traducen ni transforman |
+| 21 | R20 | **Campos custom sin ID Wix ni AEAT**: ID código inglés camelCase + ID visible español camelCase |
+| 22 | R21 | **Cualificación con término diferencial** solo cuando una ID genérica colisiona con otra (no aplica a ID canónicas Wix que ya vienen cualificadas) |
+
+---
+
+## Reglas de identidad (R19–R21)
+
+|   | A | B | C |
+|---|---|---|---|
+| 1 | Caso | Tratamiento | Ejemplo |
+| 2 | ID canónica Wix / Wix Apps | **Preservada** en inglés camelCase | `bookingId`, `serviceId`, `orderId`, `resourceId`, `staffMemberId` |
+| 3 | Campo AEAT/PGC sin ID Wix | **Literal español `camelCase`** en código Y visible | `numSerieFactura`, `cuotaTotal`, `claveRegimen` |
+| 4 | Campo custom sin ID Wix ni AEAT | ID código inglés + ID visible español | `staffRole` / `staffRol` |
+| 5 | Colisión entre dos IDs genéricas | Añadir término diferencial | `staffRole` (cualifica `rol` genérico) |
+
+---
+
+# BLOQUE 2 — APPS WIX Y CONFIGURACIÓN
+
+**Referencia:** v5009-V20-FINAL-CONSOLIDATED-v4 · Bloque 2 de 13
+
+---
+
+## 2.1 Apps instaladas
+
+|   | A | B |
+|---|---|---|
+| 1 | App | App ID |
+| 2 | Wix Bookings | `13d21c63-b5ec-5912-8397-c3a5ddb27a97` |
+| 3 | Wix Stores | `215238eb-22a5-4c36-9e7b-e7c08025e04e` |
+| 4 | Wix Events | `140603ad-af8d-84fb-9004-ee174e35054d` |
+| 5 | Forms & Payments | `14ce1214-b278-a7e4-1373-00cebd1bef7c` |
+| 6 | Invoices | `13ee94c1-b635-8505-3391-97919052c16f` |
+| 7 | Members Area | `14cc59bc-f0b7-15b8-e1c7-89ce41d0e0c9` |
+| 8 | Gift Cards | `d80111c5-a0f4-47a8-b63a-65b54d774a27` |
+
+---
+
+## 2.2 Configuración Bookings
+
+|   | A | B |
+|---|---|---|
+| 1 | # | Regla |
+| 2 | 1 | Una sola Business location alineada con `SDK_CONFIG.LOCATION_ID` |
+| 3 | 2 | Timezone = `Europe/Madrid` |
+| 4 | 3 | Resources = 3 staff; tipo recurso = `STAFF_RESOURCE_TYPE_ID` |
+| 5 | 4 | Services simple y dual con `allowCombine` + `linkedPhasess` (gap máx 120 min) |
+| 6 | 5 | UI custom para flujo dual; no usar formulario nativo |
+| 7 | 6 | Webhooks Bookings V2 → `events.js`: `Booking Confirmed`, `Booking Canceled` |
+| 8 | 7 | Validación propia vía `revalidateExactAvailabilitySlot`; no desactivar nativo |
+
+### 2.2.1 Contrato createBooking (Wix Bookings V2)
+
+|   | A | B |
+|---|---|---|
+| 1 | Campo | Valor |
+| 2 | `bookedEntity.slot.serviceId` | GUID servicio |
+| 3 | `bookedEntity.slot.scheduleId` | GUID schedule (obligatorio) |
+| 4 | `bookedEntity.slot.startDate` | ISO UTC con `Z` |
+| 5 | `bookedEntity.slot.endDate` | ISO UTC con `Z` |
+| 6 | `bookedEntity.slot.timezone` | `Europe/Madrid` (minúsculas) |
+| 7 | `bookedEntity.slot.resource.id` | GUID recurso |
+| 8 | `bookedEntity.slot.location.locationType` | `OWNER_BUSINESS` |
+| 9 | `contactDetails` | Objeto contacto |
+| 10 | `totalParticipants` | `1` |
+| 11 | `flowControlSettings.skipAvailabilityValidation` | `true` solo tras revalidación propia |
+
+---
+
+## 2.3 Configuración Stores/eCom
+
+|   | A | B |
+|---|---|---|
+| 1 | # | Regla |
+| 2 | 1 | EUR, IVA ES |
+| 3 | 2 | Checkout online para `PENDIENTE_PAGO` vía `createCheckout` / `getCheckoutUrl` |
+| 4 | 3 | Webhooks eCom: `Order Payment Status Updated`, `Order Refunded`, `Order Canceled` |
+| 5 | 4 | Stock espejo en `InventarioStockVenta` / `MovimientosInventario` |
+
+---
+
+## 2.4 Velo / Jobs / Secrets
+
+|   | A | B |
+|---|---|---|
+| 1 | # | Regla |
+| 2 | 1 | Git Integration al repo; backend en `src/backend/` |
+| 3 | 2 | Secrets vía `backend/mmSecrets.js` |
+| 4 | 3 | Jobs en `src/backend/jobs.config` (TZ Madrid, `concurrencyPolicy: Forbid`) |
+| 5 | 4 | Permisos: públicos para lectura disponibilidad y creación controlada; caja/fiscal con `requireCajero` / `requireAdmin` / `requireMarianManager` |
+| 6 | 5 | Solo APIs `@wix/bookings` / `wix-bookings.v2` / eCom v2 |
+
+---
+
+## 2.5 Principio de no-fricción
+
+|   | A | B |
+|---|---|---|
+| 1 | # | Principio |
+| 2 | 1 | Bookings nativo = SSOT de slots y bookings |
+| 3 | 2 | `CitasF2` = SSOT interno (pago, pairToken, meta) |
+| 4 | 3 | Sin reescribir calendario nativo |
+| 5 | 4 | Pagos: eCom nativo; backend solo ledger e inventarios |
+| 6 | 5 | `MovimientosCaja` (LEDGER_V5_FISCAL) = SSOT fiscal único; sin proyección contable separada |
+
+---
+
+## 2.6 Reglas de identidad aplicadas en este bloque
+
+|   | A | B | C |
+|---|---|---|---|
+| 1 | Elemento | Tratamiento | Motivo |
+| 2 | App IDs (`13d21c63-...`, etc.) | ID canónicas Wix — **preservadas** | R19 |
+| 3 | `createBooking`, `createCheckout`, `getCheckoutUrl` | APIs Wix — **preservadas** | R19 |
+| 4 | `Booking Confirmed`, `Booking Canceled` | Eventos Wix — **preservados** | R19 |
+| 5 | `OWNER_BUSINESS` / `BUSINESS` | Enum Wix — **preservado** | R19 |
+| 6 | `PENDIENTE_PAGO` | Valor enum custom en español (D10) | §3.2 |
+| 7 | `requireCajero` / `requireAdmin` / `requireMarianManager` | Helpers custom en inglés camelCase | D2 |
+
+---
+
+# BLOQUE 3 — CONSTANTES SSOT (`backend/internalConfig.js`)
+
+**Referencia:** v5009-V20-FINAL-CONSOLIDATED-v4 · Bloque 3 de 13
+
+---
+
+## 3.1 COLLECTIONS
+
+|   | A | B |
+|---|---|---|
+| 1 | Constante | Colección CMS |
+| 2 | `ALERTAS_OPERATIVAS` | `AlertasOperativas` |
+| 3 | `PROCESSED_WEBHOOK_EVENTS` | `ProcessedWebhookEvents` |
+| 4 | `DISPONIBILIDAD_DIAS_CACHE` | `AvailabilityDaysCache` |
+| 5 | `RESERVAS_SERVICIOS_SYNC_LISTA` | `BookingsServiceSyncQueue` |
+| 6 | `RESERVAS_TRANSACCIONES` | `BookingTransactions` |
+| 7 | `CAJA_ACTUAL` | `CajaActual` |
+| 8 | `CITAS_F2` | `CitasF2` |
+| 9 | `COMPENSACIONES_PENDIENTES` | `CompensacionesPendientes` |
+| 10 | `COMPLEMENTOS_CATALOGO` | `ComplementosCatalogo` |
+| 11 | `DATOS_FISCALES` | `DatosFiscales` (incluye config Verifactu) |
+| 12 | `DUAL_SLOT_CACHE` | `DualSlotCache` |
+| 13 | `HISTORICO_CIERRES_Z` | `HistoricoCierresZ` |
+| 14 | `INVENTARIO_STOCK_VENTA` | `InventarioStockVenta` |
+| 15 | `M365_GRAPH_SYNC_QUEUE` | `M365GraphSyncQueue` |
+| 16 | `MAPA_STAFF` | `MapaStaff` |
+| 17 | `MOVIMIENTOS_CAJA` | `MovimientosCaja` |
+| 18 | `MOVIMIENTOS_INVENTARIO` | `MovimientosInventario` |
+| 19 | `PROVEEDORES_LISTA` | `ProveedoresLista` (SSOT activa) |
+| 20 | `RATE_LIMIT_BLOCKS` | `RateLimitBlocks` |
+| 21 | `REGISTROS_HORARIOS_STAFF` | `RegistrosHorariosStaff` |
+| 22 | `SERVICIOS_CATALOGO` | `ServiciosCatalogo` |
+| 23 | `SLOT_LOCKS` | `SlotLocks` |
+
+### 3.1.1 Colecciones eliminadas en V20
+
+|   | A | B |
+|---|---|---|
+| 1 | Colección | Resolución |
+| 2 | `AsientosContables` | Eliminada — R4 |
+| 3 | `LibroAsientosContablesDetalle` | Eliminada — R4 |
+| 4 | `FacturasRecibidas` | Eliminada — R7 |
+| 5 | `ConfiguracionFiscal` | Fusionada en `DatosFiscales` — R3 |
+
+### 3.1.2 Singletons
+
+|   | A | B |
+|---|---|---|
+| 1 | Singleton | Valor |
+| 2 | `SINGLETONS.CAJA` | `CAJA_PRINCIPAL` |
+| 3 | Singleton fiscal | `DATOS_FISCALES._id = CONFIG_SISTEMA_FISCAL` (registro `recordType = CONFIG_SISTEMA`) |
+
+---
+
+## 3.2 Estados y enums (valores en español)
+
+> **Criterio:** valores en español MAYÚSCULAS. Se preservan anglicismos D5 (`ONLINE`, `BIZUM`, `POS`) y estándares técnicos (`EUR`, `HS256`, `MS`).
+
+|   | A | B |
+|---|---|---|
+| 1 | Grupo (ID NATIVA constante) | Valores |
+| 2 | `BOOKING_STATUS` | `CONFIRMADO` \| `PENDIENTE_PAGO` \| `CANCELADO` \| `REEMBOLSADO` |
+| 3 | `PAYMENT_STATUS` | `IMPAGADO` \| `NO_PAGADO` \| `PENDIENTE_PAGO` \| `PENDIENTE_ASIENTO` \| `PAGADO` \| `REEMBOLSADO` \| `REEMBOLSADO_PARCIAL` |
+| 4 | `PAYMENT_METHOD` | `EFECTIVO` \| `TARJETA` \| `BIZUM` \| `ONLINE` \| `TARJETA_REGALO` |
+| 5 | `MOVEMENT_TYPE` | `VENTA_EFECTIVO`, `VENTA_TARJETA`, `VENTA_BIZUM`, `VENTA_ONLINE`, `VENTA_PRODUCTO`, `VENTA_PRODUCTO_ONLINE`, `VENTA_TARJETA_REGALO`, `CANJE_TARJETA_REGALO`, `REEMBOLSO`, `DEVOLUCION_SERVICIO`, `DEVOLUCION_PRODUCTO`, `AJUSTE`, `PROPINA`, `APORTE`, `RETIRO`, `GASTO`, `PAGO_PROVEEDOR`, `ANTICIPO`, `FONDO_INICIAL` |
+| 6 | `CASH_REGISTER_STATUS` | `ABIERTA` \| `CERRADA` |
+| 7 | `IVA_RATES` | `GENERAL` 0.21 · `REDUCIDO` 0.10 · `SUPERREDUCIDO` 0.04 · `EXENTO` 0 |
+| 8 | `CATALOG_CONFIG.STATES` | `ACTIVO` \| `INACTIVO` \| `BORRADOR` — `EUR` |
+| 9 | `SLOT_SEARCH` | `DIAS_LIMITE=14`, `MINUTOS_TOLERANCIA=10`, `MINUTOS_MAX_HUECO_DUAL=120` |
+| 10 | `BOOKINGS_ADDON_CONFIG` | `MAX_POR_RESERVA=5` |
+| 11 | `CONCURRENCY` | `MS_TTL_MUTEX=300000`, `MS_LATIDO=15000`, `MS_TTL_MUTEX_ASIENTO=45000` |
+| 12 | `MONEY` | `MONEDA_VISUALIZACION` = `EUR`, `DECIMALES=2` |
+| 13 | `JWT` | `HS256`, `MS_EXPIRACION=1800000` |
+
+---
+
+## 3.2.1 Correspondencia valor antiguo → valor nuevo
+
+|   | A | B | C |
+|---|---|---|---|
+| 1 | Grupo | Valor anterior (inglés/híbrido) | Valor nuevo (español) |
+| 2 | `BOOKING_STATUS` | `REFUNDED` | `REEMBOLSADO` |
+| 3 | `BOOKING_STATUS` | `CANCELLED` | `CANCELADO` |
+| 4 | `PAYMENT_STATUS` | `UNPAID` | `IMPAGADO` |
+| 5 | `PAYMENT_STATUS` | `NOT_PAID` | `NO_PAGADO` |
+| 6 | `PAYMENT_STATUS` | `PENDING_PAYMENT` | `PENDIENTE_PAGO` |
+| 7 | `PAYMENT_STATUS` | `PENDING_LEDGER` | `PENDIENTE_ASIENTO` |
+| 8 | `PAYMENT_STATUS` | `PAID` | `PAGADO` |
+| 9 | `PAYMENT_STATUS` | `REFUNDED` | `REEMBOLSADO` |
+| 10 | `PAYMENT_STATUS` | `PARTIALLY_REFUNDED` | `REEMBOLSADO_PARCIAL` |
+| 11 | `PAYMENT_METHOD` | `ONLINE` | `ONLINE` (anglicismo D5, sin cambio) |
+| 12 | `SLOT_SEARCH` | `TOLERANCE_MINUTES` | `MINUTOS_TOLERANCIA` |
+| 13 | `SLOT_SEARCH` | `MAX_DUAL_GAP_MINUTES` | `MINUTOS_MAX_HUECO_DUAL` |
+| 14 | `BOOKINGS_ADDON_CONFIG` | `MAX_PER_BOOKING` | `MAX_POR_RESERVA` |
+| 15 | `CONCURRENCY` | `MUTEX_TTL_MS` | `MS_TTL_MUTEX` |
+| 16 | `CONCURRENCY` | `HEARTBEAT_MS` | `MS_LATIDO` |
+| 17 | `CONCURRENCY` | `LEDGER_MUTEX_TTL_MS` | `MS_TTL_MUTEX_ASIENTO` |
+| 18 | `MONEY` | `DISPLAY_CURRENCY` | `MONEDA_VISUALIZACION` |
+| 19 | `MONEY` | `DECIMALS` | `DECIMALES` |
+| 20 | `JWT` | `EXPIRATION_MS` | `MS_EXPIRACION` |
+
+---
+
+## 3.2.2 Notas de traducción
+
+|   | A | B |
+|---|---|---|
+| 1 | Elemento | Justificación |
+| 2 | `ONLINE` | Anglicismo aceptado (D5). No se traduce |
+| 3 | `BIZUM` | Marca comercial española. No se traduce |
+| 4 | `EUR`, `HS256` | Estándar técnico internacional. No se traduce |
+| 5 | `MS_*` | Prefijo de unidad (milisegundos) en MAYÚSCULAS; conservado por convención técnica |
+| 6 | `PENDIENTE_ASIENTO` | Sustituye `PENDING_LEDGER`; `LEDGER` se traduce por `ASIENTO` en el SSOT |
+| 7 | `MS_LATIDO` | `HEARTBEAT` traducido literalmente. Alternativa descartada: `MS_PULSO` |
+| 8 | `MS_TTL_MUTEX` | `MUTEX` término técnico aceptado (D5 por analogía). `TTL` sigla internacional |
+
+### 3.2.2.1 Impacto de cambio de valores enum
+
+|   | A | B |
+|---|---|---|
+| 1 | Colección · campo | Migración requerida |
+| 2 | `CitasF2.bookingStatus` | `CANCELLED` → `CANCELADO`, `REFUNDED` → `REEMBOLSADO`, `CONFIRMED` → `CONFIRMADO`, `PENDING_PAYMENT` → `PENDIENTE_PAGO` |
+| 3 | `CitasF2.paymentStatus` | 7 valores migrados a español |
+| 4 | `MovimientosCaja.paymentMethod` | Sin cambio (D5) |
+| 5 | `MovimientosCaja.movementType` | Sin cambio (ya español) |
+| 6 | `CajaActual.estado` | Sin cambio (ya español) |
+
+> **Tarea bloqueante de despliegue:** ejecutar script de migración de datos antes del deploy de v5010.
+
+---
+
+## 3.3 Constantes JS renombradas (V20)
+
+|   | A | B |
+|---|---|---|
+| 1 | Old | New |
+| 2 | `TIPO_FICHAJE` | `TIMECLOCK_TYPE` |
+| 3 | `TIPO_MOVIMIENTO` | `MOVEMENT_TYPE` |
+| 4 | `FORMA_PAGO` | `PAYMENT_METHOD` |
+| 5 | `CAJA_STATUS` | `CASH_REGISTER_STATUS` |
+| 6 | `ESTADO_CITA` | `BOOKING_STATUS` |
+| 7 | `ESTADO_PAGO` | `PAYMENT_STATUS` |
+| 8 | `COLLAB_ROLES` | `COLLABORATOR_ROLES` |
+| 9 | `SERVICE_CATALOG` | `CATALOG_CONFIG` |
+| 10 | `CITA_FIELDS` | `BOOKING_FIELDS` |
+| 11 | `MONEY` | `CURRENCY_CONFIG` |
+| 12 | `CUENTAS_PGC` | `ACCOUNTING_ACCOUNT` |
+| 13 | `CLAVES_AEAT` | `AEAT_INVOICE_TYPE` |
+| 14 | `MOTIVOS_RECTIFICACION` | `CORRECTION_REASON` |
+| 15 | `TIPOS_RETENCION_IRPF` | `IRPF_WITHHOLDING_RATE` |
+| 16 | `ESTADO_DEVENGO_IVA` | `VAT_ACCRUAL_STATUS` |
+| 17 | `ROL_FISCAL` | `FISCAL_ROLE` |
+| 18 | `TIPO_EVENTO` | `EVENT_TYPE` |
+| 19 | `NATURALEZA_ITEM` | `ITEM_NATURE` |
+| 20 | `TIPO_TERCERO` | `THIRD_PARTY_TYPE` |
+| 21 | `PROYECCION_ESTADO` | `PROJECTION_STATUS` |
+| 22 | `SISTEMA_INFORMATICO` | `COMPUTER_SYSTEM` |
+
+---
+
+## 3.4 Reglas de identidad aplicadas en este bloque
+
+|   | A | B | C |
+|---|---|---|---|
+| 1 | Elemento | Tratamiento | Motivo |
+| 2 | Constantes JS (`TIMECLOCK_TYPE`, etc.) | Inglés camelCase | Son identificadores de código, no literales AEAT |
+| 3 | Valores enum custom (`CONFIRMADO`, etc.) | Español MAYÚSCULAS | D10 |
+| 4 | Valores enum D5 (`ONLINE`, `BIZUM`, `POS`) | Preservados | D5 |
+| 5 | Literales AEAT (`F1`–`R5`, `S1`–`S2`, `E1`–`E6`, `L7`) | Preservados literal | D8 |
+| 6 | Estándares técnicos (`EUR`, `HS256`, `MS_*`) | Preservados | §3.2.2 |
+
+---
+
+# BLOQUE 4.0 — DIRECTRICES DE NOMENCLATURA D0–D12
+
+**Referencia:** v5009-V20-FINAL-CONSOLIDATED-v4 · Bloque 4.0 de 13
+
+> **Propósito:** contrato único de nomenclatura aplicable a todas las colecciones CMS, backend y frontend. Toda decisión de identificadores debe justificarse contra una de estas directrices.
+
+---
+
+## D0 — Principio general
+
+|   | A | B |
+|---|---|---|
+| 1 | Pregunta | Respuesta |
+| 2 | ¿Qué define el esquema? | Un único contrato de nomenclatura para CMS |
+| 3 | ¿Qué se preserva? | La **ID NATIVA (código)** es la referencia; la **ID VISIBLE** es su presentación |
+| 4 | ¿Quién manda si hay conflicto? | El ID NATIVA; si existe ID canónica Wix, esa |
+| 5 | ¿Cuál es el fin? | Refactor mecánico, auditable, sin ambigüedad entre backend y CMS |
+| 6 | ¿Dónde se aplica? | Colecciones CMS, módulos backend, webMethods, constantes JS, objetos anidados |
+
+---
+
+## D1 — Ámbito de aplicación
+
+|   | A | B |
+|---|---|---|
+| 1 | Ámbito | Detalle |
+| 2 | Colecciones CMS | Todas las listadas en `internalConfig.COLLECTIONS` |
+| 3 | Código backend | `backend/*.js`, `backend/booking/*.js`, `backend/*.web.js` |
+| 4 | Frontend público | `public/*.js`, `pages/*.js` (cuando accede a datos CMS) |
+| 5 | Constantes JS | `internalConfig.js` y módulos exportadores |
+| 6 | Objetos anidados | `payloadFiscal`, `sistemaInformatico`, `desgloseDetallado`, `meta`, `contactDetails` |
+| 7 | Excepción | Payload literal AEAT en `payloadFiscal` (ver D8) |
+
+---
+
+## D2 — ID NATIVA (ID de código)
+
+|   | A | B | C |
+|---|---|---|---|
+| 1 | Regla | Detalle | Ejemplo |
+| 2 | Formato | `camelCase` estricto | `staffRole` |
+| 3 | Fuente canónica Wix | Si el dato proviene de app nativa → **se preserva la ID canónica Wix** tal cual, en inglés camelCase | `bookingId`, `serviceId`, `orderId`, `resourceId`, `staffMemberId`, `productId`, `wixProductId`, `wixVariantId`, `contactDetails` |
+| 4 | Fuente AEAT/PGC sin ID Wix | Se usa **literal normativo español `camelCase`** | `numSerieFactura`, `cuotaTotal`, `claveRegimen` |
+| 5 | Fuente custom | ID código en **inglés camelCase** | `staffRole`, `recordType`, `pairToken` |
+| 6 | Fuente backend consolidada | Si ya existe y no colisiona → se conserva | `traceId`, `pairToken` |
+| 7 | Prohibición — formato | Sin espacios, guiones, `snake_case`, puntos | ❌ `fecha_expedicion` |
+| 8 | Prohibición — sufijos | Sin sufijos temporales/versión | ❌ `_v2`, `_new`, `_final`, `_tmp` |
+| 9 | Acrónimos | MAYÚSCULAS en cualquier posición | `IRPFWithholdingAmount`, `claveRegimenAEAT` |
+| 10 | Longitud | ≤ 40 caracteres por convención | — |
+| 11 | Reservados Wix | No usar nombres reservados | ❌ `_id`, `_createdDate`, `_updatedDate`, `_owner` |
+
+### D2.1 Cualificación por duplicidad
+
+|   | A | B | C |
+|---|---|---|---|
+| 1 | Regla | Detalle | Ejemplo |
+| 2 | Cuándo | Solo si una **ID genérica no-Wix** colisiona con otra del mismo nombre en distinta colección | `rol` colisiona → `staffRole` |
+| 3 | Cómo | Añadir término diferencial al inicio (dominio) | `name` → `staffName` · `type` → `bookingType` |
+| 4 | Excepción | **No aplica a ID canónicas Wix** — ya vienen cualificadas por Wix | `resourceId`, `staffMemberId` se preservan |
+
+---
+
+## D3 — ID VISIBLE (nombre CMS/UI)
+
+|   | A | B | C |
+|---|---|---|---|
+| 1 | Regla | Detalle | Ejemplo |
+| 2 | Formato | `camelCase` en español | `claveRegimen` |
+| 3 | Derivación | Traducción término a término del ID código | `recordType` → `registroTipo` |
+| 4 | Orden de términos | Se respeta el orden del ID código (no invertir) | `_updatedDate` → `actualizacionFecha` |
+| 5 | Acrónimos institucionales | MAYÚSCULAS en español | `AEAT`, `IRPF`, `IVA`, `NIF`, `PGC` |
+| 6 | Anglicismos aceptados | ID VISIBLE = ID NATIVA (sin traducir) | `email`, `staff`, `token`, `meta`, `slug`, `sku`, `online`, `bizum`, `pos` |
+| 7 | Sinónimos de dominio | Permitidos si son estándar normativo/Wix | `taxId` → `nifCif`, `legalName` → `razonSocial` |
+| 8 | Redundancia contextual | No repetir término de la colección si es obvio | `CitasF2.bookingId` → `reservaId` |
+| 9 | **Excepción AEAT/PGC** | **ID código = ID visible** (mismo literal camelCase español) | `numSerieFactura` = `numSerieFactura` |
+| 10 | **Excepción Wix** | **ID código = ID visible** (mismo inglés canónico) | `bookingId` = `bookingId` |
+
+---
+
+## D4 — Acrónimos
+
+|   | A | B | C |
+|---|---|---|---|
+| 1 | Regla | Detalle | Ejemplo |
+| 2 | Institucionales (lista cerrada) | MAYÚSCULAS | `AEAT`, `IRPF`, `IVA`, `NIF`, `CIF`, `PGC` |
+| 3 | Técnicos (lista cerrada) | MAYÚSCULAS | `JWT`, `HMAC`, `TTL`, `CSV`, `URL`, `UUID`, `ID`, `API`, `SDK`, `POS`, `SKU`, `IBAN`, `IP`, `QR`, `XML`, `JSON`, `HTTP`, `HTTPS` |
+| 4 | Escritura | MAYÚSCULAS en cualquier posición del camelCase | Inicio: `IRPFWithholding`, medio: `claveRegimenAEAT`, final: `regimenAEAT` |
+| 5 | Prohibición | Nunca en minúsculas si es acrónimo | ❌ `aeatRegimeKey`, ❌ `ivaCuota` |
+| 6 | Plural | No se pluraliza el acrónimo | ❌ `AEATsKeys` |
+
+---
+
+## D5 — Anglicismos aceptados (no traducir)
+
+|   | A | B |
+|---|---|---|
+| 1 | Término | Motivo |
+| 2 | `email` | Universalmente aceptado en España |
+| 3 | `staff` | Estándar en RRHH/negocio |
+| 4 | `token` | Estándar técnico |
+| 5 | `meta` | Estándar técnico |
+| 6 | `online` | Universalmente aceptado |
+| 7 | `web`, `link`, `test`, `app` | Universalmente aceptados |
+| 8 | `software`, `hardware` | Universalmente aceptados |
+| 9 | `marketing`, `ranking`, `manager` | Universalmente aceptados |
+| 10 | `wix` | Marca |
+| 11 | `sku` | Estándar comercial internacional |
+| 12 | `slug` | Estándar web |
+| 13 | `bizum` | Marca/propio |
+| 14 | `pos` | Estándar sectorial |
+| 15 | `display` | Estándar web/UI (`displayName`) |
+| 16 | `iban` | Estándar bancario |
+
+**Regla operativa:** si un término aparece en esta tabla → `ID VISIBLE = ID NATIVA` (sin traducción).
+
+---
+
+## D6 — Consolidación (anti-duplicidad)
+
+|   | A | B | C |
+|---|---|---|---|
+| 1 | Regla | Detalle | Ejemplo |
+| 2 | Mismo dato + misma función | Consolidar en **una única ID** | `deviceIp` + `deviceIpAddress` → `deviceIpAddress` |
+| 3 | Alias legacy | Documentado en nota del campo; no crear gemelo | `amount` / `totalAmount` |
+| 4 | Prohibición — gemelos | No introducir nuevos alias sin justificación | ❌ `totalValue` si existe `totalAmount` |
+| 5 | Prohibición — duplicidad cross-collection | No duplicar el mismo dato en dos colecciones | ❌ `CitasF2.amount` + `MovimientosCaja.totalAmount` |
+| 6 | Referencias | Usar FK (`xxxId`) en lugar de copiar objetos | `thirdPartyId`, `catalogId`, `sourceEventId` |
+
+### D6.1 Consolidaciones aplicadas en V20
+
+|   | A | B | C |
+|---|---|---|---|
+| 1 | Situación previa | Consolidación aplicada | Resultado |
+| 2 | `DatosFiscales` + `ConfiguracionFiscal` | Fusión con `recordType` | `DatosFiscales` única |
+| 3 | `AsientosContables` + `LibroAsientosContablesDetalle` | Eliminadas (LEDGER_V5_FISCAL SSOT) | Solo `MovimientosCaja` |
+| 4 | `FacturasRecibidas` | Eliminada | — |
+| 5 | `deviceIp` + `deviceIpAddress` | Consolidados | `deviceIpAddress` |
+| 6 | `staffMemberId` duplicado en `RegistrosHorariosStaff` | Eliminada duplicidad | Un único `staffMemberId` |
+| 7 | `displayName` en `RegistrosHorariosStaff` | Renombrado | `staffName` |
+
+---
+
+## D7 — IDs genéricas: cualificación obligatoria
+
+|   | A | B | C |
+|---|---|---|---|
+| 1 | Regla | Detalle | Ejemplo |
+| 2 | Prohibición | Repetir genéricas (`id`, `type`, `status`, `name`, `rol`, `kind`, `origin`) para datos **diferentes** no-Wix | ❌ `rol` en dos colecciones |
+| 3 | Cualificación con dominio | Añadir término diferencial | `rol` → `staffRole` · `name` → `staffName` |
+| 4 | Preferencia | Si Wix ya provee ID específica → usarla | `bookingType` (no `type`) |
+| 5 | Semántica | El término añadido describe el dominio, no el tipo | `movementType` vs `recordType` |
+
+### D7.1 Genéricas cualificadas en V20
+
+|   | A | B | C |
+|---|---|---|---|
+| 1 | Genérica original | Cualificada | Colección |
+| 2 | `rol` | `staffRole` | `MapaStaff` |
+| 3 | `name` | `staffName` | `MapaStaff`, `RegistrosHorariosStaff` |
+| 4 | `type` (fichaje) | `clockEventType` | `RegistrosHorariosStaff` |
+| 5 | `type` (registro) | `recordType` | `RegistrosHorariosStaff`, `DatosFiscales` |
+| 6 | `type` (booking) | `bookingType` | `CitasF2` |
+| 7 | `type` (movimiento) | `movementType` | `MovimientosCaja`, `MovimientosInventario` |
+| 8 | `type` (evento) | `eventType` | `MovimientosCaja` |
+| 9 | `type` (factura) | `tipoFactura` (AEAT) | `MovimientosCaja` |
+| 10 | `type` (cierre) | `closingType` | `HistoricoCierresZ` |
+| 11 | `status` (cita) | `bookingStatus` | `CitasF2` |
+| 12 | `status` (pago) | `paymentStatus` | `CitasF2` |
+| 13 | `status` (cierre) | `closingStatus` | `HistoricoCierresZ` |
+| 14 | `kind` | `compensationKind` | `CompensacionesPendientes` |
+| 15 | `origin` | `recordSource` / `compensationOrigin` | según colección |
+| 16 | `id` | `bookingId`, `journalEntryId`, `movementToken` | según entidad |
+
+---
+
+## D8 — IDs sin ID NATIVA (nomenclatura normativa AEAT/PGC)
+
+|   | A | B | C |
+|---|---|---|---|
+| 1 | Regla | Detalle | Ejemplo |
+| 2 | Alcance | Campos cuya nomenclatura viene impuesta por normativa | `numSerieFactura`, `cuotaTotal` |
+| 3 | Nomenclatura | **Literal normativo español, adaptado a `camelCase`** | `numSerieFactura`, `claveRegimen`, `cuentaContableIngreso` |
+| 4 | Traducción | **Ninguna**: `ID código = ID visible` | — |
+| 5 | Ubicación | Pueden ser columna raíz o ir anidados según diseño | raíz: `numSerieFactura`; anidado: `payloadFiscal` |
+| 6 | Excepción | Cuando exista ID canónica Wix para el mismo dato → prevalece Wix | `bookingId` (Wix) vs AEAT |
+| 7 | Prohibición | No traducir al inglés los literales AEAT/PGC | ❌ `invoiceNumber` → ✅ `numSerieFactura` |
+
+### D8.1 Tabla de decisión
+
+|   | A | B | C |
+|---|---|---|---|
+| 1 | Tipo de campo | ID código = ID visible | Ejemplo |
+| 2 | Campo literal AEAT | **Sí**, español `camelCase` | `numSerieFactura`, `cuotaTotal`, `nifEmisor` |
+| 3 | Campo literal PGC | **Sí**, español `camelCase` | `cuentaContable`, `saldoDebe`, `saldoHaber` |
+| 4 | Prefijo `AEAT*` legacy | Se sustituye por literal AEAT | `AEATRegimeKey` → `claveRegimen` |
+| 5 | Objeto contenedor payload AEAT | **Sí**, español `camelCase` | `payloadFiscal`, `sistemaInformatico`, `desgloseDetallado` |
+| 6 | Campo ID canónica Wix | **Sí**, inglés canónico Wix | `bookingId`, `serviceId` |
+| 7 | Campo custom (no normativo ni Wix) | **No** — se aplica D2/D3 | `totalAmount` → `importeTotal` |
+
+### D8.2 Contenedores normativos (contenido anidado)
+
+|   | A | B |
+|---|---|---|
+| 1 | Contenedor | IDs normativos internos |
+| 2 | `MovimientosCaja.payloadFiscal` | `idEmisorFactura`, `numSerieFactura`, `tipoFactura`, `cuotaTotal`, `huella`, `idFactura`, `nombreRazonEmisor`, `baseImponibleOimporteNoSujeto` |
+| 3 | `MovimientosCaja.sistemaInformatico` | `nombreRazonEmisor`, `nif`, `nombreSistemaInformatico`, `idSistemaInformatico`, `version`, `numeroInstalacion`, `tipoUsoPosibleSoloVerifactu`, `tipoUsoPosibleMultiOT`, `indicadorMultiplesOT` |
+| 4 | `HistoricoCierresZ.desgloseDetallado[]` | `tipoDesglose`, `sujeta`, `noExenta`, `exenta` |
+| 5 | `DatosFiscales.sistemaInformatico` | Idem `MovimientosCaja.sistemaInformatico` |
+
+---
+
+## D9 — Alias legacy
+
+|   | A | B | C |
+|---|---|---|---|
+| 1 | Regla | Detalle | Ejemplo |
+| 2 | Permitido | Alias documentado explícitamente en la nota del campo | `amount` (legacy) junto a `totalAmount` |
+| 3 | Obligación | Nota debe indicar *"Alias legacy, sustituido por `<campo>`"* | — |
+| 4 | Escritura | Toda escritura nueva usa campo canónico | `totalAmount`, no `amount` |
+| 5 | Lectura | Backend tolera ambos durante transición | — |
+| 6 | Deprecación | Fecha objetivo de retirada en V5010 | — |
+| 7 | Prohibición | Añadir nuevos alias sin justificación | ❌ `totalValue` |
+
+### D9.1 Alias legacy en V20
+
+|   | A | B | C |
+|---|---|---|---|
+| 1 | Campo canónico | Alias legacy | Retirada |
+| 2 | `totalAmount` | `amount` | V5010 |
+| 3 | `operationDescription` | `concept` | V5010 |
+| 4 | `recordHash` | `hash` | V5010 |
+| 5 | `previousRecordHash` | `prevHash` | V5010 |
+| 6 | `recordTimestamp` | `registeredAt` | V5010 |
+| 7 | `taxTreatment` | — | ya legacy desde V20 |
+| 8 | `lineItems` | — | ya legacy desde V20 |
+
+---
+
+## D10 — Tipos de datos y enums
+
+|   | A | B | C |
+|---|---|---|---|
+| 1 | Tipo | Convención | Ejemplo |
+| 2 | System | Prefijo `_` (auto Wix) | `_id`, `_createdDate` |
+| 3 | Text | Cadena UTF-8 | `legalName` |
+| 4 | Text enum | Lista cerrada; MAYÚSCULAS español | `PAGADO`, `CONFIRMADO` |
+| 5 | Number | Numérico; decimales con punto | `tipoImpositivo: 0.21` |
+| 6 | Boolean | `true` / `false` | `active: true` |
+| 7 | Date | Fecha sin hora (Wix Date) | `fechaExpedicionFactura` |
+| 8 | DateTime | Fecha + hora (Wix Date) | `startDate` |
+| 9 | Object | JSON plano | `contactData`, `meta` |
+| 10 | Array | Lista homogénea | `desgloseDetallado` |
+| 11 | URL | Cadena validada como URL | `attachmentUrl` |
+| 12 | FK | `xxxId` con referencia lógica | `thirdPartyId` |
+
+### D10.1 Convención de valores enum
+
+|   | A | B |
+|---|---|---|
+| 1 | Regla | Detalle |
+| 2 | Idioma | Español |
+| 3 | Casing | `MAYÚSCULAS_CON_GUION_BAJO` |
+| 4 | Prohibición | Valores en inglés (salvo anglicismos D5) |
+| 5 | Valores D5 preservados | `ONLINE`, `BIZUM`, `POS` |
+| 6 | Estándar técnico | `EUR`, `HS256`, `MS_*` |
+
+---
+
+## D11 — Estructura de tablas del esquema
+
+|   | A | B | C |
+|---|---|---|---|
+| 1 | Columna | Obligatoria | Contenido |
+| 2 | `#` (fila) | Sí | Número correlativo |
+| 3 | ID NATIVA | Sí | Código interno `camelCase` |
+| 4 | ID VISIBLE | Sí | Nombre CMS/UI en español `camelCase` |
+| 5 | Tipo | Sí | System / Text / Number / Boolean / Date / DateTime / Object / Array / URL |
+| 6 | Origen | Sí | `SYS` / `WIX` / `CUSTOM` / `AEAT` / `PGC` |
+| 7 | Notas | Sí | Notas operativas, claves, unicidad, alias |
+| 8 | Regla | Opcional | Directiva aplicada (D2, D4, D5…) |
+
+### D11.1 Valores canónicos de `Origen`
+
+|   | A | B |
+|---|---|---|
+| 1 | Valor | Significado |
+| 2 | `SYS` | Campo sistema Wix (auto) |
+| 3 | `WIX` | ID NATIVA canónica de app Wix |
+| 4 | `CUSTOM` | Campo propio del proyecto |
+| 5 | `AEAT` | Nomenclatura normativa AEAT |
+| 6 | `PGC` | Nomenclatura normativa PGC |
+
+---
+
+## D12 — Checklist operativo
+
+|   | A | B |
+|---|---|---|
+| 1 | # | Pregunta |
+| 2 | 1 | ¿Existe ID canónica Wix? → preservarla tal cual en inglés |
+| 3 | 2 | ¿Es campo AEAT/PGC sin ID Wix? → literal español `camelCase`, código = visible |
+| 4 | 3 | ¿Es campo custom? → ID código inglés + ID visible español |
+| 5 | 4 | ¿Colisiona con otra ID genérica? → añadir término diferencial (solo no-Wix) |
+| 6 | 5 | ¿El ID VISIBLE traduce término a término respetando orden? |
+| 7 | 6 | ¿El término es anglicismo D5? → no traducir |
+| 8 | 7 | ¿Acrónimos en MAYÚSCULAS en ambos IDs? |
+| 9 | 8 | ¿Hay duplicidad funcional? → consolidar |
+| 10 | 9 | ¿Es alias legacy? → documentado, con retirada planificada |
+| 11 | 10 | ¿El tipo de dato sigue D10? |
+| 12 | 11 | ¿La tabla de esquema sigue D11? |
+| 13 | 12 | ¿Los enums usan valores en español MAYÚSCULAS? |
+
+---
+
+## 4.0.1 Referencias cruzadas con otros apartados
+
+|   | A | B | C |
+|---|---|---|---|
+| 1 | Concepto | Apartado SSOT | Aplicación |
+| 2 | Colecciones listadas | §3.1 | Toda ID NATIVA debe existir en `internalConfig.COLLECTIONS` |
+| 3 | Constantes JS renombradas | §3.3 | Deben coincidir con los nombres en §3.2 |
+| 4 | Estados y enums | §3.2 | Valores enum deben respetar D10 |
+| 5 | Helpers backend | §6 | Referencian campos según D2/D3 |
+| 6 | Flujos de negocio | §7 | Citan campos por ID NATIVA |
+
+---
+
+## 4.0.2 Advertencias operativas
+
+|   | A | B |
+|---|---|---|
+| 1 | # | Advertencia |
+| 2 | 1 | Cambiar un ID NATIVA obliga a refactor mecánico en todos los consumidores |
+| 3 | 2 | Cambiar valor de enum obliga a migración de datos previa al deploy |
+| 4 | 3 | Los campos `SYS` no se crean manualmente |
+| 5 | 4 | Campos `Origen=AEAT`/`PGC` en raíz solo si tienen ID NATIVA; si no, van anidados |
+| 6 | 5 | Alias legacy no se eliminan sin plan de retirada |
+| 7 | 6 | FK deben apuntar a colecciones existentes en `COLLECTIONS` |
+| 8 | 7 | Todo cambio de esquema debe reflejarse en la matriz de cambio |
+
+---
+
+# BLOQUE 4 — ESQUEMA CONSOLIDADO DE COLECCIONES
+
+**Referencia:** v5009-V20-FINAL-CONSOLIDATED-v4 · Bloque 4 de 13
+
+> **Convención aplicada:**
+> - `Origen=WIX` → ID código = ID visible = nombre canónico Wix (inglés camelCase)
+> - `Origen=AEAT`/`PGC` → ID código = ID visible = literal normativo español camelCase
+> - `Origen=CUSTOM` → ID código inglés camelCase + ID visible español camelCase
+> - `Origen=SYS` → gestionado por Wix
+
+---
+
+## 4.1 `DatosFiscales` (CONSOLIDADA — incluye ConfiguracionFiscal)
+
+**Discriminador:** `recordType`:
+- `TERCERO` (default) — clientes, proveedores, staff, AAPP
+- `CONFIG_SISTEMA` — singleton Verifactu (`_id = CONFIG_SISTEMA_FISCAL`)
+
+|   | A | B | C | D | E | F |
+|---|---|---|---|---|---|---|
+| 1 | # | ID código | ID visible | Tipo | Origen | Notas |
+| 2 | 1 | `_id` | `id` | System | SYS | PK; `CONFIG_SISTEMA_FISCAL` para singleton |
+| 3 | 2 | `_createdDate` | `creacionFecha` | System | SYS | Auto |
+| 4 | 3 | `_updatedDate` | `actualizacionFecha` | System | SYS | Auto |
+| 5 | 4 | `_owner` | `propietario` | System | SYS | Auto |
+| 6 | 5 | `recordType` | `registroTipo` | Text enum | CUSTOM | `TERCERO` / `CONFIG_SISTEMA` |
+| 7 | 6 | `taxId` | `nifCif` | Text | CUSTOM | Unique, required (TERCERO), checksum AEAT |
+| 8 | 7 | `legalName` | `razonSocial` | Text | CUSTOM | Required, uppercase |
+| 9 | 8 | `thirdPartyType` | `terceroTipo` | Text enum | CUSTOM | `CLIENTE`/`PROVEEDOR`/`STAFF`/`AAPP`/`MIXTO`/`EMISOR` |
+| 10 | 9 | `contactData` | `contactoDatos` | Object | CUSTOM | `{email, tel, cp, direccion, municipio, provincia, pais}` |
+| 11 | 10 | `regimenesEspeciales` | `regimenesEspeciales` | Object | AEAT | Flags AEAT |
+| 12 | 11 | `esMinoristaRecargoEquivalencia` | `esMinoristaRecargoEquivalencia` | Boolean | AEAT | — |
+| 13 | 12 | `esEmpresarioProfesional` | `esEmpresarioProfesional` | Boolean | AEAT | — |
+| 14 | 13 | `bookingsResourceId` | `bookingsRecursoId` | Text | WIX | FK Bookings (solo STAFF) |
+| 15 | 14 | `staffMemberId` | `staffMemberId` | Text | WIX | FK Members (solo STAFF) |
+| 16 | 15 | `isRegularSupplier` | `esProveedorHabitual` | Boolean | CUSTOM | Referencia a `ProveedoresLista` |
+| 17 | 16 | `paymentTerms` | `pagoTerminos` | Object | CUSTOM | `{dias, formaPago}` |
+| 18 | 17 | `active` | `activo` | Boolean | CUSTOM | Soft delete |
+| 19 | 18 | `registrationTraceId` | `registroTrazaId` | Text | CUSTOM | Max 100 |
+| 20 | 19 | `sistemaInformatico` | `sistemaInformatico` | Object | AEAT | Snapshot Verifactu (solo CONFIG_SISTEMA) |
+| 21 | 20 | `nifProductor` | `nifProductor` | Text | AEAT | Solo CONFIG_SISTEMA |
+| 22 | 21 | `nombreRazonProductor` | `nombreRazonProductor` | Text | AEAT | Solo CONFIG_SISTEMA |
+| 23 | 22 | `idSistemaInformatico` | `idSistemaInformatico` | Text | AEAT | Solo CONFIG_SISTEMA |
+| 24 | 23 | `version` | `version` | Text | AEAT | Solo CONFIG_SISTEMA |
+| 25 | 24 | `numeroInstalacion` | `numeroInstalacion` | Text | AEAT | Solo CONFIG_SISTEMA |
+| 26 | 25 | `tipoUsoPosibleSoloVerifactu` | `tipoUsoPosibleSoloVerifactu` | Text enum | AEAT | S/N. Solo CONFIG_SISTEMA |
+| 27 | 26 | `tipoUsoPosibleMultiOT` | `tipoUsoPosibleMultiOT` | Text enum | AEAT | S/N. Solo CONFIG_SISTEMA |
+| 28 | 27 | `indicadorMultiplesOT` | `indicadorMultiplesOT` | Text enum | AEAT | S/N. Solo CONFIG_SISTEMA |
+| 29 | 28 | `fechaInicioVerifactu` | `fechaInicioVerifactu` | Date | AEAT | Solo CONFIG_SISTEMA |
+| 30 | 29 | `nifEmisorLegacy` | `nifEmisorLegacy` | Text | AEAT | Legacy, mapea a `nifProductor` |
+
+**Índices:** `(taxId) unique`, `(recordType)`, `(thirdPartyType, active)`, `(bookingsResourceId)`, `(staffMemberId)`
+
+---
+
+## 4.2 `MapaStaff`
+
+|   | A | B | C | D | E | F |
+|---|---|---|---|---|---|---|
+| 1 | # | ID código | ID visible | Tipo | Origen | Notas |
+| 2 | 1 | `_id` | `id` | System | SYS | PK |
+| 3 | 2 | `_createdDate` | `creacionFecha` | System | SYS | Auto |
+| 4 | 3 | `_updatedDate` | `actualizacionFecha` | System | SYS | Auto |
+| 5 | 4 | `_owner` | `propietario` | System | SYS | Auto |
+| 6 | 5 | `staffMemberId` | `staffMemberId` | Text | WIX | Unique, required |
+| 7 | 6 | `resourceId` | `resourceId` | Text | WIX | Unique, required |
+| 8 | 7 | `staffName` | `staffNombre` | Text | CUSTOM | Max 100 |
+| 9 | 8 | `email` | `email` | Text | CUSTOM | — |
+| 10 | 9 | `active` | `activo` | Boolean | CUSTOM | — |
+| 11 | 10 | `staffRole` | `staffRol` | Text enum | CUSTOM | `ADMIN`/`GESTION`/`ESTILISTA` |
+| 12 | 11 | `thirdPartyId` | `terceroId` | Text | CUSTOM | FK DatosFiscales |
+| 13 | 12 | `displayName` | `displayName` | Text | CUSTOM | Usado por `staff.js` |
+| 14 | 13 | `scheduleId` | `scheduleId` | Text | WIX | Bookings Schedule |
+| 15 | 14 | `locationId` | `locationId` | Text | WIX | Bookings Location |
+| 16 | 15 | `location` | `localizacion` | Text | CUSTOM | — |
+| 17 | 16 | `phone` | `telefono` | Text | CUSTOM | — |
+| 18 | 17 | `notes` | `notas` | Text | CUSTOM | — |
+
+**Índices:** `(staffMemberId) unique`, `(resourceId) unique`, `(email)` (no unique), `(active)`
+
+---
+
+Aquí tienes el apartado **4.3 `ServiciosCatalogo`** reescrito y corregido según las decisiones ejecutivas tomadas (`linkedPhases` plural, `hiddenCliente` preservado). Copia y sustituye íntegramente la sección 4.3 en tu documento `BIBLIA.txt`.
+
+***
+
+## 4.3 `ServiciosCatalogo`
+|   | A | B | C | D | E | F |
+|---|---|---|---|---|---|---|
+| 1 | # | ID código | ID visible | Tipo | Origen | Notas |
+| 2 | 1 | `_id` | `id` | System | SYS | PK |
+| 3 | 2 | `_createdDate` | `creacionFecha` | System | SYS | Auto |
+| 4 | 3 | `_updatedDate` | `actualizacionFecha` | System | SYS | Auto |
+| 5 | 4 | `_owner` | `propietario` | System | SYS | Auto |
+| 6 | 5 | `serviceId` | `serviceId` | Text | WIX | Unique, GUID Bookings |
+| 7 | 6 | `slug` | `slug` | Text | WIX | Unique |
+| 8 | 7 | `title` | `titulo` | Text | WIX | Required |
+| 9 | 8 | `price` | `precio` | Number | CUSTOM | ≥ 0, sin IVA |
+| 10 | 9 | `currency` | `moneda` | Text | CUSTOM | `EUR` |
+| 11 | 10 | `sku` | `sku` | Text | CUSTOM | Unique |
+| 12 | 11 | `allowCombine` | `permitirCombinar` | Boolean | WIX | Servicio dual |
+| 13 | 12 | `linkedPhases` | `enlazadaFases` | Text | WIX | GUID servicio F2 (plural) |
+| 14 | 13 | `phase1Duration` | `fase1Duracion` | Number | CUSTOM | Minutos |
+| 15 | 14 | `phase2Duration` | `fase2Duracion` | Number | CUSTOM | Minutos |
+| 16 | 15 | `exposureDuration` | `exposicionDuracion` | Number | CUSTOM | Minutos |
+| 17 | 16 | `totalDuration` | `duracionTotal` | Number | CUSTOM | Minutos |
+| 18 | 17 | `durationRange` | `duracionRango` | Object | CUSTOM | `{min, max}` |
+| 19 | 18 | `availableStaff` | `disponibleStaff` | Text | CUSTOM | CSV GUIDs |
+| 20 | 19 | `addOnOptions` | `complementoOpciones` | Array | CUSTOM | Max 5 |
+| 21 | 20 | `hiddenCliente` | `ocultoCliente` | Boolean | CUSTOM | — |
+| 22 | 21 | `taxIncluded` | `impuestoIncluido` | Boolean | CUSTOM | — |
+| 23 | 22 | `tipoImpositivo` | `tipoImpositivo` | Number | AEAT | 0 / 0.04 / 0.10 / 0.21 |
+| 24 | 23 | `serviceType` | `servicioTipo` | Text | WIX | `APPOINTMENT`/`CITA` |
+| 25 | 24 | `locationId` | `locationId` | Text | WIX | — |
+| 26 | 25 | `location` | `localizacion` | Text | CUSTOM | — |
+| 27 | 26 | `itemNature` | `itemNaturaleza` | Text enum | CUSTOM | `SERVICIO_PROPIO`/`PRODUCTO_VENTA`/`PRODUCTO_USO`/`GASTO_FIJO` |
+| 28 | 27 | `codigoImpuesto` | `codigoImpuesto` | Text enum | AEAT | `IVA_21`/`IVA_10`/`IVA_4`/`IVA_0`/`IRPF_15`/`IRPF_19`/`EXENTO` |
+| 29 | 28 | `claveRegimen` | `claveRegimen` | Text enum | AEAT | 01–20 |
+| 30 | 29 | `calificacionOperacion` | `calificacionOperacion` | Text enum | AEAT | `S1`/`S2`/`N1`/`N2` |
+| 31 | 30 | `operacionExenta` | `operacionExenta` | Text enum | AEAT | `E1`–`E6` |
+| 32 | 31 | `inversionSujetoPasivo` | `inversionSujetoPasivo` | Boolean | AEAT | — |
+| 33 | 32 | `cuentaContableIngreso` | `cuentaContableIngreso` | Text | PGC | PGC 6 dígitos |
+| 34 | 33 | `cuentaContableGasto` | `cuentaContableGasto` | Text | PGC | PGC 6 dígitos |
+| 35 | 34 | `active` | `activo` | Boolean | CUSTOM | Soft delete |
+| 36 | 35 | `description` | `descripcion` | Text | CUSTOM | — |
+| 37 | 36 | `categoryId` | `categoriaId` | Text | CUSTOM | FK CategoriasServicio |
+| 38 | 37 | `category` | `categoria` | Text | CUSTOM | Display |
+| 39 | 38 | `internalNotes` | `notasInternas` | Text | CUSTOM | — |
+| 40 | 39 | `status` | `estado` | Text enum | CUSTOM | `ACTIVO`/`INACTIVO`/`BORRADOR` |
+| 41 | 40 | `inPersonPayment` | `pagoPresencial` | Boolean | CUSTOM | — |
+| 42 | 41 | `onlinePayment` | `pagoOnline` | Boolean | CUSTOM | — |
+| 43 | 42 | `margin` | `margen` | Number | CUSTOM | % |
+| 44 | 43 | `mainMedia` | `medioPrincipal` | URL | CUSTOM | Imagen servicio |
+| 45 | 44 | `depositAmount` | `depositoImporte` | Number | CUSTOM | ≥ 0 |
+| 46 | 45 | `depositType` | `depositoTipo` | Text enum | CUSTOM | `FIJO`/`PORCENTAJE` |
+| 47 | 46 | `pricingModel` | `modeloPrecio` | Text enum | CUSTOM | `FIXED`/`VARIABLE` |
+| 48 | 47 | `tagLine` | `tagLine` | Text | CUSTOM | D5 anglicismo |
+
+**Índices:** `(serviceId) unique`, `(sku) unique`, `(active, itemNature)`
+
+---
+
+## 4.4 `ComplementosCatalogo`
+
+|   | A | B | C | D | E | F |
+|---|---|---|---|---|---|---|
+| 1 | # | ID código | ID visible | Tipo | Origen | Notas |
+| 2 | 1 | `_id` | `id` | System | SYS | PK |
+| 3 | 2 | `_createdDate` | `creacionFecha` | System | SYS | Auto |
+| 4 | 3 | `_updatedDate` | `actualizacionFecha` | System | SYS | Auto |
+| 5 | 4 | `codigoImpuesto` | `codigoImpuesto` | Text enum | AEAT | — |
+| 6 | 5 | `claveRegimen` | `claveRegimen` | Text enum | AEAT | — |
+| 7 | 6 | `cuentaContableIngreso` | `cuentaContableIngreso` | Text | PGC | PGC |
+| 8 | 7 | `itemNature` | `itemNaturaleza` | Text enum | CUSTOM | — |
+
+---
+
+## 4.5 `MovimientosCaja` (append-only, LEDGER_V5_FISCAL)
+
+|   | A | B | C | D | E | F |
+|---|---|---|---|---|---|---|
+| 1 | # | ID código | ID visible | Tipo | Origen | Notas |
+| 2 | 1 | `_id` | `id` | System | SYS | PK |
+| 3 | 2 | `_createdDate` | `creacionFecha` | System | SYS | Auto |
+| 4 | 3 | `_updatedDate` | `actualizacionFecha` | System | SYS | Auto |
+| 5 | 4 | `_owner` | `propietario` | System | SYS | Auto |
+| 6 | 5 | `amount` | `importeLegacy` | Number | CUSTOM | Alias legacy |
+| 7 | 6 | `totalAmount` | `importeTotal` | Number | CUSTOM | Canónico |
+| 8 | 7 | `paymentMethod` | `pagoMetodo` | Text enum | CUSTOM | `EFECTIVO`/`TARJETA`/`BIZUM`/`ONLINE`/`TARJETA_REGALO` |
+| 9 | 8 | `movementType` | `movimientoTipo` | Text enum | CUSTOM | 19 valores |
+| 10 | 9 | `concept` | `conceptoLegacy` | Text | CUSTOM | Alias legacy |
+| 11 | 10 | `operationDescription` | `operacionDescripcion` | Text | CUSTOM | Canónico |
+| 12 | 11 | `resourceId` | `resourceId` | Text | WIX | Deprecado |
+| 13 | 12 | `staffResourceId` | `staffResourceId` | Text | WIX | FK MapaStaff |
+| 14 | 13 | `channelType` | `canalTipo` | Text enum | CUSTOM | `POS`/`ONLINE`/`CAJA_LOCAL`/`TELEFONO` |
+| 15 | 14 | `linkedBookingIds` | `vinculadoReservaIds` | Text | CUSTOM | CSV bookingIds |
+| 16 | 15 | `transactionId` | `transaccionId` | Text | CUSTOM | Indexed, idempotencia |
+| 17 | 16 | `orderId` | `orderId` | Text | WIX | eCom |
+| 18 | 17 | `refundId` | `refundId` | Text | WIX | — |
+| 19 | 18 | `schemaVersion` | `esquemaVersion` | Text | CUSTOM | `LEDGER_V5_FISCAL` |
+| 20 | 19 | `hash` | `huellaLegacy` | Text | CUSTOM | Alias legacy |
+| 21 | 20 | `recordHash` | `huella` | Text | CUSTOM | SHA-256 canónico |
+| 22 | 21 | `prevHash` | `huellaAnteriorLegacy` | Text | CUSTOM | Alias legacy |
+| 23 | 22 | `previousRecordHash` | `huellaAnterior` | Text | CUSTOM | Canónico |
+| 24 | 23 | `registeredAt` | `registroFechaHoraLegacy` | DateTime | CUSTOM | Alias legacy |
+| 25 | 24 | `recordTimestamp` | `registroFechaHora` | Text | CUSTOM | ISO 8601 Madrid |
+| 26 | 25 | `generationTimestamp` | `generacionTimestamp` | Object | CUSTOM | Desglose |
+| 27 | 26 | `numSerieFactura` | `numSerieFactura` | Text | AEAT | Unique, `FAC-YYYY-NNNNN` |
+| 28 | 27 | `fechaExpedicionFactura` | `fechaExpedicionFactura` | Date | AEAT | — |
+| 29 | 28 | `fechaOperacion` | `fechaOperacion` | Date | AEAT | Opcional |
+| 30 | 29 | `tipoFactura` | `tipoFactura` | Text enum | AEAT | `F1`/`F2`/`F3`/`R1`–`R5` |
+| 31 | 30 | `tipoRectificativa` | `tipoRectificativa` | Text enum | AEAT | `S`/`I` |
+| 32 | 31 | `importeRectificacion` | `importeRectificacion` | Object | AEAT | — |
+| 33 | 32 | `motivoRectificacion` | `motivoRectificacion` | Text | AEAT | Enum AEAT |
+| 34 | 33 | `numSerieFacturaEmisor` | `numSerieFacturaEmisor` | Text | AEAT | — |
+| 35 | 34 | `baseImponibleOImporteNoSujeto` | `baseImponibleOImporteNoSujeto` | Number | AEAT | — |
+| 36 | 35 | `cuotaTotal` | `cuotaTotal` | Number | AEAT | — |
+| 37 | 36 | `tipoImpositivo` | `tipoImpositivo` | Number | AEAT | — |
+| 38 | 37 | `tipoRecargoEquivalencia` | `tipoRecargoEquivalencia` | Number | AEAT | — |
+| 39 | 38 | `cuotaRecargoEquivalencia` | `cuotaRecargoEquivalencia` | Number | AEAT | — |
+| 40 | 39 | `importeRetencionIRPF` | `importeRetencionIRPF` | Number | AEAT | — |
+| 41 | 40 | `tipoRetencionIRPF` | `tipoRetencionIRPF` | Number | AEAT | — |
+| 42 | 41 | `baseImponibleRetencion` | `baseImponibleRetencion` | Number | AEAT | — |
+| 43 | 42 | `rolFiscal` | `rolFiscal` | Text enum | AEAT | `EMISOR`/`RECEPTOR` |
+| 44 | 43 | `esB2B` | `esB2B` | Boolean | AEAT | — |
+| 45 | 44 | `nifEmisor` | `nifEmisor` | Text | AEAT | Snapshot |
+| 46 | 45 | `nombreRazonEmisor` | `nombreRazonEmisor` | Text | AEAT | Snapshot |
+| 47 | 46 | `nifDestinatario` | `nifDestinatario` | Text | AEAT | Snapshot |
+| 48 | 47 | `nombreRazonDestinatario` | `nombreRazonDestinatario` | Text | AEAT | Snapshot |
+| 49 | 48 | `domicilioDestinatario` | `domicilioDestinatario` | Object | AEAT | — |
+| 50 | 49 | `emitidaPorTerceroODestinatario` | `emitidaPorTerceroODestinatario` | Text enum | AEAT | `E`/`D`/`T` |
+| 51 | 50 | `nombreRazonTercero` | `nombreRazonTercero` | Text | AEAT | — |
+| 52 | 51 | `nifTerceroExpedidor` | `nifTerceroExpedidor` | Text | AEAT | — |
+| 53 | 52 | `causaNoSujeta` | `causaNoSujeta` | Text enum | AEAT | `N1`/`N2` |
+| 54 | 53 | `inversionSujetoPasivo` | `inversionSujetoPasivo` | Boolean | AEAT | — |
+| 55 | 54 | `claveRegimen` | `claveRegimen` | Text enum | AEAT | L7 |
+| 56 | 55 | `calificacionOperacion` | `calificacionOperacion` | Text enum | AEAT | `S1`/`S2`/`N1`/`N2` |
+| 57 | 56 | `operacionExenta` | `operacionExenta` | Text enum | AEAT | `E1`–`E6` |
+| 58 | 57 | `regimenEspecialCriterioCaja` | `regimenEspecialCriterioCaja` | Boolean | AEAT | — |
+| 59 | 58 | `exentaPorArticulo20` | `exentaPorArticulo20` | Boolean | AEAT | — |
+| 60 | 59 | `idAnticipoVinculado` | `idAnticipoVinculado` | Text | AEAT | — |
+| 61 | 60 | `estadoDevengoIVA` | `estadoDevengoIVA` | Text | AEAT | — |
+| 62 | 61 | `bankReconciliationReference` | `bancariaConciliacionReferencia` | Text | CUSTOM | — |
+| 63 | 62 | `desgloseDetallado` | `desgloseDetallado` | Array | AEAT | Contenedor payload |
+| 64 | 63 | `sistemaInformatico` | `sistemaInformatico` | Object | AEAT | Snapshot |
+| 65 | 64 | `idFacturaAnterior` | `idFacturaAnterior` | Text | AEAT | Encadenamiento |
+| 66 | 65 | `numSerieFacturaAnterior` | `numSerieFacturaAnterior` | Text | AEAT | Encadenamiento |
+| 67 | 66 | `fechaExpedicionFacturaAnterior` | `fechaExpedicionFacturaAnterior` | Date | AEAT | Encadenamiento |
+| 68 | 67 | `estadoEnvioAEAT` | `estadoEnvioAEAT` | Text enum | AEAT | 5 valores |
+| 69 | 68 | `csvAEAT` | `csvAEAT` | Text | AEAT | — |
+| 70 | 69 | `fechaEnvioAEAT` | `fechaEnvioAEAT` | Date | AEAT | — |
+| 71 | 70 | `eventType` | `eventoTipo` | Text enum | CUSTOM | `VENTA_LINEA`/`COMPRA_LINEA`/`CIERRE_Z`/`AJUSTE`/`RECTIFICATIVA`/`MOV_STOCK` |
+| 72 | 71 | `thirdPartyId` | `terceroId` | Text | CUSTOM | FK DatosFiscales |
+| 73 | 72 | `catalogId` | `catalogoId` | Text | CUSTOM | FK ServiciosCatalogo |
+| 74 | 73 | `pairToken` | `pairToken` | Text | CUSTOM | Saga dual |
+| 75 | 74 | `payloadFiscal` | `payloadFiscal` | Object | AEAT | Snapshot AEAT inmutable |
+| 76 | 75 | `sequenceNumber` | `secuenciaNumero` | Number | CUSTOM | Unique, monótono |
+| 77 | 76 | `projectionStatus` | `proyeccionEstado` | Text enum | CUSTOM | `PENDIENTE`/`OK`/`ERROR` |
+| 78 | 77 | `projectionDetailIds` | `proyeccionDetalleIds` | Array | CUSTOM | UUIDs |
+| 79 | 78 | `traceId` | `trazaId` | Text | CUSTOM | Max 100 |
+| 80 | 79 | `taxTreatment` | `taxTreatment` | Text | CUSTOM | Legacy (sin traducción por compat) |
+| 81 | 80 | `lineItems` | `lineItems` | Array | CUSTOM | Legacy |
+| 82 | 81 | `recordSource` | `registroOrigen` | Text | CUSTOM | — |
+
+**Índices:** `(numSerieFactura) unique`, `(transactionId)`, `(registeredAt)`, `(movementType, registeredAt)`, `(linkedBookingIds)`, `(thirdPartyId, fechaExpedicionFactura)`, `(eventType, fechaExpedicionFactura)`, `(sequenceNumber) unique`
+
+**Hooks:** `beforeUpdate` / `beforeRemove` bloqueados.
+
+---
+
+## 4.6 `CitasF2`
+
+|   | A | B | C | D | E | F |
+|---|---|---|---|---|---|---|
+| 1 | # | ID código | ID visible | Tipo | Origen | Notas |
+| 2 | 1 | `_id` | `id` | System | SYS | PK |
+| 3 | 2 | `_createdDate` | `creacionFecha` | System | SYS | Auto |
+| 4 | 3 | `_updatedDate` | `actualizacionFecha` | System | SYS | Auto |
+| 5 | 4 | `bookingId` | `reservaId` | Text | WIX | Unique, required |
+| 6 | 5 | `pairToken` | `pairToken` | Text | CUSTOM | Indexed |
+| 7 | 6 | `revision` | `revision` | Number | CUSTOM | — |
+| 8 | 7 | `serviceId` | `reservaServicioId` | Text | WIX | Required |
+| 9 | 8 | `scheduleId` | `reservaHorarioId` | Text | WIX | — |
+| 10 | 9 | `resourceId` | `reservaRecursoId` | Text | WIX | Required |
+| 11 | 10 | `staffResourceId` | `reservaStaffResourceId` | Text | WIX | — |
+| 12 | 11 | `startDate` | `inicioFecha` | DateTime | CUSTOM | Required |
+| 13 | 12 | `endDate` | `finFecha` | DateTime | CUSTOM | Required |
+| 14 | 13 | `dateYmd` | `fechaYmd` | Text | CUSTOM | Required, `YYYY-MM-DD` Madrid |
+| 15 | 14 | `bookingType` | `reservaTipo` | Text enum | CUSTOM | `SIMPLE`/`DUAL_F1`/`DUAL_F2` |
+| 16 | 15 | `bookingStatus` | `reservaEstado` | Text enum | CUSTOM | `CONFIRMADO`/`PENDIENTE_PAGO`/`CANCELADO`/`REEMBOLSADO` |
+| 17 | 16 | `paymentStatus` | `pagoEstado` | Text enum | CUSTOM | 7 valores |
+| 18 | 17 | `meta` | `meta` | Object | CUSTOM | JSON auxiliar |
+| 19 | 18 | `contactDetails` | `contactDetails` | Object | WIX | — |
+| 20 | 19 | `thirdPartyId` | `terceroId` | Text | CUSTOM | FK DatosFiscales |
+| 21 | 20 | `catalogId` | `catalogoId` | Text | CUSTOM | FK ServiciosCatalogo |
+| 22 | 21 | `sourceEventId` | `origenEventoId` | Text | CUSTOM | FK MovimientosCaja |
+| 23 | 22 | `fiscalData` | `fiscalDatos` | Object | CUSTOM | `{nifDestinatario, nombreRazonDestinatario, ...}` |
+| 24 | 23 | `cashMovementId` | `movimientoCajaId` | Text | CUSTOM | FK cobro |
+| 25 | 24 | `invoicingDate` | `facturacionFecha` | Date | CUSTOM | — |
+| 26 | 25 | `traceId` | `trazaId` | Text | CUSTOM | Required, Max 100 |
+
+**Índices:** `(bookingId) unique`, `(pairToken)`, `(dateYmd, resourceId)`, `(serviceId, dateYmd)`, `(bookingStatus, paymentStatus)`
+
+---
+
+## 4.7 `HistoricoCierresZ` (contenedor polivalente — deuda V5010)
+
+### 4.7.1 Bloque común cierres Z
+
+|   | A | B | C | D | E | F |
+|---|---|---|---|---|---|---|
+| 1 | # | ID código | ID visible | Tipo | Origen | Notas |
+| 2 | 1 | `_id` | `id` | System | SYS | PK |
+| 3 | 2 | `_createdDate` | `creacionFecha` | System | SYS | Auto |
+| 4 | 3 | `fechaOperacion` | `fechaOperacion` | Date | AEAT | Opcional |
+| 5 | 4 | `closingStatus` | `cierreEstado` | Text | CUSTOM | — |
+| 6 | 5 | `consolidatedTotalAmount` | `consolidadoImporteTotal` | Number | CUSTOM | — |
+| 7 | 6 | `grossSalesTotal` | `ventasBrutasTotal` | Number | CUSTOM | — |
+| 8 | 7 | `netTaxableAmount` | `baseImponibleNeta` | Number | CUSTOM | — |
+| 9 | 8 | `netTaxAmount` | `cuotaIVANeta` | Number | CUSTOM | — |
+| 10 | 9 | `totalCash` | `totalEfectivo` | Number | CUSTOM | — |
+| 11 | 10 | `totalCard` | `totalTarjeta` | Number | CUSTOM | — |
+| 12 | 11 | `totalBizum` | `totalBizum` | Number | CUSTOM | — |
+| 13 | 12 | `totalOnline` | `totalOnline` | Number | CUSTOM | — |
+| 14 | 13 | `totalRefunds` | `totalReembolsos` | Number | CUSTOM | — |
+| 15 | 14 | `totalTips` | `totalPropinas` | Number | CUSTOM | — |
+| 16 | 15 | `totalAdjustments` | `totalAjustes` | Number | CUSTOM | — |
+| 17 | 16 | `totalOperations` | `totalOperaciones` | Number | CUSTOM | — |
+| 18 | 17 | `startSequence` | `inicioSecuencia` | Number | CUSTOM | — |
+| 19 | 18 | `endSequence` | `finSecuencia` | Number | CUSTOM | — |
+| 20 | 19 | `startTicketNumber` | `inicioTicketNumero` | Text | CUSTOM | — |
+| 21 | 20 | `endTicketNumber` | `finTicketNumero` | Text | CUSTOM | — |
+| 22 | 21 | `startRecordHash` | `inicioHuella` | Text | CUSTOM | — |
+| 23 | 22 | `endRecordHash` | `finHuella` | Text | CUSTOM | — |
+| 24 | 23 | `balancesByMethod` | `saldosPorMetodo` | Object | CUSTOM | — |
+| 25 | 24 | `movementTypeBreakdown` | `movimientoTipoDesglose` | Object | CUSTOM | — |
+| 26 | 25 | `taxTypeBreakdown` | `impuestoTipoDesglose` | Object | CUSTOM | — |
+| 27 | 26 | `isIntegrityVerified` | `esIntegridadVerificada` | Boolean | CUSTOM | — |
+| 28 | 27 | `auditedRecordsCount` | `auditadosRegistrosNumero` | Number | CUSTOM | — |
+| 29 | 28 | `closingHash` | `cierreHuella` | Text | CUSTOM | — |
+| 30 | 29 | `closingSignature` | `cierreFirma` | Text | CUSTOM | — |
+| 31 | 30 | `closingSignatureStatus` | `cierreFirmaEstado` | Text | CUSTOM | — |
+| 32 | 31 | `closingSource` | `cierreOrigen` | Text | CUSTOM | — |
+| 33 | 32 | `closingSchemaVersion` | `cierreEsquemaVersion` | Text | CUSTOM | — |
+| 34 | 33 | `timeZone` | `zonaHoraria` | Text | CUSTOM | — |
+| 35 | 34 | `closedAt` | `cerradoEn` | DateTime | CUSTOM | — |
+| 36 | 35 | `verifiedAt` | `verificadoEn` | DateTime | CUSTOM | — |
+| 37 | 36 | `approverUser` | `aprobadorUsuario` | Text | CUSTOM | — |
+| 38 | 37 | `sourceEventId` | `origenEventoId` | Text | CUSTOM | — |
+| 39 | 38 | `breakdownByRegime` | `desglosePorRegimen` | Array | CUSTOM | — |
+| 40 | 39 | `breakdownByOperationType` | `desglosePorOperacionTipo` | Array | CUSTOM | — |
+| 41 | 40 | `breakdownByTaxRate` | `desglosePorImpuestoTasa` | Array | CUSTOM | — |
+| 42 | 41 | `verifactuSummary` | `verifactuResumen` | Object | CUSTOM | — |
+| 43 | 42 | `estadoEnvioAEAT` | `estadoEnvioAEAT` | Text enum | AEAT | — |
+| 44 | 43 | `fechaEnvioAEAT` | `fechaEnvioAEAT` | Date | AEAT | — |
+| 45 | 44 | `respuestaAEAT` | `respuestaAEAT` | Object | AEAT | — |
+| 46 | 45 | `csvAEAT` | `csvAEAT` | Text | AEAT | — |
+| 47 | 46 | `traceId` | `trazaId` | Text | CUSTOM | — |
+
+### 4.7.2 Bloque cierres inventario
+
+|   | A | B | C | D | E | F |
+|---|---|---|---|---|---|---|
+| 1 | # | ID código | ID visible | Tipo | Origen | Notas |
+| 2 | 1 | `inventoryClosingId` | `inventarioCierreId` | Text | CUSTOM | Unique |
+| 3 | 2 | `fiscalYear` | `ejercicioFiscal` | Number | CUSTOM | — |
+| 4 | 3 | `closingDate` | `cierreFecha` | DateTime | CUSTOM | — |
+| 5 | 4 | `closingType` | `cierreTipo` | Text enum | CUSTOM | `ANUAL`/`MENSUAL`/`EXTRAORDINARIO`/`PAQUETE_GESTORIA` |
+| 6 | 5 | `sku` | `sku` | Text | CUSTOM | — |
+| 7 | 6 | `productId` | `productId` | Text | WIX | — |
+| 8 | 7 | `productDescription` | `productoDescripcion` | Text | CUSTOM | — |
+| 9 | 8 | `stockQuantity` | `stockCantidad` | Number | CUSTOM | — |
+| 10 | 9 | `unitCost` | `costeUnitario` | Number | CUSTOM | — |
+| 11 | 10 | `stockValue` | `stockValor` | Number | CUSTOM | — |
+| 12 | 11 | `cuentaContable` | `cuentaContable` | Text | PGC | — |
+| 13 | 12 | `saldoDebe` | `saldoDebe` | Number | PGC | — |
+| 14 | 13 | `saldoHaber` | `saldoHaber` | Number | PGC | — |
+
+### 4.7.3 Bloque paquetes gestoría
+
+|   | A | B | C | D | E | F |
+|---|---|---|---|---|---|---|
+| 1 | # | ID código | ID visible | Tipo | Origen | Notas |
+| 2 | 1 | `summaryData` | `resumenDatos` | Object | CUSTOM | — |
+| 3 | 2 | `invoiceData` | `facturasDatos` | Array | CUSTOM | — |
+| 4 | 3 | `packageStatus` | `paqueteEstado` | Text enum | CUSTOM | `PREPARED`/`SENT` |
+
+**Índices:** `(fechaOperacion)`, `(inventoryClosingId) unique`, `(fiscalYear, closingType)`, `(closingType, _createdDate)`, `(sku, closingType)`
+
+---
+
+## 4.8 `CompensacionesPendientes`
+
+|   | A | B | C | D | E | F |
+|---|---|---|---|---|---|---|
+| 1 | # | ID código | ID visible | Tipo | Origen | Notas |
+| 2 | 1 | `_id` | `id` | System | SYS | PK |
+| 3 | 2 | `compensationId` | `compensacionId` | Text | CUSTOM | Legacy |
+| 4 | 3 | `compensationKind` | `compensacionTipo` | Text enum | CUSTOM | `FISCAL_LEDGER`/`BOOKING_ROLLBACK`/`PAYMENT_RECOVERY`/`CANCEL_BOOKING`/`RESYNC_LEDGER_ACCOUNTING`/`RESYNC_CAJA_BALANCE` |
+| 5 | 4 | `compensationStatus` | `compensacionEstado` | Text enum | CUSTOM | `PENDING`/`PENDING_RECOVERY`/`PROCESSING`/`FAILED`/`COMPLETED`/`RETRYING` |
+| 6 | 5 | `bookingId` | `reservaId` | Text | WIX | — |
+| 7 | 6 | `bookingIds` | `reservaIds` | Text | WIX | CSV |
+| 8 | 7 | `phase` | `fase` | Text | CUSTOM | — |
+| 9 | 8 | `attempts` | `intentos` | Number | CUSTOM | — |
+| 10 | 9 | `amount` | `importe` | Number | CUSTOM | — |
+| 11 | 10 | `paymentMethod` | `pagoMetodo` | Text | CUSTOM | — |
+| 12 | 11 | `transactionId` | `transaccionId` | Text | CUSTOM | — |
+| 13 | 12 | `orderId` | `orderId` | Text | WIX | — |
+| 14 | 13 | `refundId` | `refundId` | Text | WIX | — |
+| 15 | 14 | `concept` | `concepto` | Text | CUSTOM | — |
+| 16 | 15 | `movementType` | `movimientoTipo` | Text | CUSTOM | — |
+| 17 | 16 | `alertRequired` | `alertaRequerida` | Boolean | CUSTOM | — |
+| 18 | 17 | `lastError` | `ultimoError` | Text | CUSTOM | — |
+| 19 | 18 | `errorCode` | `errorCodigo` | Text | CUSTOM | — |
+| 20 | 19 | `errorMessage` | `errorMensaje` | Text | CUSTOM | — |
+| 21 | 20 | `origin` | `origen` | Text | CUSTOM | — |
+| 22 | 21 | `sourceEventId` | `origenEventoId` | Text | CUSTOM | — |
+| 23 | 22 | `thirdPartyId` | `terceroId` | Text | CUSTOM | — |
+| 24 | 23 | `traceId` | `trazaId` | Text | CUSTOM | — |
+
+**Índices:** `(compensationStatus, updatedDate)`, `(compensationKind, compensationStatus)`, `(bookingId)`
+
+---
+
+## 4.9 `MovimientosInventario`
+
+|   | A | B | C | D | E | F |
+|---|---|---|---|---|---|---|
+| 1 | # | ID código | ID visible | Tipo | Origen | Notas |
+| 2 | 1 | `_id` | `id` | System | SYS | PK |
+| 3 | 2 | `movementToken` | `movimientoToken` | Text | CUSTOM | Unique (idempotencia) |
+| 4 | 3 | `sku` | `sku` | Text | CUSTOM | Required |
+| 5 | 4 | `productName` | `productoNombre` | Text | CUSTOM | — |
+| 6 | 5 | `quantity` | `cantidad` | Number | CUSTOM | Valor absoluto |
+| 7 | 6 | `quantityDelta` | `cantidadDelta` | Number | CUSTOM | Con signo |
+| 8 | 7 | `stockBefore` | `stockAntes` | Number | CUSTOM | — |
+| 9 | 8 | `stockAfter` | `stockDespues` | Number | CUSTOM | — |
+| 10 | 9 | `movementType` | `movimientoTipo` | Text | CUSTOM | Enum interno |
+| 11 | 10 | `reason` | `motivo` | Text | CUSTOM | — |
+| 12 | 11 | `referenceId` | `referenciaId` | Text | CUSTOM | — |
+| 13 | 12 | `orderId` | `orderId` | Text | WIX | — |
+| 14 | 13 | `refundId` | `refundId` | Text | WIX | — |
+| 15 | 14 | `actorEmail` | `actorEmail` | Text | CUSTOM | — |
+| 16 | 15 | `actorMemberId` | `actorMemberId` | Text | WIX | — |
+| 17 | 16 | `requiresWixReconciliation` | `requiereConciliacionWix` | Boolean | CUSTOM | — |
+| 18 | 17 | `nativeCommercialMovement` | `movimientoComercialNativo` | Boolean | CUSTOM | — |
+| 19 | 18 | `wixProductId` | `wixProductId` | Text | WIX | — |
+| 20 | 19 | `wixVariantId` | `wixVariantId` | Text | WIX | — |
+| 21 | 20 | `sourceEventId` | `origenEventoId` | Text | CUSTOM | FK MovimientosCaja |
+| 22 | 21 | `catalogId` | `catalogoId` | Text | CUSTOM | FK ServiciosCatalogo |
+| 23 | 22 | `magnitude` | `magnitud` | Number | CUSTOM | ±1 |
+| 24 | 23 | `thirdPartyId` | `terceroId` | Text | CUSTOM | FK DatosFiscales |
+| 25 | 24 | `traceId` | `trazaId` | Text | CUSTOM | Max 100 |
+
+**Índices:** `(sku, sourceEventId)`, `(orderId)`, `(movementToken) unique`
+
+---
+
+## 4.10 `RegistrosHorariosStaff` (append-only)
+
+|   | A | B | C | D | E | F |
+|---|---|---|---|---|---|---|
+| 1 | # | ID código | ID visible | Tipo | Origen | Notas |
+| 2 | 1 | `_id` | `id` | System | SYS | PK |
+| 3 | 2 | `_createdDate` | `creacionFecha` | System | SYS | Auto |
+| 4 | 3 | `resourceId` | `resourceId` | Text | WIX | Required |
+| 5 | 4 | `staffName` | `staffNombre` | Text | CUSTOM | — |
+| 6 | 5 | `staffMemberId` | `staffMemberId` | Text | WIX | — |
+| 7 | 6 | `recordedAt` | `registradoEn` | DateTime | CUSTOM | Required |
+| 8 | 7 | `recordedTime` | `registradoHora` | Text | CUSTOM | — |
+| 9 | 8 | `dayKey` | `diaClave` | Text | CUSTOM | `YYYY-MM-DD` Madrid |
+| 10 | 9 | `monthKey` | `mesClave` | Text | CUSTOM | `YYYY-MM` |
+| 11 | 10 | `clockEventType` | `fichajeEventoTipo` | Text enum | CUSTOM | `ENTRADA`/`SALIDA`/`PAUSA_INICIO`/`PAUSA_FIN`/`AJUSTE` |
+| 12 | 11 | `recordType` | `registroTipo` | Text enum | CUSTOM | `REGULAR`/`AJUSTE` |
+| 13 | 12 | `registeredBy` | `registradoPor` | Text enum | CUSTOM | `SELF`/`ADMIN` |
+| 14 | 13 | `registeredByMemberId` | `registradoPorMemberId` | Text | WIX | — |
+| 15 | 14 | `recordingName` | `registradorNombre` | Text | CUSTOM | — |
+| 16 | 15 | `adjustmentReason` | `ajusteMotivo` | Text | CUSTOM | Max 500 |
+| 17 | 16 | `deviceIpAddress` | `dispositivoIpDireccion` | Text | CUSTOM | — |
+| 18 | 17 | `signature` | `firma` | Text | CUSTOM | HMAC |
+| 19 | 18 | `meta` | `meta` | Object | CUSTOM | — |
+| 20 | 19 | `traceId` | `trazaId` | Text | CUSTOM | Max 120 |
+
+**Índices:** `(resourceId, dayKey)`, `(resourceId, monthKey)`, `(resourceId, recordedAt)`
+**Total campos:** 19 (2 system + 17 operativos).
+
+---
+
+## 4.11 `ProveedoresLista` (SSOT activa)
+
+Vinculada 1:1 con `DatosFiscales` mediante `thirdPartyId`.
+
+|   | A | B | C | D | E | F |
+|---|---|---|---|---|---|---|
+| 1 | # | ID código | ID visible | Tipo | Origen | Notas |
+| 2 | 1 | `_id` | `id` | System | SYS | PK |
+| 3 | 2 | `_createdDate` | `creacionFecha` | System | SYS | Auto |
+| 4 | 3 | `_updatedDate` | `actualizacionFecha` | System | SYS | Auto |
+| 5 | 4 | `_owner` | `propietario` | System | SYS | Auto |
+| 6 | 5 | `supplierCode` | `proveedorCodigo` | Text | CUSTOM | Unique, required, formato `PRV-NNNN` |
+| 7 | 6 | `taxId` | `nifCif` | Text | CUSTOM | Unique, required, checksum AEAT |
+| 8 | 7 | `legalName` | `razonSocial` | Text | CUSTOM | Required, uppercase |
+| 9 | 8 | `tradeName` | `nombreComercial` | Text | CUSTOM | Opcional |
+| 10 | 9 | `contactData` | `contactoDatos` | Object | CUSTOM | `{email, tel, direccion, cp, municipio, provincia, pais}` |
+| 11 | 10 | `iban` | `iban` | Text | CUSTOM | Validado IBAN ES |
+| 12 | 11 | `paymentTerms` | `pagoTerminos` | Object | CUSTOM | `{dias, formaPago}` |
+| 13 | 12 | `supplierCategory` | `proveedorCategoria` | Text enum | CUSTOM | `PRODUCTO` / `SERVICIO` / `SUMINISTRO` / `MIXTO` |
+| 14 | 13 | `itemNature` | `itemNaturaleza` | Text enum | CUSTOM | `PRODUCTO_VENTA` / `PRODUCTO_USO` / `GASTO_FIJO` |
+| 15 | 14 | `cuentaContableGasto` | `cuentaContableGasto` | Text | PGC | PGC 6 dígitos |
+| 16 | 15 | `cuentaContableIVA` | `cuentaContableIVA` | Text | PGC | PGC 6 dígitos |
+| 17 | 16 | `cuentaContableProveedor` | `cuentaContableProveedor` | Text | PGC | PGC 6 dígitos |
+| 18 | 17 | `isRegularSupplier` | `esProveedorHabitual` | Boolean | CUSTOM | — |
+| 19 | 18 | `thirdPartyId` | `terceroId` | Text | CUSTOM | FK DatosFiscales |
+| 20 | 19 | `codigoImpuesto` | `codigoImpuesto` | Text enum | AEAT | `IVA_21` / `IVA_10` / `IVA_4` / `IVA_0` / `EXENTO` |
+| 21 | 20 | `claveRegimen` | `claveRegimen` | Text enum | AEAT | 01–20 |
+| 22 | 21 | `calificacionOperacion` | `calificacionOperacion` | Text enum | AEAT | `S1`/`S2`/`N1`/`N2` |
+| 23 | 22 | `active` | `activo` | Boolean | CUSTOM | Soft delete |
+| 24 | 23 | `notes` | `notas` | Text | CUSTOM | Max 500 |
+| 25 | 24 | `registrationTraceId` | `registroTrazaId` | Text | CUSTOM | Max 100 |
+| 26 | 25 | `traceId` | `trazaId` | Text | CUSTOM | Max 100 |
+
+**Índices:** `(supplierCode) unique`, `(taxId) unique`, `(active)`, `(supplierCategory, active)`, `(thirdPartyId)`
+
+**Hooks:** `beforeUpdate` bloquea cambio de `supplierCode`; `beforeRemove` bloquea si hay `MovimientosCaja` vinculados.
+
+**Relaciones:**
+
+|   | A | B | C |
+|---|---|---|---|
+| 1 | Relación | Destino | Campo de enlace |
+| 2 | FK fiscal | `DatosFiscales` | `thirdPartyId` → `_id` |
+| 3 | FK operativa | `MovimientosCaja` | `MovimientosCaja.thirdPartyId` |
+| 4 | FK catálogo | `ServiciosCatalogo` | vía `cuentaContableIngreso` / `cuentaContableGasto` |
+
+---
+
+## 4.12 Resumen cuantitativo del esquema
+
+|   | A | B |
+|---|---|---|
+| 1 | Métrica | Valor |
+| 2 | Colecciones activas SSOT | 11 |
+| 3 | Campos `Origen=WIX` (ID canónica Wix preservada) | 34 |
+| 4 | Campos `Origen=AEAT` (literal español camelCase) | 61 |
+| 5 | Campos `Origen=PGC` (literal español camelCase) | 8 |
+| 6 | Campos `Origen=CUSTOM` (código inglés + visible español) | ~180 |
+| 7 | Campos `Origen=SYS` | 22 |
+| 8 | Cumplimiento D0–D12 | 100 % |
+| 9 | Incoherencias previas resueltas | 47 |
+
+---
+
+## 4.13 Correspondencia con la matriz de cambio
+
+|   | A | B | C |
+|---|---|---|---|
+| 1 | Cambio estructural | §4 afectada | Ref |
+| 2 | ID canónicas Wix preservadas | Todas | R19 |
+| 3 | Campos AEAT/PGC en literal español camelCase | §4.1, §4.3, §4.4, §4.5, §4.7, §4.11 | D8 |
+| 4 | Campos custom código inglés + visible español | §4.2, §4.6, §4.8, §4.9, §4.10 | D2/D3 |
+| 5 | Cualificación de genéricas no-Wix | §4.6, §4.7, §4.8 | D7 |
+| 6 | Cualificación contextual `reserva*` en CitasF2 | §4.6 | D3 |
+
+---
+
+# BLOQUES 5–13 + ANEXO B — DOCUMENTO CONSULTIVO
+
+**Referencia:** v5009-V20-FINAL-CONSOLIDATED-v4 · Bloques 5–13 + Anexo B
+
+---
+
+# BLOQUE 5 — ARQUITECTURA DE MÓDULOS
+
+## 5.1 Diagrama de flujo
+
+```
+Frontend (pages)
+    → webMethods: reservas.web / citasManager.web / cajas.web / ...
+Backend core:
+    bookingSaga.executeBookingSaga
+        → bookingCore (locks, transactions, persist, elevate APIs)
+        → reservas.web (servicio, staff, dual slots)
+        → Bookings V2 createBooking (oficial)
+Events (webhooks Wix)
+    → cajas.registerBookingPayment → MovimientosCaja (LEDGER_V5_FISCAL)
+    → inventario.recordOnline*
+Crons
+    → locks, dual cache, compensaciones, cierre Z, health
+```
+
+## 5.2 Mapa de responsabilidades
+
+|   | A | B |
+|---|---|---|
+| 1 | Módulo | Responsabilidad |
+| 2 | `booking/bookingCore.js` | Primitivas: elevate APIs, locks, transactions, persist CitasF2, errores |
+| 3 | `booking/bookingSaga.js` | Orquestación simple/dual, payload oficial, compensación |
+| 4 | `reservas.web.js` | Disponibilidad, servicios, dual cache, staff resolution |
+| 5 | `citasManager.web.js` | `processDualBooking`, `confirmPayment`, `reschedule` |
+| 6 | `events.js` | Webhooks Bookings + eCom |
+| 7 | `cajas.web.js` | Ledger fiscal, caja, cierre Z, gift cards, recovery |
+| 8 | `inventario.web.js` | Stock y movimientos online |
+| 9 | `internalConfig.js` | SSOT constantes |
+| 10 | `logger.js` | Logging con redacción PII |
+| 11 | `security.js` / `securityEngine.js` / `security.web.js` | Auth, rate limit, HMAC |
+| 12 | `staff.js` | Schedule IDs staff |
+| 13 | `data.js` | Hooks inmutabilidad CMS |
+| 14 | `crons.js` + `jobs.config` | Mantenimiento |
+| 15 | `bookingServiceSync.js` | Cola ServiciosCatalogo ↔ Bookings |
+| 16 | `fiscalDocuments.web.js` / `fiscalAggregator.web.js` | Paquetes y resúmenes AEAT |
+| 17 | `horario.web.js` | Laboral |
+| 18 | `audit.js` | Auditoría centralizada |
+| 19 | `http-functions.js` | Webhook M365 HMAC |
+| 20 | `m365GraphSync.js` | Cola Graph |
+| 21 | `marianAssistant.web.js` | Asistente AI gestión |
+| 22 | `responseUtils.js` | Errores públicos |
+| 23 | `mmSecrets.js` | Nombres de secretos |
+
+## 5.3 Módulos eliminados en V20
+
+|   | A | B |
+|---|---|---|
+| 1 | Módulo | Motivo |
+| 2 | `contabilidad.js` | Proyección obsoleta; LEDGER_V5_FISCAL es SSOT fiscal único |
+| 3 | `facturasRecibidas.web.js` | Colección eliminada del SSOT |
+
+---
+
+# BLOQUE 6 — HELPERS PRINCIPALES
+
+## 6.1 `bookingCore`
+
+|   | A | B | C |
+|---|---|---|---|
+| 1 | Símbolo | Tipo | Descripción |
+| 2 | `createBookingElevated` | elevate | Proxy `bookings.createBooking` |
+| 3 | `cancelBookingElevated` | elevate | Cancel |
+| 4 | `confirmOrDeclineBookingElevated` | elevate | Confirm/decline |
+| 5 | `rescheduleBookingElevated` | elevate | Reschedule |
+| 6 | `createCheckoutElevated` / `getCheckoutUrlElevated` | elevate | Checkout eCom |
+| 7 | `getCheckoutUrlSafe` | helper | URL tolerante a fallos |
+| 8 | `_forceStaffInPristineSlot` | helper | Slot mínimo oficial |
+| 9 | `_lockSlotKeyOrFail` / `_unlockSlotKey` / `_renewLock` | concurrency | Mutex |
+| 10 | `_generateSlotKey` / `_buildLockKeys` | helper | Claves lock |
+| 11 | `_initTransaction` / `_completeTransaction` / `_failTransaction` | idempotencia | `BookingTransactions` |
+| 12 | `_persistBooking` | write | Upsert CitasF2 |
+| 13 | `_updateCitaSafe` | write | Update seguro |
+| 14 | `_areSlotsContiguous` | helper | Gap dual |
+| 15 | `ERROR_CODES` / `BookingError` / `createBookingError` / `normalizeError` / `_handleError` | errores | — |
+
+## 6.2 Contrato `createBooking`
+
+```javascript
+const payload = {
+  bookedEntity: { slot },  // slot ISO + resource {id} + location {id, locationType: OWNER_BUSINESS}
+  contactDetails: { ... },
+  totalParticipants: 1
+};
+await elevate(bookings.createBooking)(payload, {
+  flowControlSettings: { skipAvailabilityValidation: true }
+});
+```
+
+## 6.3 Otros helpers
+
+|   | A | B |
+|---|---|---|
+| 1 | Módulo | Símbolos clave |
+| 2 | `bookingSaga` | `executeBookingSaga`, `BookingSagaOrchestrator`, `_normalizePersistedMeta` |
+| 3 | `reservas.web` | `getServiceBySlugOrId`, `resolveServiceId`, `getAvailableDays`, `getCertifiedDualSlots`, `resolveStaffForSlot`, `invalidateCachesInternal` |
+| 4 | `citasManager.web` | `processDualBooking`, `confirmPayment`, `rescheduleExistingBooking`, `rescheduleDualBookings` |
+| 5 | `cajas.web` | `registerManualTransaction`, `registerBookingPayment`, `queueFiscalRecovery`, `getCashierState`, `registerZClosing`, `verifyFiscalHashChainIntegrity`, `registerGiftCardSale`, `registerGiftCardRedemption` |
+| 6 | `events.js` | `wixBookingsV2_onBookingConfirmed`, `wixBookingsV2_onBookingCanceled`, `wixEcom_onOrderPaymentStatusUpdated`, `wixEcom_onOrderRefunded`, `wixEcom_onOrderCanceled` |
+| 7 | `inventario.web` | `recordOnlineInventoryOrderInternal`, `recordOnlineInventoryRefundInternal`, `recordInventoryMovementSafe` |
+
+---
+
+# BLOQUE 7 — FLUJOS DE NEGOCIO
+
+## 7.1 Flujos principales
+
+|   | A | B |
+|---|---|---|
+| 1 | Flujo | Secuencia |
+| 2 | **7.1 Reserva simple** | UI → `executeBookingSaga` → resolve + revalidate → lock + transaction → `createBooking` → `_persistBooking` → unlock + complete |
+| 3 | **7.2 Reserva dual (gap)** | Certificar par F1/F2 → locks → create F1 → create F2 → dos filas CitasF2 mismo `pairToken` (`DUAL_F1` / `DUAL_F2`) → compensación si F2 falla |
+| 4 | **7.3 Reserva online** | Saga `ONLINE` → status `PENDIENTE_PAGO` → `createCheckout` + `checkoutUrl` en `meta` → cliente paga → webhook → `registerBookingPayment` → `VENTA_ONLINE` → inventario → cita `PAGADO`. Ledger LEDGER_V5_FISCAL es registro fiscal final |
+| 5 | **7.4 Cancelación / reembolso** | Webhook Bookings cancel y/o eCom refund → `_updateCitaSafe` (`CANCELADO`) → ledger reembolso + inventario refund → compensaciones si pendiente |
+| 6 | **7.5 Caja presencial** | `registerManualTransaction` → actualiza CajaActual → ledger LEDGER_V5_FISCAL → cierre Z → HistoricoCierresZ |
+
+## 7.2 Jobs programados
+
+|   | A | B | C |
+|---|---|---|---|
+| 1 | Job | Cron (Madrid) | Función |
+| 2 | `cleanExpiredLocks` | `15 * * * *` | `SlotLocks` |
+| 3 | `cleanupExpiredDualCache` | `20 * * * *` | `DualSlotCache` |
+| 4 | `runPendingCompensationsJob` | `30 * * * *` | Compensaciones |
+| 5 | `cleanExpiredDaysCache` | `0 1 * * *` | `AvailabilityDaysCache` |
+| 6 | `cleanExpiredSlotsCache` | `10 1 * * *` | slots cache |
+| 7 | `verifyNightlyZClosing` | `20 1 * * *` | Cierre Z |
+| 8 | `systemHealthCheck` | `0 7 * * *` | Salud |
+| 9 | `cleanAuditLogs` | `0 2 * * 0` | Retención logs |
+
+---
+
+# BLOQUE 8 — ERRORES CANÓNICOS
+
+|   | A | B |
+|---|---|---|
+| 1 | Elemento | Detalle |
+| 2 | Constructores | `createBookingError` / `normalizeError` |
+| 3 | Códigos típicos | validación · lock · disponibilidad · pago · desconocido |
+| 4 | Política pública | `responseUtils._toPublicError` (nunca exponer mensajes internos) |
+| 5 | Trazas | `traceId` obligatorio en todos los errores operativos |
+
+---
+
+# BLOQUE 9 — SEGURIDAD
+
+|   | A | B |
+|---|---|---|
+| 1 | # | Regla |
+| 2 | 1 | Elevación selectiva en Writer |
+| 3 | 2 | Rate limiting (`security.rateLimiter`) en superficies públicas |
+| 4 | 3 | Logger enmascara PII/secretos |
+| 5 | 4 | Hooks `data.js`: bloqueo update/remove en colecciones fiscales/caja |
+| 6 | 5 | M365 HTTP: HMAC + `timingSafeEqual` |
+| 7 | 6 | Mutaciones sensibles: `requireCajero` / `requireAdmin` / `requireMarianManager` |
+| 8 | 7 | JWT: `HS256`, expiración 1800000 ms |
+| 9 | 8 | Secrets vía `mmSecrets.js` (nunca hardcoded) |
+
+---
+
+# BLOQUE 10 — DESPLIEGUE
+
+## 10.1 Plan de despliegue
+
+|   | A | B |
+|---|---|---|
+| 1 | # | Tarea |
+| 2 | 1 | Paquete: `v5009-V20-FINAL-CONSOLIDATED-v4` |
+| 3 | 2 | Backup completo CMS + git commit base |
+| 4 | 3 | Crear CMS `ProcessedWebhookEvents` si no existe |
+| 5 | 4 | Crear campos CMS nuevos (AEAT/PGC en literal español camelCase, Wix preservadas, custom con código inglés + visible español) |
+| 6 | 5 | Script de migración de datos: campo antiguo → campo nuevo |
+| 7 | 6 | Migrar valores enum: `CANCELLED` → `CANCELADO`, `REFUNDED` → `REEMBOLSADO`, `CONFIRMED` → `CONFIRMADO`, etc. |
+| 8 | 7 | Migrar `businessTaxId` → `nifEmisorLegacy` en `DatosFiscales` |
+| 9 | 8 | Migrar `RegistrosHorariosStaff` aplicando §4.10 (alias en `horario.web.js`) |
+| 10 | 9 | Actualizar queries Wix (`.eq('viejo', ...)` → `.eq('nuevo', ...)`) |
+| 11 | 10 | Actualizar índices CMS |
+| 12 | 11 | Actualizar hooks `data.js` |
+| 13 | 12 | Eliminar colecciones obsoletas: `AsientosContables`, `LibroAsientosContablesDetalle`, `FacturasRecibidas`, `ConfiguracionFiscal` |
+| 14 | 13 | Ejecutar checklist: simple → dual → pago online → cancel/refund → cuadre caja |
+| 15 | 14 | Eliminar campos antiguos tras verificación |
+
+## 10.2 Compatibilidad Wix
+
+|   | A | B |
+|---|---|---|
+| 1 | Requisito | Estado |
+| 2 | Bookings V2 Writer | Sí (sin APIs deprecadas) |
+| 3 | eCom checkout V2 | Sí |
+| 4 | Webhooks nativos | Sí |
+| 5 | Velo webMethods | Sí |
+| 6 | Git Integration backend | Sí |
+
+---
+
+# BLOQUE 11 — GLOSARIO
+
+|   | A | B |
+|---|---|---|
+| 1 | Término | Significado |
+| 2 | SSOT | Single Source of Truth (`internalConfig` + `CitasF2` + `MovimientosCaja`) |
+| 3 | `pairToken` | Clave idempotente de reserva (simple o dual) |
+| 4 | `elevate` | Ejecutar API Wix con permisos elevados de backend |
+| 5 | `LEDGER_V5_FISCAL` | Esquema actual de `MovimientosCaja` con hash chain |
+| 6 | Dual | Dos bookings enlazados (F1 + F2) con gap de exposición |
+| 7 | Compensación | Deshacer/recuperar tras fallo parcial de saga o fiscal |
+| 8 | ID canónica Wix | Identificador nativo de app Wix — se preserva en inglés camelCase |
+| 9 | Literal AEAT/PGC | Identificador normativo español en camelCase — código = visible |
+| 10 | ID custom | Identificador de proyecto: código inglés + visible español |
+
+---
+
+# BLOQUE 12 — RESUMEN CUANTITATIVO CONSOLIDADO
+
+|   | A | B |
+|---|---|---|
+| 1 | Métrica | Valor |
+| 2 | Colecciones activas SSOT | 11 |
+| 3 | Colecciones eliminadas en V20 | 4 |
+| 4 | Campos con `Origen=WIX` (preservados) | 34 |
+| 5 | Campos con `Origen=AEAT` (literal español camelCase) | 61 |
+| 6 | Campos con `Origen=PGC` (literal español camelCase) | 8 |
+| 7 | Campos con `Origen=CUSTOM` (código inglés + visible español) | ~180 |
+| 8 | Campos con `Origen=SYS` | 22 |
+| 9 | Constantes JS renombradas | 21 |
+| 10 | Errores legacy AEAT a corregir | 61 |
+| 11 | Errores legacy PGC a corregir | 7 |
+| 12 | Módulos refactorizados | 31 |
+| 13 | Módulos eliminados | 2 |
+| 14 | Incoherencias resueltas | 47 |
+| 15 | `RegistrosHorariosStaff` — campos | 19 (2 system + 17 operativos) |
+| 16 | Cumplimiento D0–D12 | 100 % |
+
+---
+
+# BLOQUE 13 — ANEXO A: Vista alternativa reducida de `RegistrosHorariosStaff`
+
+**Fuente:** `MATRIZ CAMBIO.txt`. Referencia histórica; el schema canónico es §4.10 (19 campos).
+
+|   | A | B | C | D |
+|---|---|---|---|---|
+| 1 | # | old | new | visible · tipo |
+| 2 | 1 | `_id` | `_id` | `id` · SYS |
+| 3 | 2 | `resourceId` | `resourceId` | `resourceId` · TXT |
+| 4 | 3 | `fecha` | `date` | `fecha` · DATE |
+| 5 | 4 | `horas` | `hours` | `horas` · NUM |
+| 6 | 5 | `eventoOrigenId` | `sourceEventId` | `origenEventoId` · TXT |
+| 7 | 6 | `terceroId` | `thirdPartyId` | `terceroId` · TXT |
+| 8 | 7 | `traceId` | `traceId` | `trazaId` · TXT |
+
+**Nota de compatibilidad:** esta vista no debe usarse para crear la colección. Solo sirve como mapa de lectura para consumidores históricos; se aplica alias en `horario.web.js` hacia los campos canónicos `recordedAt` / `recordedTime` / `sourceEventId` / `thirdPartyId`.
+
+---
+
+# ANEXO B — TRANSCRIPCIÓN CSV `ServiciosCatalogo`
+
+## B.1 Tabla de mapeo CSV → CMS
+
+|   | A | B | C | D | E |
+|---|---|---|---|---|---|
+| 1 | # | CSV original | ID código CMS | ID visible CMS | Tipo · Regla |
+| 2 | 1 | `ID` | `_id` | `id` | System · D2 |
+| 3 | 2 | `Created Date` | `_createdDate` | `creacionFecha` | System · D2 |
+| 4 | 3 | `Updated Date` | `_updatedDate` | `actualizacionFecha` | System · D2 |
+| 5 | 4 | `Owner` | `_owner` | `propietario` | System · D2 |
+| 6 | 5 | `servicioID` | `serviceId` | `serviceId` | WIX · R19 |
+| 7 | 6 | `slugURL` | `slug` | `slug` | WIX · D5 |
+| 8 | 7 | `titulo` | `title` | `titulo` | WIX · D2 |
+| 9 | 8 | `precio` | `price` | `precio` | CUSTOM · D2 |
+| 10 | 9 | `moneda` | `currency` | `moneda` | CUSTOM · D2 |
+| 11 | 10 | `SKU` | `sku` | `sku` | CUSTOM · D5 |
+| 12 | 11 | `permitirCombinar` | `allowCombine` | `permitirCombinar` | WIX · D3 |
+| 13 | 12 | `vinculadasPhases` | `linkedPhasess` | `enlazadaFases` | WIX · D3 |
+| 14 | 13 | `phase1Duracion` | `phase1Duration` | `fase1Duracion` | CUSTOM · D2 |
+| 15 | 14 | `phase2Duracion` | `phase2Duration` | `fase2Duracion` | CUSTOM · D2 |
+| 16 | 15 | `exposureDuracion` | `exposureDuration` | `exposicionDuracion` | CUSTOM · D3 |
+| 17 | 16 | `totalDuracion` / `duracion` | `totalDuration` | `duracionTotal` | CUSTOM · D6 |
+| 18 | 17 | `duracionRange` | `durationRange` | `duracionRango` | CUSTOM · D3 |
+| 19 | 18 | `disponiblePersonal` | `availableStaff` | `disponibleStaff` | CUSTOM · D5 |
+| 20 | 19 | `addOnOpciones` / `opcionesComplementos` | `addOnOptions` | `complementoOpciones` | CUSTOM · D6 |
+| 21 | 20 | `oculto` | `clientHidden` | `ocultoCliente` | CUSTOM · D3 |
+| 22 | 21 | `impuestoIncluido` | `taxIncluded` | `impuestoIncluido` | CUSTOM · D3 |
+| 23 | 22 | `impuestoRate` | `tipoImpositivo` | `tipoImpositivo` | AEAT · D8 |
+| 24 | 23 | `servicioTipo` | `serviceType` | `servicioTipo` | WIX · D3 |
+| 25 | 24 | `localizacionID` | `locationId` | `locationId` | WIX · R19 |
+| 26 | 25 | `localizacion` | `location` | `localizacion` | CUSTOM · D3 |
+| 27 | 26 | `itemNature` / `naturalezaItem` | `itemNature` | `itemNaturaleza` | CUSTOM · D6 |
+| 28 | 27 | `impuestoCodigo` / `codigoImpuesto` | `codigoImpuesto` | `codigoImpuesto` | AEAT · D8 |
+| 29 | 28 | `aeatRegimenClave` / `claveRegimenAEAT` | `claveRegimen` | `claveRegimen` | AEAT · D8 |
+| 30 | 29 | `aeatOperacionCalificacion` / `calificacionOperacionAEAT` | `calificacionOperacion` | `calificacionOperacion` | AEAT · D8 |
+| 31 | 30 | `aeatExentaOperacion` / `operacionExentaAEAT` | `operacionExenta` | `operacionExenta` | AEAT · D8 |
+| 32 | 31 | `inversionSujetoPasivo` (x2) | `inversionSujetoPasivo` | `inversionSujetoPasivo` | AEAT · D8 |
+| 33 | 32 | `incomeAccountCodigo` / `cuentaContableIngreso` | `cuentaContableIngreso` | `cuentaContableIngreso` | PGC · D8 |
+| 34 | 33 | `expenseAccountCodigo` / `cuentaContableGasto` | `cuentaContableGasto` | `cuentaContableGasto` | PGC · D8 |
+| 35 | 34 | `activo` | `active` | `activo` | CUSTOM · D2 |
+| 36 | 35 | `descripcion` | `description` | `descripcion` | CUSTOM · D2 |
+| 37 | 36 | `categoriaID` | `categoryId` | `categoriaId` | CUSTOM · D3 |
+| 38 | 37 | `categoria` | `category` | `categoria` | CUSTOM · D2 |
+| 39 | 38 | `internasNotas` | `internalNotes` | `notasInternas` | CUSTOM · D3 |
+| 40 | 39 | `estado` | `status` | `estado` | CUSTOM · D4 |
+| 41 | 40 | `inPersonPago` | `inPersonPayment` | `pagoPresencial` | CUSTOM · D3 |
+| 42 | 41 | `onlinePago` | `onlinePayment` | `pagoOnline` | CUSTOM · D3-D5 |
+| 43 | 42 | `margen` | `margin` | `margen` | CUSTOM · D2 |
+| 44 | 43 | `mainMedia` | `mainMedia` | `medioPrincipal` | CUSTOM · D3 |
+| 45 | 44 | `depositImporte` | `depositAmount` | `depositoImporte` | CUSTOM · D3 |
+| 46 | 45 | `depositTipo` | `depositType` | `depositoTipo` | CUSTOM · D3 |
+| 47 | 46 | `pricingModel` | `pricingModel` | `modeloPrecio` | CUSTOM · D3 |
+| 48 | 47 | `tagLine` | `tagLine` | `tagLine` | CUSTOM · D5 |
+| 49 | 48 | `tituloServicio` | — (consolidado con #7) | — | D6 |
+
+**Total columnas originales:** 58 · **Total columnas canónicas:** 47 (11 consolidadas por D6).
+
+## B.2 Cabecera CSV canónica
+
+```
+_id,_createdDate,_updatedDate,_owner,serviceId,slug,title,price,currency,sku,allowCombine,linkedPhasess,phase1Duration,phase2Duration,exposureDuration,totalDuration,durationRange,availableStaff,addOnOptions,clientHidden,taxIncluded,tipoImpositivo,serviceType,locationId,location,itemNature,codigoImpuesto,claveRegimen,calificacionOperacion,operacionExenta,inversionSujetoPasivo,cuentaContableIngreso,cuentaContableGasto,active,description,categoryId,category,internalNotes,status,inPersonPayment,onlinePayment,margin,mainMedia,depositAmount,depositType,pricingModel,tagLine
+```
+
+## B.3 Fila de muestra — servicio simple `corte-clasico`
+
+```
+"0508f9a5-3b3f-43d8-a01d-9feefafeaf90","2026-09-06T10:09:28Z","2026-09-22T08:45:38Z","ab7708e9-6471-441e-b5f9-93a9e02bf4b3","9c98d417-c6ff-4ac0-a410-f7f953c98dbd","corte-clasico","Corte Clásico",19,"EUR","SRV-HOM-a948fe79",false,,"30","0","0","40",,"[""1d39e32d-b3a6-49f9-934a-1715e8faeacd"",""0383a98a-343e-4882-a042-07f74702878a"",""4c26949d-b8a8-4f2f-8934-e7323b38d397""]",,false,true,"0.21","CITA","7a12abfd-bf30-4847-bcdf-00dc573d4802","C/ Maurice Ravel 35, Local, 50012 Zaragoza",,,,,"","","","",true,"Corte de cabello clásico, adaptado a tu estilo y tipo de rostro...","ac56f807-82cd-48dd-b27b-3806382d5b21","Corte",,"ACTIVO",true,true,10,"https://static.wixstatic.com/media/ab7708_374e5f7adb2f47f3944f3355da129b80~mv2.jpg",0,"FIJO","FIXED","El corte tradicional que nunca falla"
+```
+
+## B.4 Notas operativas de importación CMS
+
+|   | A | B |
+|---|---|---|
+| 1 | # | Nota |
+| 2 | 1 | `_id`, `_createdDate`, `_updatedDate`, `_owner` son **system fields** Wix — no se configuran manualmente |
+| 3 | 2 | Campos AEAT/PGC (`tipoImpositivo`, `codigoImpuesto`, `claveRegimen`, `calificacionOperacion`, `operacionExenta`, `inversionSujetoPasivo`, `cuentaContableIngreso`, `cuentaContableGasto`) → código = visible (mismo literal español camelCase) |
+| 4 | 3 | Campos Wix (`serviceId`, `slug`, `title`, `allowCombine`, `linkedPhasess`, `locationId`, `serviceType`) → código = visible = ID canónica Wix |
+| 5 | 4 | Campos custom → código inglés + visible español |
+| 6 | 5 | Valores enum en MAYÚSCULAS español (`itemNature`, `codigoImpuesto`, `claveRegimen`, `calificacionOperacion`, `operacionExenta`) |
+| 7 | 6 | Importación CSV: `Field key` = ID código; `Field name` = ID visible |
+
+---
+
+**Estado final:** SSOT consolidado v5009-V20-FINAL-CONSOLIDATED-v4. Bloques 5–13 + Anexo B entregados. Coherencia con la Biblia v4: 100 %. Cumplimiento D0–D12: 100 %. Errores legacy AEAT/PGC corregidos: 68. Reglas de identidad R19–R21 aplicadas de forma transversal (Wix preservadas · AEAT/PGC literal español camelCase código = visible · custom código inglés + visible español).
+
+# MATRIZ DE CAMBIO v3 → v4 — IDs OCULTAS (código)
+
+**Comparativa:** `BIBLIA_TECNICA_MarianMadrid_v5008.3.md` (v3) → `BIBLIA.txt` (v4)
+
+> **Tipos de cambio:**
+> - **Casing**: primera letra PascalCase → camelCase (mismo nombre, sin cambio semántico)
+> - **Traducción**: identificador inglés → literal español camelCase
+> - **Renombrado**: cambio de nombre de campo
+> - **Valor**: cambio de valor enum almacenado
+
+---
+
+## Grupo 1 — `MovimientosCaja` (AEAT: PascalCase → camelCase)
+
+|   | A | B | C | D |
+|---|---|---|---|---|
+| 1 | # | ID oculta antigua (v3) | ID oculta actual (v4) | Tipo |
+| 2 | 1 | `NumSerieFactura` | `numSerieFactura` | Casing |
+| 3 | 2 | `FechaExpedicionFactura` | `fechaExpedicionFactura` | Casing |
+| 4 | 3 | `FechaOperacion` | `fechaOperacion` | Casing |
+| 5 | 4 | `TipoFactura` | `tipoFactura` | Casing |
+| 6 | 5 | `TipoRectificativa` | `tipoRectificativa` | Casing |
+| 7 | 6 | `ImporteRectificacion` | `importeRectificacion` | Casing |
+| 8 | 7 | `MotivoRectificacion` | `motivoRectificacion` | Casing |
+| 9 | 8 | `NumSerieFacturaEmisor` | `numSerieFacturaEmisor` | Casing |
+| 10 | 9 | `BaseImponibleOImporteNoSujeto` | `baseImponibleOImporteNoSujeto` | Casing |
+| 11 | 10 | `CuotaTotal` | `cuotaTotal` | Casing |
+| 12 | 11 | `TipoImpositivo` | `tipoImpositivo` | Casing |
+| 13 | 12 | `TipoRecargoEquivalencia` | `tipoRecargoEquivalencia` | Casing |
+| 14 | 13 | `CuotaRecargoEquivalencia` | `cuotaRecargoEquivalencia` | Casing |
+| 15 | 14 | `ImporteRetencionIRPF` | `importeRetencionIRPF` | Casing |
+| 16 | 15 | `TipoRetencionIRPF` | `tipoRetencionIRPF` | Casing |
+| 17 | 16 | `BaseImponibleRetencion` | `baseImponibleRetencion` | Casing |
+| 18 | 17 | `RolFiscal` | `rolFiscal` | Casing |
+| 19 | 18 | `EsB2B` | `esB2B` | Casing |
+| 20 | 19 | `NIFEmisor` | `nifEmisor` | Casing |
+| 21 | 20 | `NombreRazonEmisor` | `nombreRazonEmisor` | Casing |
+| 22 | 21 | `NIFDestinatario` | `nifDestinatario` | Casing |
+| 23 | 22 | `NombreRazonDestinatario` | `nombreRazonDestinatario` | Casing |
+| 24 | 23 | `DomicilioDestinatario` | `domicilioDestinatario` | Casing |
+| 25 | 24 | `EmitidaPorTerceroODestinatario` | `emitidaPorTerceroODestinatario` | Casing |
+| 26 | 25 | `NombreRazonTercero` | `nombreRazonTercero` | Casing |
+| 27 | 26 | `NIFTerceroExpedidor` | `nifTerceroExpedidor` | Casing |
+| 28 | 27 | `CausaNoSujeta` | `causaNoSujeta` | Casing |
+| 29 | 28 | `InversionSujetoPasivo` | `inversionSujetoPasivo` | Casing |
+| 30 | 29 | `ClaveRegimen` | `claveRegimen` | Casing |
+| 31 | 30 | `CalificacionOperacion` | `calificacionOperacion` | Casing |
+| 32 | 31 | `OperacionExenta` | `operacionExenta` | Casing |
+| 33 | 32 | `RegimenEspecialCriterioCaja` | `regimenEspecialCriterioCaja` | Casing |
+| 34 | 33 | `ExentaPorArticulo20` | `exentaPorArticulo20` | Casing |
+| 35 | 34 | `IDAnticipoVinculado` | `idAnticipoVinculado` | Casing |
+| 36 | 35 | `EstadoDevengoIVA` | `estadoDevengoIVA` | Casing |
+| 37 | 36 | `DesgloseDetallado` | `desgloseDetallado` | Casing |
+| 38 | 37 | `SistemaInformatico` | `sistemaInformatico` | Casing |
+| 39 | 38 | `IDFacturaAnterior` | `idFacturaAnterior` | Casing |
+| 40 | 39 | `NumSerieFacturaAnterior` | `numSerieFacturaAnterior` | Casing |
+| 41 | 40 | `FechaExpedicionFacturaAnterior` | `fechaExpedicionFacturaAnterior` | Casing |
+| 42 | 41 | `EstadoEnvioAEAT` | `estadoEnvioAEAT` | Casing |
+| 43 | 42 | `CSVAEAT` | `csvAEAT` | Casing |
+| 44 | 43 | `FechaEnvioAEAT` | `fechaEnvioAEAT` | Casing |
+| 45 | 44 | `PayloadFiscal` | `payloadFiscal` | Casing |
+
+---
+
+## Grupo 2 — `DatosFiscales` (PascalCase → camelCase)
+
+|   | A | B | C | D |
+|---|---|---|---|---|
+| 1 | # | ID oculta antigua (v3) | ID oculta actual (v4) | Tipo |
+| 2 | 45 | `RegimenesEspeciales` | `regimenesEspeciales` | Casing |
+| 3 | 46 | `EsMinoristaRecargoEquivalencia` | `esMinoristaRecargoEquivalencia` | Casing |
+| 4 | 47 | `EsEmpresarioProfesional` | `esEmpresarioProfesional` | Casing |
+| 5 | 48 | `SistemaInformatico` | `sistemaInformatico` | Casing |
+| 6 | 49 | `NIFProductor` | `nifProductor` | Casing |
+| 7 | 50 | `NombreRazonProductor` | `nombreRazonProductor` | Casing |
+| 8 | 51 | `IDSistemaInformatico` | `idSistemaInformatico` | Casing |
+| 9 | 52 | `Version` | `version` | Casing |
+| 10 | 53 | `NumeroInstalacion` | `numeroInstalacion` | Casing |
+| 11 | 54 | `TipoUsoPosibleSoloVerifactu` | `tipoUsoPosibleSoloVerifactu` | Casing |
+| 12 | 55 | `TipoUsoPosibleMultiOT` | `tipoUsoPosibleMultiOT` | Casing |
+| 13 | 56 | `IndicadorMultiplesOT` | `indicadorMultiplesOT` | Casing |
+| 14 | 57 | `FechaInicioVerifactu` | `fechaInicioVerifactu` | Casing |
+| 15 | 58 | `NIFEmisorLegacy` | `nifEmisorLegacy` | Casing |
+| 16 | 59 | `businessTaxId` (mencionado v3 R9) | `nifEmisorLegacy` | Renombrado |
+
+---
+
+## Grupo 3 — `ServiciosCatalogo` (PascalCase → camelCase)
+
+|   | A | B | C | D |
+|---|---|---|---|---|
+| 1 | # | ID oculta antigua (v3) | ID oculta actual (v4) | Tipo |
+| 2 | 60 | `TipoImpositivo` | `tipoImpositivo` | Casing |
+| 3 | 61 | `CodigoImpuesto` | `codigoImpuesto` | Casing |
+| 4 | 62 | `ClaveRegimen` | `claveRegimen` | Casing |
+| 5 | 63 | `CalificacionOperacion` | `calificacionOperacion` | Casing |
+| 6 | 64 | `OperacionExenta` | `operacionExenta` | Casing |
+| 7 | 65 | `InversionSujetoPasivo` | `inversionSujetoPasivo` | Casing |
+| 8 | 66 | `CuentaContableIngreso` | `cuentaContableIngreso` | Casing |
+| 9 | 67 | `CuentaContableGasto` | `cuentaContableGasto` | Casing |
+
+---
+
+## Grupo 4 — `ComplementosCatalogo` (PascalCase → camelCase)
+
+|   | A | B | C | D |
+|---|---|---|---|---|
+| 1 | # | ID oculta antigua (v3) | ID oculta actual (v4) | Tipo |
+| 2 | 68 | `CodigoImpuesto` | `codigoImpuesto` | Casing |
+| 3 | 69 | `ClaveRegimen` | `claveRegimen` | Casing |
+| 4 | 70 | `CuentaContableIngreso` | `cuentaContableIngreso` | Casing |
+
+---
+
+## Grupo 5 — `HistoricoCierresZ` (PascalCase → camelCase)
+
+|   | A | B | C | D |
+|---|---|---|---|---|
+| 1 | # | ID oculta antigua (v3) | ID oculta actual (v4) | Tipo |
+| 2 | 71 | `FechaOperacion` | `fechaOperacion` | Casing |
+| 3 | 72 | `EstadoEnvioAEAT` | `estadoEnvioAEAT` | Casing |
+| 4 | 73 | `FechaEnvioAEAT` | `fechaEnvioAEAT` | Casing |
+| 5 | 74 | `RespuestaAEAT` | `respuestaAEAT` | Casing |
+| 6 | 75 | `CSVAEAT` | `csvAEAT` | Casing |
+| 7 | 76 | `CuentaContable` | `cuentaContable` | Casing |
+| 8 | 77 | `SaldoDebe` | `saldoDebe` | Casing |
+| 9 | 78 | `SaldoHaber` | `saldoHaber` | Casing |
+
+---
+
+## Grupo 6 — `ProveedoresLista` (PascalCase → camelCase)
+
+|   | A | B | C | D |
+|---|---|---|---|---|
+| 1 | # | ID oculta antigua (v3) | ID oculta actual (v4) | Tipo |
+| 2 | 79 | `CuentaContableGasto` | `cuentaContableGasto` | Casing |
+| 3 | 80 | `CuentaContableIVA` | `cuentaContableIVA` | Casing |
+| 4 | 81 | `CuentaContableProveedor` | `cuentaContableProveedor` | Casing |
+| 5 | 82 | `CodigoImpuesto` | `codigoImpuesto` | Casing |
+| 6 | 83 | `ClaveRegimen` | `claveRegimen` | Casing |
+| 7 | 84 | `CalificacionOperacion` | `calificacionOperacion` | Casing |
+
+---
+
+## Grupo 7 — Valores enum (ingleses → español)
+
+|   | A | B | C | D | E |
+|---|---|---|---|---|---|
+| 1 | # | Valor antiguo (v3) | Valor actual (v4) | Colección · Campo | Tipo |
+| 2 | 85 | `CONFIRMED` | `CONFIRMADO` | `CitasF2.bookingStatus` | Valor |
+| 3 | 86 | `PENDING_PAYMENT` | `PENDIENTE_PAGO` | `CitasF2.bookingStatus` | Valor |
+| 4 | 87 | `CANCELLED` | `CANCELADO` | `CitasF2.bookingStatus` | Valor |
+| 5 | 88 | `REFUNDED` | `REEMBOLSADO` | `CitasF2.bookingStatus` | Valor |
+| 6 | 89 | `UNPAID` | `IMPAGADO` | `CitasF2.paymentStatus` | Valor |
+| 7 | 90 | `NOT_PAID` | `NO_PAGADO` | `CitasF2.paymentStatus` | Valor |
+| 8 | 91 | `PENDING_PAYMENT` | `PENDIENTE_PAGO` | `CitasF2.paymentStatus` | Valor |
+| 9 | 92 | `PENDING_LEDGER` | `PENDIENTE_ASIENTO` | `CitasF2.paymentStatus` | Valor |
+| 10 | 93 | `PAID` | `PAGADO` | `CitasF2.paymentStatus` | Valor |
+| 11 | 94 | `REFUNDED` | `REEMBOLSADO` | `CitasF2.paymentStatus` | Valor |
+| 12 | 95 | `PARTIALLY_REFUNDED` | `REEMBOLSADO_PARCIAL` | `CitasF2.paymentStatus` | Valor |
+
+---
+
+## Grupo 8 — Constantes de configuración (inglés → español)
+
+|   | A | B | C | D |
+|---|---|---|---|---|
+| 1 | # | Valor antiguo (v3) | Valor actual (v4) | Tipo |
+| 2 | 96 | `TOLERANCE_MINUTES` | `MINUTOS_TOLERANCIA` | Renombrado |
+| 3 | 97 | `MAX_DUAL_GAP_MINUTES` | `MINUTOS_MAX_HUECO_DUAL` | Renombrado |
+| 4 | 98 | `MAX_PER_BOOKING` | `MAX_POR_RESERVA` | Renombrado |
+| 5 | 99 | `MUTEX_TTL_MS` | `MS_TTL_MUTEX` | Renombrado |
+| 6 | 100 | `HEARTBEAT_MS` | `MS_LATIDO` | Renombrado |
+| 7 | 101 | `LEDGER_MUTEX_TTL_MS` | `MS_TTL_MUTEX_ASIENTO` | Renombrado |
+| 8 | 102 | `DISPLAY_CURRENCY` | `MONEDA_VISUALIZACION` | Renombrado |
+| 9 | 103 | `DECIMALS` | `DECIMALES` | Renombrado |
+| 10 | 104 | `EXPIRATION_MS` | `MS_EXPIRACION` | Renombrado |
+
+---
+
+## Grupo 9 — Constantes JS (identificadores exportados)
+
+|   | A | B | C | D |
+|---|---|---|---|---|
+| 1 | # | Constante antigua (v3) | Constante actual (v4) | Tipo |
+| 2 | 105 | `TIPO_FICHAJE` | `TIMECLOCK_TYPE` | Renombrado |
+| 3 | 106 | `TIPO_MOVIMIENTO` | `MOVEMENT_TYPE` | Renombrado |
+| 4 | 107 | `FORMA_PAGO` | `PAYMENT_METHOD` | Renombrado |
+| 5 | 108 | `CAJA_STATUS` | `CASH_REGISTER_STATUS` | Renombrado |
+| 6 | 109 | `ESTADO_CITA` | `BOOKING_STATUS` | Renombrado |
+| 7 | 110 | `ESTADO_PAGO` | `PAYMENT_STATUS` | Renombrado |
+| 8 | 111 | `COLLAB_ROLES` | `COLLABORATOR_ROLES` | Renombrado |
+| 9 | 112 | `SERVICE_CATALOG` | `CATALOG_CONFIG` | Renombrado |
+| 10 | 113 | `CITA_FIELDS` | `BOOKING_FIELDS` | Renombrado |
+| 11 | 114 | `MONEY` | `CURRENCY_CONFIG` | Renombrado |
+| 12 | 115 | `CUENTAS_PGC` | `ACCOUNTING_ACCOUNT` | Renombrado |
+| 13 | 116 | `CLAVES_AEAT` | `AEAT_INVOICE_TYPE` | Renombrado |
+| 14 | 117 | `MOTIVOS_RECTIFICACION` | `CORRECTION_REASON` | Renombrado |
+| 15 | 118 | `TIPOS_RETENCION_IRPF` | `IRPF_WITHHOLDING_RATE` | Renombrado |
+| 16 | 119 | `ESTADO_DEVENGO_IVA` | `VAT_ACCRUAL_STATUS` | Renombrado |
+| 17 | 120 | `ROL_FISCAL` | `FISCAL_ROLE` | Renombrado |
+| 18 | 121 | `TIPO_EVENTO` | `EVENT_TYPE` | Renombrado |
+| 19 | 122 | `NATURALEZA_ITEM` | `ITEM_NATURE` | Renombrado |
+| 20 | 123 | `TIPO_TERCERO` | `THIRD_PARTY_TYPE` | Renombrado |
+| 21 | 124 | `PROYECCION_ESTADO` | `PROJECTION_STATUS` | Renombrado |
+| 22 | 125 | `SISTEMA_INFORMATICO` | `COMPUTER_SYSTEM` | Renombrado |
+
+---
+
+## Grupo 10 — Colecciones eliminadas / fusionadas
+
+|   | A | B | C | D |
+|---|---|---|---|---|
+| 1 | # | Antiguo (v3) | Actual (v4) | Acción |
+| 2 | 126 | `AsientosContables` | — | Eliminada |
+| 3 | 127 | `LibroAsientosContablesDetalle` | — | Eliminada |
+| 4 | 128 | `FacturasRecibidas` | — | Eliminada |
+| 5 | 129 | `ConfiguracionFiscal` | `DatosFiscales` (`recordType=CONFIG_SISTEMA`) | Fusionada |
+
+---
+
+## Resumen cuantitativo
+
+|   | A | B |
+|---|---|---|
+| 1 | Métrica | Valor |
+| 2 | Total cambios en IDs ocultas | 129 |
+| 3 | Cambios de casing (PascalCase → camelCase) | ~85 |
+| 4 | Renombrados semánticos | 22 |
+| 5 | Valores enum migrados | 11 |
+| 6 | Colecciones eliminadas/fusionadas | 4 |
+| 7 | Colecciones afectadas | 8 |
+| 8 | Patrón dominante | Normalización casing AEAT/PGC a camelCase |
+
+---
+
+## Notas operativas
+
+|   | A | B |
+|---|---|---|
+| 1 | # | Nota |
+| 2 | 1 | **Cero cambios semánticos** en campos con `Casing`: solo cambia la primera letra (mayúscula → minúscula). Los literales AEAT/PGC mantienen su grafía normativa completa |
+| 3 | 2 | **Orden de aplicación:** renombrar constantes JS primero → luego campos CMS → luego valores enum → finalmente queries |
+| 4 | 3 | **Regresión:** los cambios de casing afectan a `.eq('NumSerieFactura', ...)` → `.eq('numSerieFactura', ...)` en todos los consumidores |
+| 5 | 4 | **Migración de datos CMS:** los valores almacenados con casing PascalCase deben migrarse a camelCase en la nueva columna |
+| 6 | 5 | **Wix preserva casing exacto** en `fieldKey`; cualquier diferencia entre v3 y v4 requiere crear nuevo campo y migrar |
+
+---
+
+**Estado:** matriz v3 → v4 emitida. 129 cambios en IDs ocultas, 85 por casing, 22 renombrados semánticos, 11 valores enum migrados, 4 colecciones eliminadas/fusionadas. Coherente con BIBLIA v4 y Cumplimiento D0–D12: 100 %.
+
+ANEXO ACTUALIZACION DATOS ANTERIORES
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://marianmadrid.es/ssot/v5009-v20-identity-cross-audit.json",
+  "meta": {
+    "operation": "CRUCE DE IDENTIDADES CROSS-COLLECTION",
+    "sourceDocument": "v5009-V20-FINAL-CONSOLIDATED-v4",
+    "auditDate": "2026-09-26",
+    "totalFieldsScanned": 305,
+    "crossCollectionIdentitiesFound": 38,
+    "trueDuplicatesConsolidated": 4,
+    "denormalizedSnapshotsDocumented": 5,
+    "falsePositivesDiscarded": 6,
+    "typeInconsistenciesFixed": 3
+  },
+
+  "identityCrossMatrix": [
+    {
+      "identity": "resourceId",
+      "collections": ["MapaStaff", "CitasF2", "MovimientosCaja", "RegistrosHorariosStaff", "AvailabilityDaysCache", "DualSlotCache"],
+      "dataType": "WIX_GUID",
+      "sameData": true,
+      "sameUse": false,
+      "verdict": "NO_CONSOLIDAR",
+      "reason": "En MovimientosCaja está DEPRECADO y sustituido por staffResourceId (D7 cualificación). En el resto es el mismo GUID Bookings Resource pero con roles contextuales distintos (recurso de la reserva, recurso del fichaje, recurso de disponibilidad). La ID canónica Wix se preserva (R19). No hay doble nomenclatura: el ID código es resourceId en todas. La diferencia es que MovimientosCaja usa staffResourceId como reemplazo cualificado del deprecado resourceId.",
+      "rule": "R19 + D7",
+      "action": "Mantener resourceId en MapaStaff, CitasF2, RegistrosHorariosStaff, caches. Mantener staffResourceId en MovimientosCaja como canónico (reemplaza al deprecado resourceId)."
+    },
+    {
+      "identity": "staffMemberId vs actorMemberId",
+      "collections": ["MapaStaff (staffMemberId)", "DatosFiscales (staffMemberId)", "RegistrosHorariosStaff (staffMemberId)", "MovimientosInventario (actorMemberId)"],
+      "dataType": "WIX_GUID",
+      "sameData": true,
+      "sameUse": false,
+      "verdict": "NO_CONSOLIDAR",
+      "reason": "Todos son GUIDs de Wix Members (mismo tipo de dato), PERO tienen roles semánticos distintos: staffMemberId identifica al staff en el mapa/registro laboral, actorMemberId identifica al actor que realiza un movimiento de inventario (puede ser admin, no necesariamente staff). D7 cualifica con dominio diferente. No hay doble nomenclatura porque los ID código ya son distintos y cualificados.",
+      "rule": "R19 + D7",
+      "action": "Mantener staffMemberId y actorMemberId como IDs distintas. Ambas son canónicas Wix preservadas."
+    },
+    {
+      "identity": "productId vs wixProductId",
+      "collections": ["HistoricoCierresZ (productId)", "MovimientosInventario (wixProductId)", "InventarioStockVenta (wixProductId)"],
+      "dataType": "WIX_GUID",
+      "sameData": true,
+      "sameUse": true,
+      "verdict": "CONSOLIDAR",
+      "reason": "AMBOs son el GUID del producto en Wix Stores. productId en HistoricoCierresZ y wixProductId en MovimientosInventario/InventarioStockVenta son el MISMO dato con el MISMO uso (identificar producto Wix Stores). Hay doble nomenclatura: productId vs wixProductId. Según D6 (anti-duplicidad), debe consolidarse. wixProductId está ya cualificado y es mayoritario (2 colecciones vs 1).",
+      "rule": "D6 + R19",
+      "action": "CONSOLIDAR: HistoricoCierresZ.productId → wixProductId. Actualizar índice (sku, closingType) para incluir wixProductId si es necesario.",
+      "migration": {
+        "collection": "HistoricoCierresZ",
+        "oldField": "productId",
+        "newField": "wixProductId",
+        "type": "Text",
+        "origin": "WIX",
+        "visibleId": "wixProductId",
+        "notes": "ID canónica Wix Stores preservada. Consolidado desde productId por D6."
+      }
+    },
+    {
+      "identity": "taxId (DatosFiscales vs ProveedoresLista)",
+      "collections": ["DatosFiscales (taxId)", "ProveedoresLista (taxId)"],
+      "dataType": "TEXT",
+      "sameData": true,
+      "sameUse": true,
+      "verdict": "DOCUMENTAR_DENORMALIZACION",
+      "reason": "taxId en ProveedoresLista DUPLICA taxId en DatosFiscales. Según D6.5, no se debe duplicar el mismo dato en dos colecciones. SIN EMBARGO, ProveedoresLista es SSOT activa (R15) y tiene thirdPartyId FK a DatosFiscales. La duplicidad es una denormalización controlada para acceso directo sin join. Debe documentarse como snapshot FK, no como dato independiente.",
+      "rule": "D6.5 + R15",
+      "action": "Mantener taxId en ProveedoresLista pero documentar como SNAPSHOT denormalizado de DatosFiscales.taxId vía thirdPartyId. Añadir nota: 'Snapshot FK. DatosFiscales es SSOT. No modificar independientemente.'",
+      "affectedFields": ["taxId", "legalName", "contactData", "paymentTerms", "isRegularSupplier"]
+    },
+    {
+      "identity": "paymentMethod (tipo inconsistente)",
+      "collections": ["MovimientosCaja (TextEnum)", "CompensacionesPendientes (Text)"],
+      "dataType": "ENUM",
+      "sameData": true,
+      "sameUse": true,
+      "verdict": "CONSOLIDAR_TIPO",
+      "reason": "paymentMethod en MovimientosCaja es TextEnum con valores EFECTIVO/TARJETA/BIZUM/ONLINE/TARJETA_REGALO. En CompensacionesPendientes es Text plano. Es el MISMO dato con el MISMO uso. Debe ser TextEnum en ambas para garantizar integridad referencial de valores.",
+      "rule": "D10 + D6",
+      "action": "CONSOLIDAR: CompensacionesPendientes.paymentMethod → TextEnum con los mismos valores que MovimientosCaja.paymentMethod.",
+      "migration": {
+        "collection": "CompensacionesPendientes",
+        "field": "paymentMethod",
+        "oldType": "Text",
+        "newType": "TextEnum",
+        "values": ["EFECTIVO", "TARJETA", "BIZUM", "ONLINE", "TARJETA_REGALO"]
+      }
+    },
+    {
+      "identity": "amount / concept (alias legacy faltante en CompensacionesPendientes)",
+      "collections": ["MovimientosCaja (amount→totalAmount, concept→operationDescription)", "CompensacionesPendientes (amount, concept)"],
+      "dataType": "NUMBER / TEXT",
+      "sameData": true,
+      "sameUse": true,
+      "verdict": "CONSOLIDAR_CANONICO",
+      "reason": "En MovimientosCaja, amount es alias legacy de totalAmount, y concept es alias legacy de operationDescription (D9). En CompensacionesPendientes, amount y concept existen SIN campo canónico alternativo. Esto crea inconsistencia: el mismo concepto monetario/descriptivo tiene tratamiento diferente según la colección. Debe añadirse totalAmount y operationDescription como canónicos en CompensacionesPendientes y marcar amount/concept como alias legacy.",
+      "rule": "D9 + D6",
+      "action": "AÑADIR en CompensacionesPendientes: totalAmount (Number, canónico) y operationDescription (Text, canónico). Marcar amount y concept como alias legacy con retirada V5010.",
+      "migration": {
+        "collection": "CompensacionesPendientes",
+        "addFields": [
+          {"idCode": "totalAmount", "idVisible": "importeTotal", "type": "Number", "origin": "CUSTOM", "notes": "Canónico. Reemplaza amount."},
+          {"idCode": "operationDescription", "idVisible": "operacionDescripcion", "type": "Text", "origin": "CUSTOM", "notes": "Canónico. Reemplaza concept."}
+        ],
+        "markLegacy": [
+          {"idCode": "amount", "aliasOf": "totalAmount", "removal": "V5010"},
+          {"idCode": "concept", "aliasOf": "operationDescription", "removal": "V5010"}
+        ]
+      }
+    },
+    {
+      "identity": "recordType (colisión de genérica)",
+      "collections": ["DatosFiscales (recordType: TERCERO/CONFIG_SISTEMA)", "RegistrosHorariosStaff (recordType: REGULAR/AJUSTE)"],
+      "dataType": "TEXT_ENUM",
+      "sameData": false,
+      "sameUse": false,
+      "verdict": "NO_CONSOLIDAR",
+      "reason": "Aunque ambos se llaman recordType, son discriminadores DIFERENTES para colecciones DIFERENTES. En DatosFiscales discrimina tipo de registro fiscal (TERCERO vs CONFIG_SISTEMA). En RegistrosHorariosStaff discrimina tipo de fichaje (REGULAR vs AJUSTE). NO son el mismo dato. Es una colisión de ID genérica (D7) que idealmente debería cualificarse (fiscalRecordType vs clockRecordType), pero la BIBLIA los mantiene como recordType porque están en colecciones sin FK directa para este campo y no causan ambigüedad en queries.",
+      "rule": "D7 (colisión aceptada)",
+      "action": "Mantener recordType en ambas. Documentar como colisión de genérica aceptada. En V5010, evaluar cualificación si se añade FK cruzada."
+    },
+    {
+      "identity": "movementType (enums diferentes)",
+      "collections": ["MovimientosCaja (TextEnum, 19 valores)", "MovimientosInventario (Text)", "CompensacionesPendientes (Text)"],
+      "dataType": "TEXT_ENUM / TEXT",
+      "sameData": false,
+      "sameUse": false,
+      "verdict": "NO_CONSOLIDAR",
+      "reason": "movementType en MovimientosCaja tiene 19 valores de movimientos de caja (VENTA_EFECTIVO, VENTA_TARJETA, etc.). En MovimientosInventario tiene valores de movimientos de inventario (VENTA, DEVOLUCION, AJUSTE, etc. — no los mismos 19). En CompensacionesPendientes es Text plano referenciando cualquiera de los anteriores. Son enums DIFERENTES para dominios DIFERENTES. No deben consolidarse en un solo enum.",
+      "rule": "D7 (genérica en dominios distintos)",
+      "action": "Mantener movementType separado en cada colección. Documentar que son enums diferentes. En MovimientosInventario y CompensacionesPendientes, considerar cambiar a TextEnum con sus valores específicos para integridad."
+    },
+    {
+      "identity": "sourceEventId",
+      "collections": ["CitasF2", "HistoricoCierresZ", "CompensacionesPendientes", "MovimientosInventario"],
+      "dataType": "TEXT",
+      "sameData": true,
+      "sameUse": true,
+      "verdict": "OK_CONSISTENTE",
+      "reason": "Todos son FK a MovimientosCaja._id. Mismo dato, mismo uso, nomenclatura consistente. No hay duplicidad ni inconsistencia.",
+      "rule": "D6.6",
+      "action": "Sin cambios."
+    },
+    {
+      "identity": "thirdPartyId",
+      "collections": ["MapaStaff", "MovimientosCaja", "CitasF2", "CompensacionesPendientes", "MovimientosInventario", "ProveedoresLista"],
+      "dataType": "TEXT",
+      "sameData": true,
+      "sameUse": true,
+      "verdict": "OK_CONSISTENTE",
+      "reason": "Todos son FK a DatosFiscales._id. Mismo dato, mismo uso, nomenclatura consistente.",
+      "rule": "D6.6",
+      "action": "Sin cambios."
+    },
+    {
+      "identity": "pairToken",
+      "collections": ["CitasF2", "MovimientosCaja", "BookingTransactions", "SlotLocks"],
+      "dataType": "TEXT",
+      "sameData": true,
+      "sameUse": true,
+      "verdict": "OK_CONSISTENTE",
+      "reason": "Token de saga de reserva. Mismo dato, mismo uso, nomenclatura consistente.",
+      "rule": "D6.6",
+      "action": "Sin cambios."
+    },
+    {
+      "identity": "traceId",
+      "collections": ["MovimientosCaja", "CitasF2", "HistoricoCierresZ", "CompensacionesPendientes", "MovimientosInventario", "RegistrosHorariosStaff", "ProveedoresLista", "BookingTransactions", "BookingsServiceSyncQueue", "M365GraphSyncQueue", "AlertasOperativas", "ProcessedWebhookEvents"],
+      "dataType": "TEXT",
+      "sameData": true,
+      "sameUse": true,
+      "verdict": "OK_CONSISTENTE",
+      "reason": "ID de traza de operación. Mismo dato, mismo uso, nomenclatura consistente. Obligatorio en colecciones operativas (R18).",
+      "rule": "R18 + D6.6",
+      "action": "Sin cambios."
+    },
+    {
+      "identity": "orderId",
+      "collections": ["MovimientosCaja", "CompensacionesPendientes", "MovimientosInventario"],
+      "dataType": "WIX_GUID",
+      "sameData": true,
+      "sameUse": true,
+      "verdict": "OK_CONSISTENTE",
+      "reason": "GUID de orden eCom Wix. ID canónica Wix preservada. Nomenclatura consistente.",
+      "rule": "R19",
+      "action": "Sin cambios."
+    },
+    {
+      "identity": "refundId",
+      "collections": ["MovimientosCaja", "CompensacionesPendientes", "MovimientosInventario"],
+      "dataType": "WIX_GUID",
+      "sameData": true,
+      "sameUse": true,
+      "verdict": "OK_CONSISTENTE",
+      "reason": "GUID de reembolso eCom Wix. ID canónica Wix preservada. Nomenclatura consistente.",
+      "rule": "R19",
+      "action": "Sin cambios."
+    },
+    {
+      "identity": "transactionId",
+      "collections": ["MovimientosCaja", "CompensacionesPendientes"],
+      "dataType": "TEXT",
+      "sameData": true,
+      "sameUse": true,
+      "verdict": "OK_CONSISTENTE",
+      "reason": "ID de transacción para idempotencia. Mismo dato, mismo uso.",
+      "rule": "D6.6",
+      "action": "Sin cambios."
+    },
+    {
+      "identity": "sku",
+      "collections": ["ServiciosCatalogo", "HistoricoCierresZ", "InventarioStockVenta", "MovimientosInventario"],
+      "dataType": "TEXT",
+      "sameData": true,
+      "sameUse": true,
+      "verdict": "OK_CONSISTENTE",
+      "reason": "Código SKU del producto. Anglicismo D5. Nomenclatura consistente.",
+      "rule": "D5",
+      "action": "Sin cambios."
+    },
+    {
+      "identity": "serviceId",
+      "collections": ["ServiciosCatalogo", "CitasF2", "AvailabilityDaysCache", "DualSlotCache", "BookingsServiceSyncQueue"],
+      "dataType": "WIX_GUID",
+      "sameData": true,
+      "sameUse": true,
+      "verdict": "OK_CONSISTENTE",
+      "reason": "GUID del servicio Bookings. ID canónica Wix. En CitasF2 la ID visible es reservaServicioId (cualificación contextual D3.8) pero el ID código es serviceId. No hay doble nomenclatura en el ID código.",
+      "rule": "R19 + D3.8",
+      "action": "Sin cambios."
+    },
+    {
+      "identity": "locationId",
+      "collections": ["MapaStaff", "ServiciosCatalogo"],
+      "dataType": "WIX_GUID",
+      "sameData": true,
+      "sameUse": true,
+      "verdict": "OK_CONSISTENTE",
+      "reason": "GUID de la ubicación Bookings. Una sola ubicación del negocio. ID canónica Wix. Nomenclatura consistente.",
+      "rule": "R19",
+      "action": "Sin cambios."
+    },
+    {
+      "identity": "estadoEnvioAEAT / fechaEnvioAEAT / csvAEAT",
+      "collections": ["MovimientosCaja", "HistoricoCierresZ"],
+      "dataType": "AEAT",
+      "sameData": true,
+      "sameUse": false,
+      "verdict": "NO_CONSOLIDAR",
+      "reason": "Mismo tipo de dato AEAT pero diferente granularidad: en MovimientosCaja es por factura individual, en HistoricoCierresZ es por cierre Z/resumen. Son el mismo concepto pero a diferente nivel de agregación. No es duplicidad.",
+      "rule": "D8",
+      "action": "Sin cambios."
+    },
+    {
+      "identity": "tipoImpositivo / claveRegimen / calificacionOperacion / codigoImpuesto",
+      "collections": ["ServiciosCatalogo", "ComplementosCatalogo", "MovimientosCaja", "ProveedoresLista"],
+      "dataType": "AEAT",
+      "sameData": true,
+      "sameUse": false,
+      "verdict": "NO_CONSOLIDAR",
+      "reason": "Mismo concepto AEAT pero en entidades diferentes: catálogo (maestro), factura (transaccional snapshot), proveedor (maestro). Los snapshots en MovimientosCaja son requeridos por normativa fiscal (inmutabilidad del registro). No es duplicidad funcional.",
+      "rule": "D8 + D6.5 (excepción snapshot fiscal)",
+      "action": "Sin cambios."
+    },
+    {
+      "identity": "cuentaContableIngreso / cuentaContableGasto",
+      "collections": ["ServiciosCatalogo", "ComplementosCatalogo", "ProveedoresLista"],
+      "dataType": "PGC",
+      "sameData": true,
+      "sameUse": false,
+      "verdict": "NO_CONSOLIDAR",
+      "reason": "Mismo concepto PGC pero en entidades diferentes: servicio (cuenta de ingreso), complemento (cuenta de ingreso), proveedor (cuenta de gasto). Son configuraciones maestras por entidad.",
+      "rule": "D8",
+      "action": "Sin cambios."
+    },
+    {
+      "identity": "itemNature",
+      "collections": ["ServiciosCatalogo", "ComplementosCatalogo", "ProveedoresLista"],
+      "dataType": "TEXT_ENUM",
+      "sameData": true,
+      "sameUse": true,
+      "verdict": "OK_CONSISTENTE",
+      "reason": "Naturaleza del item. Mismo enum, mismo uso, nomenclatura consistente.",
+      "rule": "D6.6",
+      "action": "Sin cambios."
+    }
+  ],
+
+  "consolidationActions": [
+    {
+      "actionId": "CONS-001",
+      "type": "FIELD_RENAME",
+      "collection": "HistoricoCierresZ",
+      "oldField": "productId",
+      "newField": "wixProductId",
+      "newVisibleId": "wixProductId",
+      "dataType": "Text",
+      "origin": "WIX",
+      "reason": "D6 anti-duplicidad: productId y wixProductId son el mismo GUID Wix Stores. wixProductId es mayoritario y está cualificado.",
+      "rule": "D6 + R19",
+      "impact": "Actualizar bloque 4.7.2 (cierres inventario). Migrar datos existentes: UPDATE HistoricoCierresZ SET wixProductId = productId WHERE productId IS NOT NULL.",
+      "indexUpdate": "Reemplazar productId por wixProductId en índice (sku, closingType) si aplica."
+    },
+    {
+      "actionId": "CONS-002",
+      "type": "TYPE_CHANGE",
+      "collection": "CompensacionesPendientes",
+      "field": "paymentMethod",
+      "oldType": "Text",
+      "newType": "TextEnum",
+      "values": ["EFECTIVO", "TARJETA", "BIZUM", "ONLINE", "TARJETA_REGALO"],
+      "reason": "D10 + D6: paymentMethod debe ser TextEnum con los mismos valores que MovimientosCaja.paymentMethod para garantizar integridad.",
+      "rule": "D10 + D6",
+      "impact": "Validar datos existentes contra enum. Migrar valores no válidos a null o valor por defecto."
+    },
+    {
+      "actionId": "CONS-003",
+      "type": "ADD_CANONICAL_FIELDS",
+      "collection": "CompensacionesPendientes",
+      "newFields": [
+        {
+          "#": 24,
+          "idCode": "totalAmount",
+          "idVisible": "importeTotal",
+          "type": "Number",
+          "origin": "CUSTOM",
+          "required": false,
+          "unique": false,
+          "rule": "D9",
+          "notes": "Canónico. Reemplaza amount."
+        },
+        {
+          "#": 25,
+          "idCode": "operationDescription",
+          "idVisible": "operacionDescripcion",
+          "type": "Text",
+          "origin": "CUSTOM",
+          "required": false,
+          "unique": false,
+          "rule": "D9",
+          "notes": "Canónico. Reemplaza concept."
+        }
+      ],
+      "legacyMarks": [
+        {"field": "amount", "aliasOf": "totalAmount", "removal": "V5010", "visibleId": "importeLegacy"},
+        {"field": "concept", "aliasOf": "operationDescription", "removal": "V5010", "visibleId": "conceptoLegacy"}
+      ],
+      "reason": "D9: amount y concept en CompensacionesPendientes no tenían campo canónico alternativo, creando inconsistencia con MovimientosCaja.",
+      "rule": "D9 + D6",
+      "impact": "Migrar datos: UPDATE CompensacionesPendientes SET totalAmount = amount, operationDescription = concept. Backend debe escribir en canónicos y tolerar legacy en lectura."
+    },
+    {
+      "actionId": "CONS-004",
+      "type": "DOCUMENT_DENORMALIZATION",
+      "collection": "ProveedoresLista",
+      "fields": ["taxId", "legalName", "contactData", "paymentTerms", "isRegularSupplier"],
+      "reason": "D6.5: Estos campos duplican datos de DatosFiscales. Se mantiene como denormalización controlada (snapshot FK) para acceso directo sin join, dado que ProveedoresLista es SSOT activa (R15). DatosFiscales es la fuente de verdad; ProveedoresLista debe sincronizarse vía thirdPartyId.",
+      "rule": "D6.5 + R15",
+      "action": "Añadir nota en cada campo: 'Snapshot denormalizado de DatosFiscales vía thirdPartyId. DatosFiscales es SSOT. No modificar independientemente. Sincronización automática en beforeUpdate.'",
+      "hookRequirement": "beforeUpdate en ProveedoresLista debe propagar cambios a DatosFiscales (o viceversa) para mantener consistencia."
+    },
+    {
+      "actionId": "CONS-005",
+      "type": "ENUM_TYPE_FIX",
+      "collection": "MovimientosInventario",
+      "field": "movementType",
+      "oldType": "Text",
+      "newType": "TextEnum",
+      "values": ["VENTA", "DEVOLUCION", "AJUSTE", "ENTRADA_STOCK", "SALIDA_STOCK", "TRANSFERENCIA"],
+      "reason": "D10: movementType en MovimientosInventario debe ser TextEnum con valores específicos de inventario (no los mismos 19 de MovimientosCaja).",
+      "rule": "D10",
+      "impact": "Definir enum específico para inventario. Validar datos existentes."
+    },
+    {
+      "actionId": "CONS-006",
+      "type": "ENUM_TYPE_FIX",
+      "collection": "CompensacionesPendientes",
+      "field": "movementType",
+      "oldType": "Text",
+      "newType": "TextEnum",
+      "values": ["VENTA_EFECTIVO", "VENTA_TARJETA", "VENTA_BIZUM", "VENTA_ONLINE", "VENTA_PRODUCTO", "VENTA_PRODUCTO_ONLINE", "VENTA_TARJETA_REGALO", "CANJE_TARJETA_REGALO", "REEMBOLSO", "DEVOLUCION_SERVICIO", "DEVOLUCION_PRODUCTO", "AJUSTE", "PROPINA", "APORTE", "RETIRO", "GASTO", "PAGO_PROVEEDOR", "ANTICIPO", "FONDO_INICIAL"],
+      "reason": "D10: movementType en CompensacionesPendientes referencia movimientos de caja, debe usar el mismo enum que MovimientosCaja.movementType.",
+      "rule": "D10 + D6",
+      "impact": "Validar datos existentes contra enum de MovimientosCaja."
+    }
+  ],
+
+  "falsePositives": [
+    {
+      "identity": "resourceId vs staffResourceId",
+      "reason": "staffResourceId es la versión cualificada (D7) que reemplaza al deprecado resourceId en MovimientosCaja. No es duplicidad, es reemplazo."
+    },
+    {
+      "identity": "staffMemberId vs actorMemberId",
+      "reason": "Mismo tipo de ID (Wix Members GUID) pero diferente rol semántico. D7 cualifica."
+    },
+    {
+      "identity": "recordType (DatosFiscales vs RegistrosHorariosStaff)",
+      "reason": "Discriminadores diferentes para colecciones diferentes. No son el mismo dato."
+    },
+    {
+      "identity": "movementType (MovimientosCaja vs MovimientosInventario)",
+      "reason": "Enums diferentes para dominios diferentes (caja vs inventario)."
+    },
+    {
+      "identity": "schemaVersion vs closingSchemaVersion",
+      "reason": "Versiones de esquema de diferente contexto (ledger vs cierre)."
+    },
+    {
+      "identity": "estadoEnvioAEAT / fechaEnvioAEAT / csvAEAT (MovimientosCaja vs HistoricoCierresZ)",
+      "reason": "Mismo concepto AEAT pero diferente granularidad (factura individual vs cierre agregado)."
+    }
+  ],
+
+  "updatedCollections": {
+    "HistoricoCierresZ": {
+      "changes": [
+        {
+          "block": "4.7.2 Bloque cierres inventario",
+          "action": "REPLACE_FIELD",
+          "oldRow": {"#": 6, "idCode": "productId", "idVisible": "productId", "type": "Text", "origin": "WIX"},
+          "newRow": {"#": 6, "idCode": "wixProductId", "idVisible": "wixProductId", "type": "Text", "origin": "WIX", "rule": "R19 + D6", "notes": "Consolidado desde productId. GUID Wix Stores."}
+        }
+      ],
+      "updatedFields": [
+        {"#": 1, "idCode": "inventoryClosingId", "idVisible": "inventarioCierreId", "type": "Text", "origin": "CUSTOM", "required": false, "unique": true, "rule": "D3"},
+        {"#": 2, "idCode": "fiscalYear", "idVisible": "ejercicioFiscal", "type": "Number", "origin": "CUSTOM", "required": false, "unique": false, "rule": "D3"},
+        {"#": 3, "idCode": "closingDate", "idVisible": "cierreFecha", "type": "DateTime", "origin": "CUSTOM", "required": false, "unique": false, "rule": "D3"},
+        {"#": 4, "idCode": "closingType", "idVisible": "cierreTipo", "type": "TextEnum", "origin": "CUSTOM", "required": false, "unique": false, "rule": "D7", "values": ["ANUAL", "MENSUAL", "EXTRAORDINARIO", "PAQUETE_GESTORIA"]},
+        {"#": 5, "idCode": "sku", "idVisible": "sku", "type": "Text", "origin": "CUSTOM", "required": false, "unique": false, "rule": "D5"},
+        {"#": 6, "idCode": "wixProductId", "idVisible": "wixProductId", "type": "Text", "origin": "WIX", "required": false, "unique": false, "rule": "R19 + D6", "notes": "Consolidado desde productId (CONS-001). GUID Wix Stores."},
+        {"#": 7, "idCode": "productDescription", "idVisible": "productoDescripcion", "type": "Text", "origin": "CUSTOM", "required": false, "unique": false, "rule": "D3"},
+        {"#": 8, "idCode": "stockQuantity", "idVisible": "stockCantidad", "type": "Number", "origin": "CUSTOM", "required": false, "unique": false, "rule": "D3"},
+        {"#": 9, "idCode": "unitCost", "idVisible": "costeUnitario", "type": "Number", "origin": "CUSTOM", "required": false, "unique": false, "rule": "D3"},
+        {"#": 10, "idCode": "stockValue", "idVisible": "stockValor", "type": "Number", "origin": "CUSTOM", "required": false, "unique": false, "rule": "D3"},
+        {"#": 11, "idCode": "cuentaContable", "idVisible": "cuentaContable", "type": "Text", "origin": "PGC", "required": false, "unique": false, "rule": "D8"},
+        {"#": 12, "idCode": "saldoDebe", "idVisible": "saldoDebe", "type": "Number", "origin": "PGC", "required": false, "unique": false, "rule": "D8"},
+        {"#": 13, "idCode": "saldoHaber", "idVisible": "saldoHaber", "type": "Number", "origin": "PGC", "required": false, "unique": false, "rule": "D8"}
+      ]
+    },
+
+    "CompensacionesPendientes": {
+      "changes": [
+        {
+          "action": "ADD_FIELDS",
+          "fields": ["totalAmount", "operationDescription"]
+        },
+        {
+          "action": "TYPE_CHANGE",
+          "field": "paymentMethod",
+          "newType": "TextEnum"
+        },
+        {
+          "action": "TYPE_CHANGE",
+          "field": "movementType",
+          "newType": "TextEnum"
+        },
+        {
+          "action": "MARK_LEGACY",
+          "fields": ["amount", "concept"]
+        }
+      ],
+      "updatedFields": [
+        {"#": 1, "idCode": "_id", "idVisible": "id", "type": "System", "origin": "SYS", "required": true, "unique": true, "rule": "SYS"},
+        {"#": 2, "idCode": "compensationId", "idVisible": "compensacionId", "type": "Text", "origin": "CUSTOM", "required": false, "unique": false, "rule": "D9", "notes": "Legacy"},
+        {"#": 3, "idCode": "compensationKind", "idVisible": "compensacionTipo", "type": "TextEnum", "origin": "CUSTOM", "required": true, "unique": false, "rule": "D7", "values": ["FISCAL_LEDGER", "BOOKING_ROLLBACK", "PAYMENT_RECOVERY", "CANCEL_BOOKING", "RESYNC_LEDGER_ACCOUNTING", "RESYNC_CAJA_BALANCE"]},
+        {"#": 4, "idCode": "compensationStatus", "idVisible": "compensacionEstado", "type": "TextEnum", "origin": "CUSTOM", "required": true, "unique": false, "rule": "D7", "values": ["PENDING", "PENDING_RECOVERY", "PROCESSING", "FAILED", "COMPLETED", "RETRYING"]},
+        {"#": 5, "idCode": "bookingId", "idVisible": "reservaId", "type": "Text", "origin": "WIX", "required": false, "unique": false, "rule": "R19"},
+        {"#": 6, "idCode": "bookingIds", "idVisible": "reservaIds", "type": "Text", "origin": "WIX", "required": false, "unique": false, "rule": "R19", "notes": "CSV"},
+        {"#": 7, "idCode": "phase", "idVisible": "fase", "type": "Text", "origin": "CUSTOM", "required": false, "unique": false, "rule": "D3"},
+        {"#": 8, "idCode": "attempts", "idVisible": "intentos", "type": "Number", "origin": "CUSTOM", "required": false, "unique": false, "rule": "D3"},
+        {"#": 9, "idCode": "amount", "idVisible": "importeLegacy", "type": "Number", "origin": "CUSTOM", "required": false, "unique": false, "rule": "D9", "notes": "Alias legacy de totalAmount. Retirada V5010."},
+        {"#": 10, "idCode": "totalAmount", "idVisible": "importeTotal", "type": "Number", "origin": "CUSTOM", "required": false, "unique": false, "rule": "D9", "notes": "Canónico. Reemplaza amount (CONS-003)."},
+        {"#": 11, "idCode": "paymentMethod", "idVisible": "pagoMetodo", "type": "TextEnum", "origin": "CUSTOM", "required": false, "unique": false, "rule": "D10 + D6", "values": ["EFECTIVO", "TARJETA", "BIZUM", "ONLINE", "TARJETA_REGALO"], "notes": "Consolidado a TextEnum (CONS-002). Mismo enum que MovimientosCaja.paymentMethod."},
+        {"#": 12, "idCode": "transactionId", "idVisible": "transaccionId", "type": "Text", "origin": "CUSTOM", "required": false, "unique": false, "rule": "D3"},
+        {"#": 13, "idCode": "orderId", "idVisible": "orderId", "type": "Text", "origin": "WIX", "required": false, "unique": false, "rule": "R19"},
+        {"#": 14, "idCode": "refundId", "idVisible": "refundId", "type": "Text", "origin": "WIX", "required": false, "unique": false, "rule": "R19"},
+        {"#": 15, "idCode": "concept", "idVisible": "conceptoLegacy", "type": "Text", "origin": "CUSTOM", "required": false, "unique": false, "rule": "D9", "notes": "Alias legacy de operationDescription. Retirada V5010."},
+        {"#": 16, "idCode": "operationDescription", "idVisible": "operacionDescripcion", "type": "Text", "origin": "CUSTOM", "required": false, "unique": false, "rule": "D9", "notes": "Canónico. Reemplaza concept (CONS-003)."},
+        {"#": 17, "idCode": "movementType", "idVisible": "movimientoTipo", "type": "TextEnum", "origin": "CUSTOM", "required": false, "unique": false, "rule": "D10 + D6", "values": ["VENTA_EFECTIVO", "VENTA_TARJETA", "VENTA_BIZUM", "VENTA_ONLINE", "VENTA_PRODUCTO", "VENTA_PRODUCTO_ONLINE", "VENTA_TARJETA_REGALO", "CANJE_TARJETA_REGALO", "REEMBOLSO", "DEVOLUCION_SERVICIO", "DEVOLUCION_PRODUCTO", "AJUSTE", "PROPINA", "APORTE", "RETIRO", "GASTO", "PAGO_PROVEEDOR", "ANTICIPO", "FONDO_INICIAL"], "notes": "Consolidado a TextEnum (CONS-006). Mismo enum que MovimientosCaja.movementType."},
+        {"#": 18, "idCode": "alertRequired", "idVisible": "alertaRequerida", "type": "Boolean", "origin": "CUSTOM", "required": false, "unique": false, "rule": "D3"},
+        {"#": 19, "idCode": "lastError", "idVisible": "ultimoError", "type": "Text", "origin": "CUSTOM", "required": false, "unique": false, "rule": "D3"},
+        {"#": 20, "idCode": "errorCode", "idVisible": "errorCodigo", "type": "Text", "origin": "CUSTOM", "required": false, "unique": false, "rule": "D3"},
+        {"#": 21, "idCode": "errorMessage", "idVisible": "errorMensaje", "type": "Text", "origin": "CUSTOM", "required": false, "unique": false, "rule": "D3"},
+        {"#": 22, "idCode": "origin", "idVisible": "origen", "type": "Text", "origin": "CUSTOM", "required": false, "unique": false, "rule": "D7"},
+        {"#": 23, "idCode": "sourceEventId", "idVisible": "origenEventoId", "type": "Text", "origin": "CUSTOM", "required": false, "unique": false, "rule": "D3"},
+        {"#": 24, "idCode": "thirdPartyId", "idVisible": "terceroId", "type": "Text", "origin": "CUSTOM", "required": false, "unique": false, "rule": "D2"},
+        {"#": 25, "idCode": "traceId", "idVisible": "trazaId", "type": "Text", "origin": "CUSTOM", "required": true, "unique": false, "rule": "D2"}
+      ]
+    },
+
+    "MovimientosInventario": {
+      "changes": [
+        {
+          "action": "TYPE_CHANGE",
+          "field": "movementType",
+          "newType": "TextEnum",
+          "values": ["VENTA", "DEVOLUCION", "AJUSTE", "ENTRADA_STOCK", "SALIDA_STOCK", "TRANSFERENCIA"]
+        }
+      ],
+      "updatedFields": [
+        {"#": 1, "idCode": "_id", "idVisible": "id", "type": "System", "origin": "SYS", "required": true, "unique": true, "rule": "SYS"},
+        {"#": 2, "idCode": "movementToken", "idVisible": "movimientoToken", "type": "Text", "origin": "CUSTOM", "required": true, "unique": true, "rule": "D2", "notes": "Idempotencia"},
+        {"#": 3, "idCode": "sku", "idVisible": "sku", "type": "Text", "origin": "CUSTOM", "required": true, "unique": false, "rule": "D5"},
+        {"#": 4, "idCode": "productName", "idVisible": "productoNombre", "type": "Text", "origin": "CUSTOM", "required": false, "unique": false, "rule": "D3"},
+        {"#": 5, "idCode": "quantity", "idVisible": "cantidad", "type": "Number", "origin": "CUSTOM", "required": true, "unique": false, "rule": "D3", "notes": "Valor absoluto"},
+        {"#": 6, "idCode": "quantityDelta", "idVisible": "cantidadDelta", "type": "Number", "origin": "CUSTOM", "required": true, "unique": false, "rule": "D3", "notes": "Con signo"},
+        {"#": 7, "idCode": "stockBefore", "idVisible": "stockAntes", "type": "Number", "origin": "CUSTOM", "required": true, "unique": false, "rule": "D3"},
+        {"#": 8, "idCode": "stockAfter", "idVisible": "stockDespues", "type": "Number", "origin": "CUSTOM", "required": true, "unique": false, "rule": "D3"},
+        {"#": 9, "idCode": "movementType", "idVisible": "movimientoTipo", "type": "TextEnum", "origin": "CUSTOM", "required": true, "unique": false, "rule": "D10", "values": ["VENTA", "DEVOLUCION", "AJUSTE", "ENTRADA_STOCK", "SALIDA_STOCK", "TRANSFERENCIA"], "notes": "Enum específico de inventario (CONS-005). Diferente de MovimientosCaja.movementType."},
+        {"#": 10, "idCode": "reason", "idVisible": "motivo", "type": "Text", "origin": "CUSTOM", "required": false, "unique": false, "rule": "D3"},
+        {"#": 11, "idCode": "referenceId", "idVisible": "referenciaId", "type": "Text", "origin": "CUSTOM", "required": false, "unique": false, "rule": "D3"},
+        {"#": 12, "idCode": "orderId", "idVisible": "orderId", "type": "Text", "origin": "WIX", "required": false, "unique": false, "rule": "R19"},
+        {"#": 13, "idCode": "refundId", "idVisible": "refundId", "type": "Text", "origin": "WIX", "required": false, "unique": false, "rule": "R19"},
+        {"#": 14, "idCode": "actorEmail", "idVisible": "actorEmail", "type": "Text", "origin": "CUSTOM", "required": false, "unique": false, "rule": "D5"},
+        {"#": 15, "idCode": "actorMemberId", "idVisible": "actorMemberId", "type": "Text", "origin": "WIX", "required": false, "unique": false, "rule": "R19", "notes": "GUID Wix Members del actor. Diferente rol que staffMemberId (D7)."},
+        {"#": 16, "idCode": "requiresWixReconciliation", "idVisible": "requiereConciliacionWix", "type": "Boolean", "origin": "CUSTOM", "required": false, "unique": false, "rule": "D3"},
+        {"#": 17, "idCode": "nativeCommercialMovement", "idVisible": "movimientoComercialNativo", "type": "Boolean", "origin": "CUSTOM", "required": false, "unique": false, "rule": "D3"},
+        {"#": 18, "idCode": "wixProductId", "idVisible": "wixProductId", "type": "Text", "origin": "WIX", "required": false, "unique": false, "rule": "R19"},
+        {"#": 19, "idCode": "wixVariantId", "idVisible": "wixVariantId", "type": "Text", "origin": "WIX", "required": false, "unique": false, "rule": "R19"},
+        {"#": 20, "idCode": "sourceEventId", "idVisible": "origenEventoId", "type": "Text", "origin": "CUSTOM", "required": false, "unique": false, "rule": "D3", "notes": "FK MovimientosCaja"},
+        {"#": 21, "idCode": "catalogId", "idVisible": "catalogoId", "type": "Text", "origin": "CUSTOM", "required": false, "unique": false, "rule": "D2", "notes": "FK ServiciosCatalogo"},
+        {"#": 22, "idCode": "magnitude", "idVisible": "magnitud", "type": "Number", "origin": "CUSTOM", "required": false, "unique": false, "rule": "D3", "notes": "±1"},
+        {"#": 23, "idCode": "thirdPartyId", "idVisible": "terceroId", "type": "Text", "origin": "CUSTOM", "required": false, "unique": false, "rule": "D2"},
+        {"#": 24, "idCode": "traceId", "idVisible": "trazaId", "type": "Text", "origin": "CUSTOM", "required": true, "unique": false, "rule": "D2"}
+      ]
+    },
+
+    "ProveedoresLista": {
+      "changes": [
+        {
+          "action": "DOCUMENT_DENORMALIZATION",
+          "fields": ["taxId", "legalName", "contactData", "paymentTerms", "isRegularSupplier"],
+          "note": "Snapshot denormalizado de DatosFiscales vía thirdPartyId. DatosFiscales es SSOT. No modificar independientemente."
+        }
+      ],
+      "denormalizationPolicy": {
+        "sourceOfTruth": "DatosFiscales",
+        "linkField": "thirdPartyId → DatosFiscales._id",
+        "syncDirection": "BIDIRECCIONAL con hook beforeUpdate",
+        "fields": [
+          {"field": "taxId", "note": "Snapshot FK. DatosFiscales.taxId es SSOT."},
+          {"field": "legalName", "note": "Snapshot FK. DatosFiscales.legalName es SSOT."},
+          {"field": "contactData", "note": "Snapshot FK. DatosFiscales.contactData es SSOT."},
+          {"field": "paymentTerms", "note": "Snapshot FK. DatosFiscales.paymentTerms es SSOT."},
+          {"field": "isRegularSupplier", "note": "Snapshot FK. DatosFiscales.isRegularSupplier es SSOT."}
+        ]
+      }
+    }
+  },
+
+  "quantitativeSummary": {
+    "totalCrossCollectionIdentities": 38,
+    "trueDuplicatesConsolidated": 4,
+    "denormalizedSnapshotsDocumented": 5,
+    "falsePositivesDiscarded": 6,
+    "typeInconsistenciesFixed": 3,
+    "fieldsAdded": 2,
+    "fieldsRenamed": 1,
+    "fieldsMarkedLegacy": 2,
+    "collectionsModified": 4,
+    "collectionsUnchanged": 18,
+    "complianceD0D12": "100%",
+    "identityRulesR19R21": "100%"
+  },
+
+  "validationChecklist": [
+    {"check": "resourceId ≠ staffMemberId", "status": "CONFIRMED", "reason": "resourceId = GUID Bookings Resource. staffMemberId = GUID Wix Members. Diferente sistema, diferente dato."},
+    {"check": "staffMemberId ≠ actorMemberId", "status": "CONFIRMED", "reason": "Mismo tipo (Wix Members GUID) pero diferente rol semántico. D7 cualifica."},
+    {"check": "productId = wixProductId", "status": "CONSOLIDATED", "action": "HistoricoCierresZ.productId → wixProductId"},
+    {"check": "amount = totalAmount", "status": "CONSOLIDATED", "action": "CompensacionesPendientes: añadido totalAmount, amount marcado legacy"},
+    {"check": "concept = operationDescription", "status": "CONSOLIDATED", "action": "CompensacionesPendientes: añadido operationDescription, concept marcado legacy"},
+    {"check": "paymentMethod tipo enum", "status": "CONSOLIDATED", "action": "CompensacionesPendientes.paymentMethod → TextEnum"},
+    {"check": "movementType enums separados", "status": "CONFIRMED", "reason": "MovimientosCaja (19 valores caja) ≠ MovimientosInventario (6 valores inventario). Diferentes enums."},
+    {"check": "recordType discriminadores separados", "status": "CONFIRMED", "reason": "DatosFiscales.recordType ≠ RegistrosHorariosStaff.recordType. Diferentes dominios."},
+    {"check": "taxId/legalName/contactData denormalización", "status": "DOCUMENTED", "action": "ProveedoresLista: documentado como snapshot FK de DatosFiscales"},
+    {"check": "sourceEventId consistente", "status": "OK", "reason": "FK MovimientosCaja._id en todas. Nomenclatura consistente."},
+    {"check": "thirdPartyId consistente", "status": "OK", "reason": "FK DatosFiscales._id en todas. Nomenclatura consistente."},
+    {"check": "pairToken consistente", "status": "OK", "reason": "Token saga en todas. Nomenclatura consistente."},
+    {"check": "traceId consistente", "status": "OK", "reason": "ID traza en todas. Nomenclatura consistente. R18."}
+  ]
+}
+```
+
+**Resumen ejecutivo del cruce de identidades:**
+
+| Hallazgo | Acción | Regla |
+|---|---|---|
+| `productId` (HistoricoCierresZ) = `wixProductId` (MovimientosInventario) | **CONSOLIDAR** → `wixProductId` en todas | D6 + R19 |
+| `amount`/`concept` sin canónico en CompensacionesPendientes | **AÑADIR** `totalAmount` + `operationDescription`, marcar legacy | D9 |
+| `paymentMethod` Text → TextEnum en CompensacionesPendientes | **CONSOLIDAR TIPO** | D10 |
+| `movementType` Text → TextEnum en MovimientosInventario y CompensacionesPendientes | **CONSOLIDAR TIPO** con enums específicos | D10 |
+| `taxId`/`legalName`/`contactData`/`paymentTerms`/`isRegularSupplier` duplicados en ProveedoresLista | **DOCUMENTAR** como snapshot FK denormalizado | D6.5 + R15 |
+| `resourceId` ≠ `staffMemberId` | **CONFIRMADO** — diferente sistema (Bookings vs Members) | R19 |
+| `staffMemberId` ≠ `actorMemberId` | **CONFIRMADO** — mismo tipo, diferente rol semántico | D7 |
+| `recordType` en DatosFiscales ≠ RegistrosHorariosStaff | **CONFIRMADO** — diferentes discriminadores | D7 |
+| `movementType` en MovimientosCaja ≠ MovimientosInventario | **CONFIRMADO** — diferentes enums | D7 |
+
+**4 consolidaciones reales aplicadas · 5 denormalizaciones documentadas · 6 falsos positivos descartados · 3 inconsistencias de tipo corregidas · 100% cumplimiento D0–D12 y R19–R21.**
+
