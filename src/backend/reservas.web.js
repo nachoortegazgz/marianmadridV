@@ -114,11 +114,7 @@ const CONFIGURED_LOCATION_TYPE = _safeTrim(
 
 const LOCATION_TS = Object.freeze({
   id: SDK_CONFIG.LOCATION_ID,
-  locationType:
-    !CONFIGURED_LOCATION_TYPE ||
-    CONFIGURED_LOCATION_TYPE === "BUSINESS"
-      ? "OWNER_BUSINESS"
-      : CONFIGURED_LOCATION_TYPE
+  locationType: "BUSINESS"
 });
 
 const serviceCatalogRAM = new Map();
