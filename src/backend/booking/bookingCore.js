@@ -71,8 +71,8 @@ import {
     COLLECTIONS,
     CONCURRENCY,
     SDK_CONFIG,
+    SLOT_SEARCH,
     API,
-    BOOKING_STATUS,
     PAYMENT_STATUS,
     INACTIVE_BOOKING_STATUSES,
 } from "backend/internalConfig";
@@ -88,7 +88,6 @@ import {
 } from "public/mmUtils";
 import {
     computeGapMinutes,
-    normalizeSlotShape,
     getResourceIdsFromSlot,
     // v5010.4 (FASE 2): huella canonica definida en bookingUtils (capa de
     // utilidades puras, segun precedencia mmUtils > bookingUtils > core > web).
@@ -976,7 +975,12 @@ export function isValidGuid(id) {
 
 export function _areSlotsContiguous(slot1, slot2, maxGapMinutes) {
     if (!slot1 || !slot2) return false;
-    const maxGap = maxGapMinutes == null ? 120 : maxGapMinutes;
+    // SSOT: cuando el llamador no fija limite explicito, la tolerancia canonica
+    // es SLOT_SEARCH.MINUTOS_TOLERANCIA (BIBLIA 3.2.1 f12), no un magic number.
+    const fallbackTolerance = Number(SLOT_SEARCH?.MINUTOS_TOLERANCIA);
+    const maxGap = maxGapMinutes == null
+        ? (Number.isFinite(fallbackTolerance) ? fallbackTolerance : 120)
+        : maxGapMinutes;
     const end1 = slot1.localEndDate || slot1.endDate;
     const start2 = slot2.localStartDate || slot2.startDate;
     if (!end1 || !start2) return false;
@@ -1219,9 +1223,16 @@ export function _auditBookingPrice(basePrice, addons) {
 // BLOQUE 21 - RANKING DE RECURSOS POR CARGA (CORE-07)
 // =============================================================================
 
-// CORE-07: estados cancelados en ambas grafias (nativo ingles + SSOT espanol).
-const CANCELLED_STATUS_ALIASES = Object.freeze([
-    "CANCELLED", "CANCELED", "CANCELADO",
+// CORE-07 v5010.5: unico alias de dominio permitido (grafia del SSOT
+// espanol; BIBLIA 3.2.1). El equivalente en ingles ("CANCELLED") NO es un
+// alias aqui: los ESTADOS de reserva ya estan cubiertos por
+// INACTIVE_BOOKING_STATUSES (lista canonica: CANCELLED, DECLINED, REJECTED,
+// NOSHOW). En cambio, los PAGOS no tienen enum canonicode cancelacion en
+// PAYMENT_STATUS (internalConfig), por lo que "CANCELADO"/"CANCELED" se
+// toleran como abonos anulados. Una sola grafia por concepto: cero
+// duplicacion con el SSOT.
+const CANCELLED_PAYMENT_ALIASES = Object.freeze([
+    "CANCELADO", "CANCELED",
 ]);
 
 export async function _rankResourcesByLoad(resourceIds, dateYMD, traceId) {
@@ -1273,9 +1284,8 @@ export async function _rankResourcesByLoad(resourceIds, dateYMD, traceId) {
                 const paymentStatus = String(item?.paymentStatus || "").toUpperCase();
 
                 const cancelled =
-                    inactiveList.indexOf(status) >= 0 ||
-                    CANCELLED_STATUS_ALIASES.indexOf(status) >= 0;
-                const ignoredPayment = CANCELLED_STATUS_ALIASES.indexOf(paymentStatus) >= 0;
+                    inactiveList.indexOf(status) >= 0;
+                const ignoredPayment = CANCELLED_PAYMENT_ALIASES.indexOf(paymentStatus) >= 0;
 
                 if (!cancelled && !ignoredPayment) loads[resourceId].load += 1;
             }

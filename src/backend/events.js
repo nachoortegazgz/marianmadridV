@@ -49,7 +49,6 @@ import {
     CORRECTION_REASON,
     FISCAL_ROLE,
     EVENT_TYPE,
-    THIRD_PARTY_TYPE,
     VAT_ACCRUAL_STATUS,
 } from "backend/internalConfig";
 

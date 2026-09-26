@@ -28,9 +28,6 @@ import {
     COLLECTIONS,
     EU_VAT_PREFIXES,
     FISCAL_ROLE,
-    EVENT_TYPE,
-    THIRD_PARTY_TYPE,
-    ITEM_NATURE,
 } from "backend/internalConfig";
 
 import { logger } from "backend/logger";

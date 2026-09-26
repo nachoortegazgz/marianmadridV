@@ -39,7 +39,6 @@ import {
     IVA_RATES,
     CONCURRENCY,
     AEAT_INVOICE_TYPE,
-    CORRECTION_REASON,
     VAT_ACCRUAL_STATUS,
     FISCAL_ROLE,
     EVENT_TYPE,
@@ -58,7 +57,6 @@ import {
     _safeTrim,
     _cleanText,
     _looksLikeGuid,
-    _roundMoney,
     withTimeout,
 } from "public/mmUtils";
 

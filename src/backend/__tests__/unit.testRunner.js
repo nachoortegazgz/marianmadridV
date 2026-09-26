@@ -10,13 +10,18 @@
 import assert from 'assert';
 import {
   COLLECTIONS,
-  SDK_CONFIG,
-  ESTADO_CITA,
-  ESTADO_PAGO,
+  BOOKING_STATUS,
+  PAYMENT_STATUS,
   CONCURRENCY
 } from '../internalConfig.js';
 
-// Compatibilidad con estructura SSOT v5002.6 - Enums consolidados
+// Compatibilidad con estructura SSOT v5010.4 - Enums consolidados.
+// NOTE (v5010.4 static-audit): ESTADO_CITA/ESTADO_PAGO were legacy aliases of
+// the canonical V20 enums BOOKING_STATUS/PAYMENT_STATUS (internalConfig).
+// The aliases never existed as exports, so this module crashed on import
+// (SyntaxError: no export named 'ESTADO_CITA'). Fixed to the canonical names.
+const ESTADO_CITA = BOOKING_STATUS;
+const ESTADO_PAGO = PAYMENT_STATUS;
 const ENUMS = {
   BOOKING_TYPE: ['SIMPLE', 'DUAL_F1', 'DUAL_F2'],
   BOOKING_STATUS: Object.values(ESTADO_CITA),
@@ -130,9 +135,12 @@ export async function testBookingEnums() {
   // Align with internalConfig ESTADO_CITA / ESTADO_PAGO (canonical SSOT)
   assert.ok(ESTADO_CITA.CONFIRMED === 'CONFIRMED', 'ESTADO_CITA.CONFIRMED');
   assert.ok(ESTADO_CITA.PENDING_PAYMENT === 'PENDING_PAYMENT', 'ESTADO_CITA.PENDING_PAYMENT');
-  // SSOT v5008.6: CANCELLED es canonico, CANCELED es alias deprecated que apunta a CANCELLED
+  // SSOT v5010.4: CANCELLED es canonico (enum BOOKING_STATUS interno). La
+  // variante inglesa "CANCELED" NO es un miembro del enum; se tolera solo en
+  // la capa de lectura defensiva de bookingCore._rankResourcesByLoad
+  // (CANCELLED_STATUS_ALIASES), no como alias exportado.
   assert.ok(ESTADO_CITA.CANCELLED === 'CANCELLED', 'ESTADO_CITA.CANCELLED');
-  assert.ok(ESTADO_CITA.CANCELED === 'CANCELLED', 'ESTADO_CITA.CANCELED (alias deprecated)');
+  assert.strictEqual(ESTADO_CITA.CANCELED, undefined, 'CANCELED no debe ser miembro del enum canonico');
 
   assert.ok(ESTADO_PAGO.PAID === 'PAID', 'ESTADO_PAGO.PAID');
   assert.ok(ESTADO_PAGO.UNPAID === 'UNPAID', 'ESTADO_PAGO.UNPAID');
@@ -203,9 +211,8 @@ export async function testCollectionsDefined() {
     'DUAL_SLOT_CACHE',
     'MOVIMIENTOS_CAJA',
     'HISTORICO_CIERRES_Z',
-    'CONFIGURACION_FISCAL',
+    'DATOS_FISCALES',
     'LIBRO_REGISTRO_FACTURAS_EXPEDIDAS',
-    'ASIENTOS_CONTABLES',
     'REGISTROS_HORARIOS_STAFF'
   ];
   
@@ -215,6 +222,31 @@ export async function testCollectionsDefined() {
     assert.ok(COLLECTIONS[col].length > 0, `Coleccion ${col} vacia`);
   });
   
+  // v5010.5 GUARDAS NEGATIVAS SSOT (BIBLIA R3/R4/R7): colecciones muertas
+  // prohibidas: AsientosContables, LibroAsientosContablesDetalle,
+  // FacturasRecibidas y ConfiguracionFiscal (fusionada en DatosFiscales).
+  const forbiddenCollectionKeys = [
+    'ASIENTOS_CONTABLES',
+    'CONFIGURACION_FISCAL',
+    'FACTURAS_RECIBIDAS',
+    'LIBRO_ASIENTOS_CONTABLES_DETALLE'
+  ];
+  forbiddenCollectionKeys.forEach(col => {
+    assert.strictEqual(COLLECTIONS[col], undefined,
+      `Coleccion prohibida reintroducida: ${col}`);
+  });
+
+  const forbiddenCollectionNames = [
+    'AsientosContables',
+    'LibroAsientosContablesDetalle',
+    'FacturasRecibidas',
+    'ConfiguracionFiscal'
+  ];
+  forbiddenCollectionNames.forEach(name => {
+    assert.ok(!Object.values(COLLECTIONS).includes(name),
+      `Valor de coleccion prohibido activo: ${name}`);
+  });
+
   // Verificar que no hay duplicados en valores
   const values = Object.values(COLLECTIONS);
   const uniqueValues = new Set(values);

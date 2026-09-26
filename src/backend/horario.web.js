@@ -36,17 +36,16 @@ import {
 import {
   makeTraceId,
   _safeTrim,
-  _normalizeLocalIsoStr,
   _readDate,
 } from "public/mmUtils";
 
 import { logger } from "backend/logger";
-import { hashSHA256, hmacSha256Hex } from "backend/securityEngine";
+import { hmacSha256Hex } from "backend/securityEngine";
 import { getSecret } from "wix-secrets-backend";
 import { SECRETS } from "backend/mmSecrets";
-import { requireAdmin, requireCajero, isStaffCollaborator } from "backend/security";
+import { requireAdmin } from "backend/security";
 import { _toPublicError } from "backend/responseUtils";
-import { findStaff, getStaffDisplayName } from "backend/staff";
+import { findStaff } from "backend/staff";
 
 const log = logger;
 const REGISTROS_COL = COLLECTIONS.REGISTROS_HORARIOS_STAFF;
