@@ -31,29 +31,27 @@ export const STAFF = Object.freeze({
 // CFG-10: Separación estricta Business vs Operacional
 // =============================================================================
 
+// SSOT v5010.1: 20 colecciones canonicas activas.
+// ELIMINADAS (no reintroducir): AsientosContables, LibroAsientosContablesDetalle,
+// FacturasRecibidas, ConfiguracionFiscal (fusionada en DatosFiscales),
+// BookingsServiceSyncQueue, M365GraphSyncQueue.
 export const BUSINESS_COLLECTIONS = Object.freeze({
     ALERTAS_OPERATIVAS: "AlertasOperativas",
-    ASIENTOS_CONTABLES: "AsientosContables",
     BOOKING_TRANSACTIONS: "BookingTransactions",
     CAJA_ACTUAL: "CajaActual",
     CATEGORIAS_SERVICIO: "CategoriasServicio",
     CITAS_F2: "CitasF2",
     COMPENSACIONES_PENDIENTES: "CompensacionesPendientes",
     COMPLEMENTOS_CATALOGO: "ComplementosCatalogo",
-    CONFIGURACION_FISCAL: "ConfiguracionFiscal",
     DATOS_FISCALES: "DatosFiscales",
-    FACTURAS_RECIBIDAS: "FacturasRecibidas",
     HISTORICO_CIERRES_Z: "HistoricoCierresZ",
     INVENTARIO_STOCK_VENTA: "InventarioStockVenta",
-    LIBRO_ASIENTOS_CONTABLES_DETALLE: "LibroAsientosContablesDetalle",
     LIBRO_REGISTRO_FACTURAS_EXPEDIDAS: "LibroRegistroFacturasExpedidas",
 });
 
 export const OPERATIONAL_COLLECTIONS = Object.freeze({
     AVAILABILITY_DAYS_CACHE: "AvailabilityDaysCache",
-    BOOKINGS_SERVICE_SYNC_QUEUE: "BookingsServiceSyncQueue",
     DUAL_SLOT_CACHE: "DualSlotCache",
-    M365_GRAPH_SYNC_QUEUE: "M365GraphSyncQueue",
     MAPA_STAFF: "MapaStaff",
     MOVIMIENTOS_CAJA: "MovimientosCaja",
     MOVIMIENTOS_INVENTARIO: "MovimientosInventario",

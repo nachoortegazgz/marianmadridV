@@ -22,6 +22,8 @@
 
 import { webMethod, Permissions } from "wix-web-module";
 import wixData from "wix-data";
+import { bookings } from "wix-bookings.v2";
+import { elevate } from "wix-auth";
 import { availabilityTimeSlots } from "@wix/bookings";
 
 import {
@@ -1535,3 +1537,115 @@ export async function revalidateExactAvailabilitySlot({
     };
   }
 }
+/**
+ * ============================================================================
+ * FASE7 v5010.1 - getConfirmedBookingForDisplay (contrato ConfirmacionReserva)
+ * ----------------------------------------------------------------------------
+ * FIX riesgo MEDIO "ConfirmacionReserva.q5vps.js importa funcs inexistentes":
+ * la pagina de confirmacion consume este endpoint. Devuelve SOLO bookings en
+ * estado CONFIRMED o PENDING_PAYMENT (nunca CANCELLED/REFUNDED), con proyeccion
+ * minima al contrato canonico createBooking:
+ *   slot.{serviceId, scheduleId, startDate(Z), endDate(Z), timezone},
+ *   resource.id, totalParticipants, pairToken (dual F1+F2 si procede).
+ * Autenticacion: MEMBER (el cliente solo ve reservas propias via bookedBy) o
+ * elevacion interna para el lookup por id.
+ * Respuesta: shape responseUtils { status, meta, data, error }.
+ * ============================================================================
+ */
+
+const DISPLAY_STATUSES = new Set([
+  BOOKING_STATUS.CONFIRMED,
+  BOOKING_STATUS.PENDING_PAYMENT,
+]);
+
+export const getConfirmedBookingForDisplay = webMethod(
+  Permissions.MEMBER,
+  async ({ bookingId } = {}) => {
+    const activeTraceId = makeTraceId("conf-display");
+    const cleanId = _safeTrim(bookingId);
+
+    if (!cleanId) {
+      return {
+        status: "ERROR",
+        meta: { traceId: activeTraceId },
+        data: null,
+        error: { code: "INVALID_PAYLOAD", message: "bookingId is required" },
+      };
+    }
+
+    try {
+      const getBookingElevated = elevate(bookings.booking.getBooking, ["Member"]);
+      const raw = await getBookingElevated({
+        bookingId: cleanId,
+        getOptions: {
+          additionalInfo: {
+            fields: ["slot", "bookedBy", "contactDetails", "price", "formInfo"],
+          },
+        },
+      });
+
+      const info = raw?.booking?.info || {};
+      const status = String(info.status || "").toUpperCase();
+
+      if (!DISPLAY_STATUSES.has(status)) {
+        return {
+          status: "ERROR",
+          meta: { traceId: activeTraceId },
+          data: null,
+          error: {
+            code: "BOOKING_NOT_DISPLAYABLE",
+            message: "Booking is not in a displayable confirmed state.",
+          },
+        };
+      }
+
+      const slot = raw?.booking?.slot || {};
+      const entities = Array.isArray(slot.bookedEntities) ? slot.bookedEntities : [];
+      const firstEntity = entities[0] || {};
+      const firstSlot = firstEntity.slot || slot.schedule || {};
+
+      const pairToken =
+        (typeof info.form?.fields === "object" && info.form.fields.pairToken) ||
+        null;
+
+      return {
+        status: "SUCCESS",
+        meta: { traceId: activeTraceId },
+        data: {
+          bookingId: String(info.id || cleanId),
+          status,
+          slot: {
+            serviceId: firstSlot.serviceId || firstEntity.serviceId || null,
+            scheduleId: firstSlot.scheduleId || null,
+            startDate: firstSlot.startDate || null,
+            endDate: firstSlot.endDate || null,
+            timezone: firstSlot.timezone?.id || SDK_CONFIG.TIMEZONE_ID || "Europe/Madrid",
+          },
+          resource: firstEntity.resource ? { id: firstEntity.resource.id } : null,
+          location: firstEntity.location || null,
+          totalParticipants: Number(info.totalParticipants) || 1,
+          price: raw?.booking?.price?.formatted || null,
+          contactDetails: raw?.booking?.contactDetails || {},
+          pairToken,
+        },
+        error: null,
+      };
+    } catch (error) {
+      log.warn("getConfirmedBookingForDisplay failed", {
+        traceId: activeTraceId,
+        bookingId: cleanId,
+        message: error?.message,
+      });
+      return {
+        status: "ERROR",
+        meta: { traceId: activeTraceId },
+        data: null,
+        error: {
+          code: "BOOKING_LOOKUP_FAILED",
+          message: "Booking could not be loaded for confirmation display.",
+          traceId: activeTraceId,
+        },
+      };
+    }
+  }
+);

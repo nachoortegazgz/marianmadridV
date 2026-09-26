@@ -1463,3 +1463,106 @@ export const registerGiftCardRedemption = webMethod(Permissions.SiteMember, asyn
         return { status: "ERROR", data: null, error: { code: norm.code || "GC_REDEEM_FAIL", message: norm.message } };
     }
 });
+// ============================================================================
+// FASE7 v5010.1 - getMovimientoByBooking (contrato ConfirmacionReserva)
+// ----------------------------------------------------------------------------
+// Lectura del apunte append-only del ledger (MovimientosCaja, SSOT fiscal
+// unico) vinculado a una reserva. Publica SOLO la proyeccion minima que el
+// recibo Verifactu necesita (nomenclatura V20.1): invoiceNumber,
+// invoiceIssueDate, totalAmount, recordHash, digitalSignature, issuerTaxId y
+// verificationQR ya generado por _generateVerificationQR (TIKE-CONT).
+// No expone lineItems, datos de terceros (recipientTaxId) ni payloads B2B.
+// ============================================================================
+
+export const getMovimientoByBooking = webMethod(
+    Permissions.MEMBER,
+    async ({ bookingId } = {}) => {
+        const traceId = makeTraceId("mov-by-bkg");
+        const cleanId = _safeTrim(bookingId);
+
+        if (!cleanId) {
+            return {
+                status: "ERROR",
+                meta: { traceId },
+                data: null,
+                error: { code: "INVALID_PAYLOAD", message: "bookingId is required" },
+            };
+        }
+
+        try {
+            // linkedBookingIds puede ser string o array segun _linkedBookingValue;
+            // query por igualdad directa + filtro defensivo en cliente.
+            const candidates = await wixData.query(COLLECTIONS.MOVIMIENTOS_CAJA)
+                .eq("linkedBookingIds", cleanId)
+                .limit(5)
+                .find();
+
+            let items = candidates.items || [];
+
+            if (items.length === 0) {
+                // Fallback: formato coma-separated guardado por _linkedBookingValue
+                const all = await wixData.query(COLLECTIONS.MOVIMIENTOS_CAJA)
+                    .contains("linkedBookingIds", cleanId)
+                    .limit(20)
+                    .find();
+                items = (all.items || []).filter((m) => {
+                    const raw = m.linkedBookingIds;
+                    if (typeof raw === "string") {
+                        return raw.split(",").map((s) => s.trim()).includes(cleanId);
+                    }
+                    if (Array.isArray(raw)) {
+                        return raw.map(String).includes(cleanId);
+                    }
+                    return false;
+                });
+            }
+
+            if (items.length === 0) {
+                return {
+                    status: "ERROR",
+                    meta: { traceId },
+                    data: null,
+                    error: { code: "MOVEMENT_NOT_FOUND", message: "No fiscal movement linked to booking" },
+                };
+            }
+
+            // Apunte mas reciente del ledger para esta reserva (append-only:
+            // el ultimo es el estado vigente; rectificaciones F2/R* se encadenan).
+            const mov = items.sort(
+                (a, b) => new Date(b.recordTimestamp || b._createdDate || 0) -
+                          new Date(a.recordTimestamp || a._createdDate || 0)
+            )[0];
+
+            return {
+                status: "SUCCESS",
+                meta: { traceId },
+                data: {
+                    _id: mov._id,
+                    invoiceNumber: mov.invoiceNumber || null,
+                    invoiceIssueDate: mov.invoiceIssueDate || null,
+                    totalAmount: mov.totalAmount ?? null,
+                    issuerTaxId: mov.issuerTaxId || null,
+                    recordHash: mov.recordHash || null,
+                    previousRecordHash: mov.previousRecordHash || null,
+                    digitalSignature: mov.digitalSignature || null,
+                    verificationQR: mov.verificationQR || null,
+                    recordTimestamp: mov.recordTimestamp || mov.registeredAt || null,
+                    invoiceType: mov.invoiceType || null,
+                },
+                error: null,
+            };
+        } catch (err) {
+            log.error("getMovimientoByBooking failed", {
+                traceId,
+                bookingId: cleanId,
+                error: err?.message,
+            });
+            return {
+                status: "ERROR",
+                meta: { traceId },
+                data: null,
+                error: { code: "LEDGER_LOOKUP_FAILED", message: "Ledger lookup failed", traceId },
+            };
+        }
+    }
+);
