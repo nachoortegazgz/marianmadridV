@@ -1,5 +1,6 @@
 /*
-=============================================================================
+
+
 MODULE: backend/booking/bookingCore.js
 VERSION: v5009-FISCAL-V20.2-CORE
 BASE: v5009-FISCAL-V20.1 + Alineacion con bookingSaga v5009-FISCAL-V20.3
