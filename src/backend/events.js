@@ -49,7 +49,6 @@ import {
     CORRECTION_REASON,
     FISCAL_ROLE,
     EVENT_TYPE,
-    THIRD_PARTY_TYPE,
     VAT_ACCRUAL_STATUS,
 } from "backend/internalConfig";
 
@@ -210,7 +209,7 @@ function _handleError(error, context, traceId) {
 }
 
 // ============================================================================
-// EXTRACCION FISCAL DEL PEDIDO — nomenclatura V20.1
+// EXTRACCION FISCAL DEL PEDIDO - nomenclatura V20.1
 // ============================================================================
 
 function _extractFiscalDataFromOrder(order) {
@@ -451,7 +450,7 @@ export async function wixBookingsV2_onBookingConfirmed(rawBody) {
 }
 
 // ============================================================================
-// WEBHOOK: BOOKING CANCELED — RECTIFICATIVA via eventLog
+// WEBHOOK: BOOKING CANCELED - RECTIFICATIVA via eventLog
 // ============================================================================
 
 export async function wixBookingsV2_onBookingCanceled(rawBody) {
@@ -575,7 +574,7 @@ export async function wixBookingsV2_onBookingCanceled(rawBody) {
 }
 
 // ============================================================================
-// WEBHOOK: ORDER PAYMENT STATUS UPDATED — via eventLog
+// WEBHOOK: ORDER PAYMENT STATUS UPDATED - via eventLog
 // ============================================================================
 
 export async function wixEcom_onOrderPaymentStatusUpdated(rawBody) {
@@ -790,7 +789,7 @@ export async function wixEcom_onOrderPaymentStatusUpdated(rawBody) {
 }
 
 // ============================================================================
-// WEBHOOK: ORDER REFUNDED — via eventLog
+// WEBHOOK: ORDER REFUNDED - via eventLog
 // ============================================================================
 
 export async function wixEcom_onOrderRefunded(rawBody) {

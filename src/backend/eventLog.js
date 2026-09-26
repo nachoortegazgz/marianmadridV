@@ -39,7 +39,6 @@ import {
     IVA_RATES,
     CONCURRENCY,
     AEAT_INVOICE_TYPE,
-    CORRECTION_REASON,
     VAT_ACCRUAL_STATUS,
     FISCAL_ROLE,
     EVENT_TYPE,
@@ -58,7 +57,6 @@ import {
     _safeTrim,
     _cleanText,
     _looksLikeGuid,
-    _roundMoney,
     withTimeout,
 } from "public/mmUtils";
 
@@ -81,7 +79,7 @@ const LEDGER_SCHEMA_VERSION = "LEDGER_V5_FISCAL";
 const GENESIS_HASH = "0".repeat(64);
 
 const SEQUENCE_MUTEX_KEY = "FISCAL_SEQUENCE_LOCK";
-const SEQUENCE_MUTEX_TTL_MS = Number(CONCURRENCY?.LEDGER_MUTEX_TTL_MS) || 45000;
+const SEQUENCE_MUTEX_TTL_MS = Number(CONCURRENCY?.MS_TTL_MUTEX_ASIENTO) || 45000; // REF: BIBLIA 3.2.1 f17
 
 const PROYECCION_BATCH_LIMIT = 25;
 const PROYECCION_TIMEOUT_MS =
@@ -381,7 +379,7 @@ function _buildFiscalPayloadSnapshot({
 }
 
 // ============================================================================
-// SECCION 5 - MOTOR — registrarEventoEconomico
+// SECCION 5 - MOTOR - registrarEventoEconomico
 // ============================================================================
 
 export async function registrarEventoEconomico(input) {
@@ -546,7 +544,7 @@ export async function registrarEventoEconomico(input) {
         detailIds.push(det._id);
     }
 
-    // 9. Proyeccion secundaria — NUNCA propaga errores al caller
+    // 9. Proyeccion secundaria - NUNCA propaga errores al caller
     let projectionStatus = PROJECTION_STATUS.OK;
     try {
         await _proyectarSegunTipoEvento(cabecera, detailIds, traceId);
@@ -580,10 +578,12 @@ export async function registrarEventoEconomico(input) {
 
 async function _proyectarSegunTipoEvento(cabecera, detailIds, traceId) {
     switch (cabecera.eventType) {
+        // [SSOT-v5010.1 ZOMB-01] VENTA_LINEA/RECTIFICATIVA/AJUSTE: sin proyeccion a libro contable
+        // (AsientosContables eliminado). MovimientosCaja es SSOT fiscal unico; reconciliarProyecciones
+        // marca OK tras verificacion de hash chain.
         case EVENT_TYPE.VENTA_LINEA:
         case EVENT_TYPE.RECTIFICATIVA:
         case EVENT_TYPE.AJUSTE:
-            await _proyectarAsientoContable(cabecera, traceId);
             break;
         case EVENT_TYPE.COMPRA_LINEA:
             await _proyectarFacturaRecibida(cabecera, traceId);
@@ -596,19 +596,6 @@ async function _proyectarSegunTipoEvento(cabecera, detailIds, traceId) {
             break;
         default:
             log.warn("Tipo evento sin proyeccion", { traceId, eventType: cabecera.eventType });
-    }
-}
-
-async function _proyectarAsientoContable(cabecera, traceId) {
-    try {
-        const { projectLedgerMovementToAccounting } = await import("backend/contabilidad");
-        const res = await projectLedgerMovementToAccounting(cabecera);
-        if (res?.status !== "SUCCESS" && res?.status !== "SKIPPED") {
-            throw new Error(`contabilidad.js: ${res?.status || "UNKNOWN"}`);
-        }
-    } catch (err) {
-        log.warn("Proyeccion contable fallo", { traceId, eventoId: cabecera._id, message: err?.message });
-        throw err;
     }
 }
 

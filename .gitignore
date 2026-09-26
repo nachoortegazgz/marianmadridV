@@ -1,6 +1,2 @@
-# dependencies
+artifacts/
 node_modules/
-.vscode/
-.idea/
-.wix/
-jsconfig.json

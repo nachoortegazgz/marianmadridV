@@ -1,27 +1,32 @@
 /**
  * ============================================================================
  * FILE: backend/reservas.web.js
- * VERSION: v5009-FISCAL-V20.1
- * BASE: v5008.13-STAFF-LOAD-BALANCE + Directriz V20 (IDs nativa en ingles)
+ * VERSION: v5009-FISCAL-V20.6-PROD
+ * BASE: v5009-FISCAL-V20.5-PROD + Patches 2, 8, 9
  * RESPONSIBILITY: Availability engine, dual slots, staff pairing and caching.
  * STANDARDS: G10 ASCII Strict.
  *
- * FIXES APLICADOS v5009-FISCAL-V20.1:
- *  - V20-01: import ESTADO_CITA -> BOOKING_STATUS (internalConfig V20.1).
- *  - V20-02: uso de BOOKING_STATUS.CANCELLED en _countStaffLoadForDay.
- *  - V20-03: resto del modulo sin cambios funcionales (campos CMS
- *            ya estaban en ingles).
- *
- * FIXES APLICADOS v5008.13 (heredados):
- *  - FIX-DOC-BALANCE-A: export movido a _getCertifiedDualSlotsInternal.
- *  - FIX-DOC-BALANCE-B: pickStaffByLowestLoad desde bookingUtils v5008.3.
- *  - FIX-DOC-BALANCE-C: limite del conteo desde SDK_CONFIG.JOBS.
- *  - FIX-21..24, FIX-30, FIX-R1, FIX-R2.
+ * FIXES APLICADOS v5009-FISCAL-V20.6:
+ *  - PATCH-02: pairToken determinista via huella canonica compartida
+ *              (huella + hash). v5010.4 FASE 2: la unica definicion de la
+ *              huella vive en bookingUtils._buildPairFingerprint; este modulo
+ *              consume bookingCore._buildPairTokenDeterministic (cero
+ *              duplicacion, cero ciclos de import, cero imports muertos:
+ *              _hashKey y computeGapMinutes fueron retirados al no usarse).
+ *              MAX_DUAL_GAP_MINUTES -> MINUTOS_MAX_HUECO_DUAL (BIBLIA
+ *              3.2.1 fila 13).
+ *  - PATCH-08: _verifyRequiredStaffViaGet valida recursos devueltos.
+ *  - PATCH-09: _getServiceBySlugOrIdInternal captura SERVICE_LOCATION_MISMATCH.
  * ============================================================================
  */
 
+
 import { webMethod, Permissions } from "wix-web-module";
+// EXCEPCION DATA API (APENDICE C de la BIBLIA): consultas CMS server-side
+// con suppressAuth/consistentRead; no migrables a queryDataItems (ver apendice).
 import wixData from "wix-data";
+import { bookings } from "@wix/bookings";
+import { elevate } from "wix-auth";
 import { availabilityTimeSlots } from "@wix/bookings";
 
 import {
@@ -49,10 +54,20 @@ import {
   readDurationRange,
   resolveExpectedSlotMinutes,
   resolveLinkedPhase2Duration,
-  computeGapMinutes,
   toUtcRange,
-  pickStaffByLowestLoad
+  pickStaffByLowestLoad,
+  // v5010.4 (FASE 2): helpers canonicos de slot unificados en bookingUtils
+  // (unica implementacion; bookingCore._extractResourceIdsFromSlot delega aqui).
+  normalizeSlotShape as _normalizeSlotShape,
+  getResourceIdsFromSlot as _getResourceIdsFromSlot,
 } from "backend/booking/bookingUtils";
+
+import {
+  // v5010.4 (FASE 2): token determinista expuesto por bookingCore sobre la
+  // huella unica de bookingUtils._buildPairFingerprint. Sin duplicacion ni
+  // ciclos de import.
+  _buildPairTokenDeterministic,
+} from "backend/booking/bookingCore";
 
 import { logger } from "backend/logger";
 import { getStaffDisplayName } from "backend/staff";
@@ -94,10 +109,10 @@ function _normalizeImport2Addon(addon) {
 const SERVICIOS_COL = COLLECTIONS.SERVICIOS_CATALOGO;
 const WATCHDOG_TIMEOUT_MS = SDK_CONFIG.TIMEOUTS.WATCHDOG_MS;
 const SERVICE_CACHE_TTL_MS = SDK_CONFIG.CACHE.SERVICES_TTL_MS;
-const DIAS_LIMITE = SLOT_SEARCH.DIAS_LIMITE;
-const MAX_DUAL_GAP_MINUTES = Math.max(
+// v5010.4 (FASE 2): clave V20 segun BIBLIA 3.2.1 fila 13.
+const MINUTOS_MAX_HUECO_DUAL = Math.max(
   0,
-  Number(SLOT_SEARCH?.MAX_DUAL_GAP_MINUTES) || 120
+  Number(SLOT_SEARCH?.MINUTOS_MAX_HUECO_DUAL) || 120
 );
 const CACHE_MAX_SIZE = SDK_CONFIG.CACHE.MAX_ENTRIES;
 const STAFF_RESOURCE_TYPE_ID = API.STAFF_RESOURCE_TYPE_ID;
@@ -106,17 +121,19 @@ const STAFF_LOAD_QUERY_LIMIT = Math.max(
   Number(SDK_CONFIG?.JOBS?.HEALTH_CHECK_QUERY_LIMIT) || 1000
 );
 
-const CONFIGURED_LOCATION_TYPE = _safeTrim(
-  SDK_CONFIG.LOCATION_TYPES?.TIME_SLOTS
-);
+const LOCATION_ID = _safeTrim(SDK_CONFIG?.LOCATION_ID);
+if (!LOCATION_ID || !_looksLikeGuid(LOCATION_ID)) {
+  throw new Error("Configured booking location is invalid.");
+}
 
 const LOCATION_TS = Object.freeze({
-  id: SDK_CONFIG.LOCATION_ID,
-  locationType:
-    !CONFIGURED_LOCATION_TYPE ||
-    CONFIGURED_LOCATION_TYPE === "BUSINESS"
-      ? "OWNER_BUSINESS"
-      : CONFIGURED_LOCATION_TYPE
+  id: LOCATION_ID,
+  locationType: "BUSINESS"
+});
+
+const LOCATION_BOOKING = Object.freeze({
+  id: LOCATION_ID,
+  locationType: "OWNER_BUSINESS"
 });
 
 const serviceCatalogRAM = new Map();
@@ -134,14 +151,6 @@ function _toPublicError(err, fallbackCode = "INTERNAL_ERROR", fallbackMessage = 
     code: String(err?.code || fallbackCode),
     message: String(err?.message || fallbackMessage)
   };
-}
-
-function _normalizeSlotShape(slot) {
-  if (!slot || typeof slot !== "object") return null;
-  if (slot.slot && typeof slot.slot === "object") {
-    return { ...slot.slot, ...slot };
-  }
-  return slot;
 }
 
 function _attachServiceId(slot, forcedServiceId, traceId, ctx) {
@@ -186,47 +195,6 @@ function _normalizeResourceIds(resourceId, traceId) {
     traceId
   });
   return [];
-}
-
-function _getResourceIdsFromSlot(slot) {
-  const normalizedSlot = _normalizeSlotShape(slot);
-  if (!normalizedSlot || typeof normalizedSlot !== "object") return [];
-
-  let groups = [];
-  if (Array.isArray(normalizedSlot.availableResources)) {
-    groups = normalizedSlot.availableResources;
-  } else if (
-    normalizedSlot.slot &&
-    typeof normalizedSlot.slot === "object" &&
-    Array.isArray(normalizedSlot.slot.availableResources)
-  ) {
-    groups = normalizedSlot.slot.availableResources;
-  }
-
-  if (groups.length > 0) {
-    const staffGroup = groups.find(
-      (group) =>
-        String(group?.resourceTypeId) === String(STAFF_RESOURCE_TYPE_ID)
-    );
-    if (!staffGroup) return [];
-    return Array.from(
-      new Set(
-        (staffGroup.resources || [])
-          .map((resource) =>
-            _safeTrim(resource?.id || resource?._id || resource?.resourceId)
-          )
-          .filter((resourceId) => _looksLikeGuid(resourceId))
-      )
-    );
-  }
-
-  const directId = _safeTrim(
-    normalizedSlot.resource?.id ||
-      normalizedSlot.resource?._id ||
-      normalizedSlot.resource?.resourceId ||
-      normalizedSlot.resourceId
-  );
-  return _looksLikeGuid(directId) ? [directId] : [];
 }
 
 function _minutesBetweenUtcDates(a, b) {
@@ -283,6 +251,9 @@ function _resolveAddonContextInternal(service, requestedAddonIds) {
   return _getRequestedAddonContext(service, requestedAddonIds);
 }
 
+// ============================================================================
+// PATCH-08: Validacion de recursos en getAvailabilityTimeSlot
+// ============================================================================
 async function _verifyRequiredStaffViaGet({
   serviceId,
   start,
@@ -315,7 +286,18 @@ async function _verifyRequiredStaffViaGet({
       2,
       300
     );
-    if (result?.timeSlot) return { ok: true, slot: result.timeSlot, errorCode: null };
+
+    if (result?.timeSlot) {
+      const slot = result.timeSlot;
+      const resourceIds = _getResourceIdsFromSlot(slot, STAFF_RESOURCE_TYPE_ID);
+
+      if (slot?.bookable === true && resourceIds.includes(requiredResourceId)) {
+        return { ok: true, slot: slot, errorCode: null };
+      }
+
+      return { ok: false, slot: null, errorCode: "STAFF_UNAVAILABLE" };
+    }
+
     return { ok: false, slot: null, errorCode: "STAFF_UNAVAILABLE" };
   } catch (error) {
     log.warn("getAvailabilityTimeSlot verification failed", {
@@ -391,7 +373,25 @@ export async function _getServiceBySlugOrIdInternal(slugOrId, externalTraceId = 
       };
     }
 
-    const mapped = await _mapServiceImport2ToUX(service, traceId);
+    // PATCH-09: Capturar errores de location mismatch como error estructurado
+    let mapped;
+    try {
+      mapped = await _mapServiceImport2ToUX(service, traceId);
+    } catch (mapError) {
+      const msg = String(mapError?.message || "");
+      if (msg.includes("location does not match")) {
+        return {
+          status: "ERROR",
+          data: null,
+          error: {
+            code: "SERVICE_LOCATION_MISMATCH",
+            message: msg
+          }
+        };
+      }
+      throw mapError;
+    }
+
     const cacheEntry = { data: mapped, timestamp: Date.now() };
     _cacheSetBounded(serviceCatalogRAM, clean, cacheEntry, CACHE_MAX_SIZE);
     if (mapped.serviceId) {
@@ -433,6 +433,16 @@ export async function _mapServiceImport2ToUX(service, traceId) {
   if (!_looksLikeGuid(serviceId)) {
     throw new Error("Catalog serviceId is missing or invalid.");
   }
+
+  const serviceLocationId = _safeTrim(_readImport2Field(service, "locationId"));
+  if (
+    serviceLocationId &&
+    _looksLikeGuid(serviceLocationId) &&
+    serviceLocationId !== LOCATION_ID
+  ) {
+    throw new Error("Service location does not match configured location.");
+  }
+
   const hidden = _readImport2Field(service, "hidden") === true;
   const allowCombine =
     !hidden && _readImport2Field(service, "allowCombine") === true;
@@ -919,7 +929,7 @@ async function _countStaffLoadForDay(dateYMD, resourceIds, traceId) {
 }
 
 // ============================================================================
-// DISPONIBILIDAD DUAL
+// DISPONIBILIDAD DUAL (PATCH-02: pairToken determinista via huella canonica)
 // ============================================================================
 
 export async function _getCertifiedDualSlotsInternal(serviceId, resourceId, dateYMD, addonIds = []) {
@@ -988,30 +998,35 @@ export async function _getCertifiedDualSlotsInternal(serviceId, resourceId, date
     return payload;
   };
 
-  const f1Res = await _executeWithRetry(
-    () =>
-      withTimeout(
-        () => availabilityTimeSlots.listAvailabilityTimeSlots(buildListPayload(service.serviceId)),
-        WATCHDOG_TIMEOUT_MS,
-        "dual:listF1"
-      ),
-    2,
-    300
-  );
+  // FASE 5 (REFACTORIZACION): los listados F1 y F2 son independientes entre
+  // si (solo dependen del servicio y de la fecha), por lo que se lanzan en
+  // paralelo con Promise.all. La latencia del motor dual pasa de dos
+  // round-trips secuenciales a uno solo, sin alterar las reglas de negocio.
+  const [f1Res, f2Res] = await Promise.all([
+    _executeWithRetry(
+      () =>
+        withTimeout(
+          () => availabilityTimeSlots.listAvailabilityTimeSlots(buildListPayload(service.serviceId)),
+          WATCHDOG_TIMEOUT_MS,
+          "dual:listF1"
+        ),
+      2,
+      300
+    ),
+    _executeWithRetry(
+      () =>
+        withTimeout(
+          () => availabilityTimeSlots.listAvailabilityTimeSlots(buildListPayload(service.linkedPhases)),
+          WATCHDOG_TIMEOUT_MS,
+          "dual:listF2"
+        ),
+      2,
+      300
+    )
+  ]);
 
   const f1Slots = (Array.isArray(f1Res?.timeSlots) ? f1Res.timeSlots : []).filter(
     (s) => s?.bookable === true
-  );
-
-  const f2Res = await _executeWithRetry(
-    () =>
-      withTimeout(
-        () => availabilityTimeSlots.listAvailabilityTimeSlots(buildListPayload(service.linkedPhases)),
-        WATCHDOG_TIMEOUT_MS,
-        "dual:listF2"
-      ),
-    2,
-    300
   );
 
   const f2Slots = (Array.isArray(f2Res?.timeSlots) ? f2Res.timeSlots : []).filter(
@@ -1033,7 +1048,7 @@ export async function _getCertifiedDualSlotsInternal(serviceId, resourceId, date
     const range = toUtcRange(f1Start, f1End);
     if (!range) continue;
 
-    const f1Resources = _getResourceIdsFromSlot(f1);
+    const f1Resources = _getResourceIdsFromSlot(f1, STAFF_RESOURCE_TYPE_ID);
 
     for (const f2 of f2Slots) {
       const f2Start = _normalizeLocalIsoStr(f2?.localStartDate || f2?.startDate);
@@ -1043,10 +1058,17 @@ export async function _getCertifiedDualSlotsInternal(serviceId, resourceId, date
       const f2StartUtc = getUtcDateFromMadridLocal(f2Start);
       if (!f2StartUtc) continue;
 
-      const gapMinutes = computeGapMinutes(range.endUtc, f2StartUtc);
-      if (gapMinutes < 0 || gapMinutes > MAX_DUAL_GAP_MINUTES) continue;
+      const rawGapMinutes = Math.round(
+        (f2StartUtc.getTime() - range.endUtc.getTime()) / 60000
+      );
 
-      const f2Resources = _getResourceIdsFromSlot(f2);
+      if (rawGapMinutes < 0 || rawGapMinutes > MINUTOS_MAX_HUECO_DUAL) {
+        continue;
+      }
+
+      const gapMinutes = rawGapMinutes;
+
+      const f2Resources = _getResourceIdsFromSlot(f2, STAFF_RESOURCE_TYPE_ID);
       const shared = f1Resources.filter((id) => f2Resources.includes(id));
       if (shared.length === 0) continue;
 
@@ -1054,6 +1076,21 @@ export async function _getCertifiedDualSlotsInternal(serviceId, resourceId, date
         requestedResourceId[0] && shared.includes(requestedResourceId[0])
           ? requestedResourceId[0]
           : pickStaffByLowestLoad(shared, loadByResource) || shared[0];
+
+      // PATCH-02 -> v5010.4: pairToken determinista via helper canonico
+      // bookingCore._buildPairTokenDeterministic (huella unica en
+      // bookingUtils._buildPairFingerprint; este bloque invoca la huella
+      // canonica importada arriba).
+      const pairToken = _buildPairTokenDeterministic({
+          serviceId: service.serviceId,
+          linkedPhases: service.linkedPhases,
+          dateYMD: ymd,
+          f1Start,
+          f1End,
+          f2Start,
+          f2End,
+          resourceId: pairResourceId
+        });
 
       pairs.push({
         fase1: {
@@ -1064,7 +1101,7 @@ export async function _getCertifiedDualSlotsInternal(serviceId, resourceId, date
           slotRef: { ..._normalizeSlotShape(f2), serviceId: service.linkedPhases },
           resourceId: pairResourceId
         },
-        pairToken: null,
+        pairToken,
         serviceId: service.serviceId,
         linkedPhases: service.linkedPhases,
         dateYMD: ymd,
@@ -1228,8 +1265,13 @@ export const resolveStaffForSlot = webMethod(
 export async function _invalidateCachesInternal(serviceId, dateYMD, resourceId, traceId) {
   try {
     const sid = _safeTrim(serviceId);
-    if (sid && _looksLikeGuid(sid) && serviceCatalogRAM.has(sid)) {
+    if (sid && _looksLikeGuid(sid)) {
       serviceCatalogRAM.delete(sid);
+      for (const [key, entry] of serviceCatalogRAM.entries()) {
+        if (entry?.data?.serviceId === sid) {
+          serviceCatalogRAM.delete(key);
+        }
+      }
     }
 
     log.info("_invalidateCachesInternal", {
@@ -1410,6 +1452,21 @@ export async function revalidateExactAvailabilitySlot({
       };
     }
 
+    const returnedLocationId = _safeTrim(
+      rawSlot?.location?.id || rawSlot?.slot?.location?.id
+    );
+    if (returnedLocationId && returnedLocationId !== LOCATION_ID) {
+      return {
+        status: "ERROR",
+        data: null,
+        error: {
+          code: "LOCATION_MISMATCH",
+          message: "Availability location does not match configured location.",
+          traceId: activeTraceId
+        }
+      };
+    }
+
     const normalizedSlot = _attachServiceId(
       rawSlot,
       resolvedServiceId,
@@ -1417,7 +1474,7 @@ export async function revalidateExactAvailabilitySlot({
       "revalidateExactAvailabilitySlot"
     );
 
-    const availableResourceIds = _getResourceIdsFromSlot(normalizedSlot);
+    const availableResourceIds = _getResourceIdsFromSlot(normalizedSlot, STAFF_RESOURCE_TYPE_ID);
 
     if (
       !normalizedSlot ||
@@ -1512,7 +1569,8 @@ export async function revalidateExactAvailabilitySlot({
           localEndDate: end
         },
         resourceId: balancedResourceId,
-        candidateResourceIds: availableResourceIds
+        candidateResourceIds: availableResourceIds,
+        location: LOCATION_BOOKING
       },
       error: null
     };
@@ -1535,3 +1593,108 @@ export async function revalidateExactAvailabilitySlot({
     };
   }
 }
+
+/**
+ * ============================================================================
+ * FASE7 v5010.1 - getConfirmedBookingForDisplay
+ * ============================================================================
+ */
+
+const DISPLAY_STATUSES = new Set([
+  String(BOOKING_STATUS?.CONFIRMED || "CONFIRMED").toUpperCase(),
+  String(BOOKING_STATUS?.PENDING_PAYMENT || "PENDING_PAYMENT").toUpperCase(),
+]);
+
+export const getConfirmedBookingForDisplay = webMethod(
+  Permissions.MEMBER,
+  async ({ bookingId } = {}) => {
+    const activeTraceId = makeTraceId("conf-display");
+    const cleanId = _safeTrim(bookingId);
+
+    if (!cleanId) {
+      return {
+        status: "ERROR",
+        meta: { traceId: activeTraceId },
+        data: null,
+        error: { code: "INVALID_PAYLOAD", message: "bookingId is required" },
+      };
+    }
+
+    try {
+      const getBookingElevated = elevate(bookings.booking.getBooking, ["Member"]);
+      const raw = await getBookingElevated({
+        bookingId: cleanId,
+        getOptions: {
+          additionalInfo: {
+            fields: ["slot", "bookedBy", "contactDetails", "price", "formInfo"],
+          },
+        },
+      });
+
+      const info = raw?.booking?.info || {};
+      const status = String(info.status || "").toUpperCase();
+
+      if (!DISPLAY_STATUSES.has(status)) {
+        return {
+          status: "ERROR",
+          meta: { traceId: activeTraceId },
+          data: null,
+          error: {
+            code: "BOOKING_NOT_DISPLAYABLE",
+            message: "Booking is not in a displayable confirmed state.",
+          },
+        };
+      }
+
+      const slot = raw?.booking?.slot || {};
+      const entities = Array.isArray(slot.bookedEntities) ? slot.bookedEntities : [];
+      const firstEntity = entities[0] || {};
+      const firstSlot = firstEntity.slot || slot.schedule || {};
+
+      const pairToken =
+        info?.form?.fields?.pairToken ||
+        raw?.booking?.formInfo?.fields?.pairToken ||
+        raw?.booking?.formInfo?.pairToken ||
+        null;
+
+      return {
+        status: "SUCCESS",
+        meta: { traceId: activeTraceId },
+        data: {
+          bookingId: String(info.id || cleanId),
+          status,
+          slot: {
+            serviceId: firstSlot.serviceId || firstEntity.serviceId || null,
+            scheduleId: firstSlot.scheduleId || null,
+            startDate: firstSlot.startDate || null,
+            endDate: firstSlot.endDate || null,
+            timezone: firstSlot.timezone?.id || SDK_CONFIG.TIMEZONE_ID || "Europe/Madrid",
+          },
+          resource: firstEntity.resource ? { id: firstEntity.resource.id } : null,
+          location: firstEntity.location || null,
+          totalParticipants: Number(info.totalParticipants) || 1,
+          price: raw?.booking?.price?.formatted || null,
+          contactDetails: raw?.booking?.contactDetails || {},
+          pairToken,
+        },
+        error: null,
+      };
+    } catch (error) {
+      log.warn("getConfirmedBookingForDisplay failed", {
+        traceId: activeTraceId,
+        bookingId: cleanId,
+        message: error?.message,
+      });
+      return {
+        status: "ERROR",
+        meta: { traceId: activeTraceId },
+        data: null,
+        error: {
+          code: "BOOKING_LOOKUP_FAILED",
+          message: "Booking could not be loaded for confirmation display.",
+          traceId: activeTraceId,
+        },
+      };
+    }
+  }
+);

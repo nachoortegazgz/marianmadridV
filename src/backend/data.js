@@ -28,9 +28,6 @@ import {
     COLLECTIONS,
     EU_VAT_PREFIXES,
     FISCAL_ROLE,
-    EVENT_TYPE,
-    THIRD_PARTY_TYPE,
-    ITEM_NATURE,
 } from "backend/internalConfig";
 
 import { logger } from "backend/logger";
@@ -171,7 +168,7 @@ function _isValidNifOrEuVat(nif) {
 }
 
 // =============================================================================
-// HELPERS DE LECTURA — Aceptan nomenclatura V20.1 y aliases legacy
+// HELPERS DE LECTURA - Aceptan nomenclatura V20.1 y aliases legacy
 // =============================================================================
 
 function _readTaxableBase(item) {

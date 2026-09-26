@@ -2,7 +2,7 @@
 =============================================================================
 MODULE: backend/internalConfig.js
 VERSION: v5010-CLEAN
-BASE: v5009.3 + Eliminación Total Legacy + SSOT V20.1 Definitivo
+BASE: v5009.3 + Eliminacion Total Legacy + SSOT V20.1 Definitivo
 RESPONSIBILITY: Single Source of Truth (SSOT) for backend configuration.
 STANDARDS: G10 ASCII Strict, Zero Deprecated Aliases, Zero Legacy.
 =============================================================================
@@ -28,32 +28,30 @@ export const STAFF = Object.freeze({
 
 // =============================================================================
 // BLOQUE 2 - COLECCIONES CMS CANONICAS (SEPARADAS POR DOMINIO)
-// CFG-10: Separación estricta Business vs Operacional
+// CFG-10: Separacion estricta Business vs Operacional
 // =============================================================================
 
+// SSOT v5010.1: 20 colecciones canonicas activas.
+// ELIMINADAS (no reintroducir): AsientosContables, LibroAsientosContablesDetalle,
+// FacturasRecibidas, ConfiguracionFiscal (fusionada en DatosFiscales),
+// BookingsServiceSyncQueue, M365GraphSyncQueue.
 export const BUSINESS_COLLECTIONS = Object.freeze({
     ALERTAS_OPERATIVAS: "AlertasOperativas",
-    ASIENTOS_CONTABLES: "AsientosContables",
     BOOKING_TRANSACTIONS: "BookingTransactions",
     CAJA_ACTUAL: "CajaActual",
     CATEGORIAS_SERVICIO: "CategoriasServicio",
     CITAS_F2: "CitasF2",
     COMPENSACIONES_PENDIENTES: "CompensacionesPendientes",
     COMPLEMENTOS_CATALOGO: "ComplementosCatalogo",
-    CONFIGURACION_FISCAL: "ConfiguracionFiscal",
     DATOS_FISCALES: "DatosFiscales",
-    FACTURAS_RECIBIDAS: "FacturasRecibidas",
     HISTORICO_CIERRES_Z: "HistoricoCierresZ",
     INVENTARIO_STOCK_VENTA: "InventarioStockVenta",
-    LIBRO_ASIENTOS_CONTABLES_DETALLE: "LibroAsientosContablesDetalle",
     LIBRO_REGISTRO_FACTURAS_EXPEDIDAS: "LibroRegistroFacturasExpedidas",
 });
 
 export const OPERATIONAL_COLLECTIONS = Object.freeze({
     AVAILABILITY_DAYS_CACHE: "AvailabilityDaysCache",
-    BOOKINGS_SERVICE_SYNC_QUEUE: "BookingsServiceSyncQueue",
     DUAL_SLOT_CACHE: "DualSlotCache",
-    M365_GRAPH_SYNC_QUEUE: "M365GraphSyncQueue",
     MAPA_STAFF: "MapaStaff",
     MOVIMIENTOS_CAJA: "MovimientosCaja",
     MOVIMIENTOS_INVENTARIO: "MovimientosInventario",
@@ -67,7 +65,7 @@ export const OPERATIONAL_COLLECTIONS = Object.freeze({
     LIBRO_REGISTRO_FACTURAS_RECIBIDAS: "LibroRegistroFacturasRecibidas",
 });
 
-// Alias de solo lectura para compatibilidad interna estricta (no usar en nuevo código)
+// Alias de solo lectura para compatibilidad interna estricta (no usar en nuevo codigo)
 export const COLLECTIONS = Object.freeze({
     ...BUSINESS_COLLECTIONS,
     ...OPERATIONAL_COLLECTIONS
@@ -78,6 +76,8 @@ export const COLLECTIONS = Object.freeze({
 // =============================================================================
 
 export const APP_IDS = Object.freeze({
+    // BIBLIA R19 (linea 190): App ID canonica de Wix Bookings preservada.
+    // No es un placeholder; verificado contra catalogId SSOT y CART-SHAPE.
     BOOKINGS: "13d21c63-b5ec-5912-8397-c3a5ddb27a97",
     STORES: "215238eb-22a5-4c36-9e7b-e7c08025e04e",
     EVENTS: "140603ad-af8d-84fb-9004-ee174e35054d",
@@ -107,7 +107,9 @@ export const SDK_CONFIG = Object.freeze({
     // B3-FIX: TIME_SLOTS debe ser "BUSINESS" per dev.wix.com V2 API
     LOCATION_TYPES: Object.freeze({
         TIME_SLOTS: "BUSINESS",
-        BOOKINGS_WRITER: "OWNERBUSINESS",
+        // AUDIT-FIX v5010.3 (BIBLIA 2.2.1 fila 8): literal oficial del
+        // enum Writer V2 de Wix Bookings, con guion bajo. Regla CERO ALIAS.
+        BOOKINGS_WRITER: "OWNER_BUSINESS",
     }),
 
     TIMEOUTS: Object.freeze({
@@ -181,7 +183,7 @@ export const SDK_CONFIG = Object.freeze({
     M365: Object.freeze({ ENABLED: false }),
     ACCOUNTING: Object.freeze({ ENABLED: false }),
 
-    // Flag explícito para activar/desactivar sync de servicios (Deuda #6 resuelta)
+    // Flag explicito para activar/desactivar sync de servicios (Deuda #6 resuelta)
     SYNC_BOOKINGS_SERVICES_ENABLED: false,
 
     DOCUMENTS: Object.freeze({
@@ -196,20 +198,26 @@ export const SDK_CONFIG = Object.freeze({
 // =============================================================================
 
 export const CONCURRENCY = Object.freeze({
-    MUTEX_TTL_MS: 300000,
-    HEARTBEAT_MS: 15000,
+    // v5010.4 (FASE 2): renombrado V20 segun BIBLIA 3.2 fila 11 y 3.2.1
+    // filas 15-17. Cero nombres legacy: los consumidores usan ya el alias
+    // espanol canonico.
+    MS_TTL_MUTEX: 300000,          // REF: BIBLIA 3.2.1 f15 (ex MUTEX_TTL_MS)
+    MS_LATIDO: 15000,              // REF: BIBLIA 3.2.1 f16 (ex HEARTBEAT_MS)
+    // SIN EQUIVALENTE V20 DOCUMENTADO - MANTENER LEGACY
+    // (grep BIBLIA/SSOT1: MS_SONDEO_TRANSACCION / MS_ESPERA_MAX_TRANSACCION
+    // no existen en la norma; decision registrada en certificacion v5010.4)
     TRANSACTION_POLL_BASE_MS: 250,
     TRANSACTION_MAX_WAIT_MS: 3000,
     LOCK_CLEANUP_GRACE_MS: 60000,
     MAX_COMPENSATION_RETRIES: 3,
-    LEDGER_MUTEX_TTL_MS: 45000,
+    MS_TTL_MUTEX_ASIENTO: 45000,   // REF: BIBLIA 3.2.1 f17 (ex LEDGER_MUTEX_TTL_MS)
     LOCK_RELEASE_MIN_REMAINING_MS: 15000,
     DEFAULT_DURATION_MIN: 30,
 });
 
 // =============================================================================
 // BLOQUE 6 - ENUMS DE NEGOCIO (SSOT COMPLETO)
-// Sin aliases, solo nombres canónicos en inglés/V20.1
+// Sin aliases, solo nombres canonicos en ingles/V20.1
 // =============================================================================
 
 export const REGIME_KEY = Object.freeze({
@@ -494,6 +502,9 @@ export const PAYMENT_STATUS = Object.freeze({
     PENDING_PAYMENT: "PENDING_PAYMENT",
     PENDING_LEDGER: "PENDING_LEDGER",
     PAID: "PAID",
+    // v5010.4 (FASE 0): valor valido segun SSOT1.txt seccion 4 y mapa CORE-06
+    // de bookingCore.js (PARCIALMENTE_PAGADO -> PARTIALLY_PAID). Cero gap.
+    PARTIALLY_PAID: "PARTIALLY_PAID",
     REFUNDED: "REFUNDED",
     PARTIALLY_REFUNDED: "PARTIALLY_REFUNDED",
 });
@@ -514,6 +525,10 @@ export const CATALOG_CONFIG = Object.freeze({
         INACTIVO: "INACTIVO",
         BORRADOR: "BORRADOR",
     }),
+    // FASE 3 (SDK V2): catalogId estatico oficial de Wix Bookings.
+    // Referencia unica para estructurar lineas de carrito/checkout nativas
+    // sin duplicar items (ver contract test CONTRACT-ECOM-CATALOG-ID).
+    BOOKINGS_CATALOG_ID: "97f091c5-83e0-40d6-aa49-db3f3b9247f1",
     CURRENCY: "EUR",
     MAX_TITLE_LENGTH: 160,
     MAX_SUMMARY_LENGTH: 120,
@@ -523,12 +538,14 @@ export const CATALOG_CONFIG = Object.freeze({
 
 export const SLOT_SEARCH = Object.freeze({
     DIAS_LIMITE: 14,
-    TOLERANCE_MINUTES: 10,
-    MAX_DUAL_GAP_MINUTES: 120,
+    // v5010.4 (FASE 2): renombrado V20 segun BIBLIA 3.2 fila 9 y 3.2.1
+    // filas 12-13. Cero nombres legacy.
+    MINUTOS_TOLERANCIA: 10,        // REF: BIBLIA 3.2.1 f12 (ex TOLERANCE_MINUTES)
+    MINUTOS_MAX_HUECO_DUAL: 120,   // REF: BIBLIA 3.2.1 f13 (ex MAX_DUAL_GAP_MINUTES)
 });
 
 export const BOOKINGS_ADDON_CONFIG = Object.freeze({
-    MAX_PER_BOOKING: 5,
+    MAX_POR_RESERVA: 5,            // REF: BIBLIA 3.2.1 f14 (ex MAX_PER_BOOKING)
     ACTIVE_NATIVE_IDS: Object.freeze([]),
 });
 
@@ -538,7 +555,7 @@ export const BOOKINGS_ADDON_CONFIG = Object.freeze({
 
 export const JWT = Object.freeze({
     ALGORITHM: "HS256",
-    EXPIRATION_MS: 1800000,
+    MS_EXPIRACION: 1800000,        // REF: BIBLIA 3.2.1 f20 (ex EXPIRATION_MS)
 });
 
 export const BOOKING_FIELDS = Object.freeze({
@@ -572,8 +589,8 @@ export const STAFF_ACCESS = Object.freeze({
 });
 
 export const CURRENCY_CONFIG = Object.freeze({
-    DISPLAY_CURRENCY: "EUR",
-    DECIMALS: 2,
+    MONEDA_VISUALIZACION: "EUR",   // REF: BIBLIA 3.2.1 f18 (ex DISPLAY_CURRENCY)
+    DECIMALES: 2,                  // REF: BIBLIA 3.2.1 f19 (ex DECIMALS)
 });
 
 export const STAFF_DEFAULT_NAME = "Profesional";
@@ -596,25 +613,25 @@ export const ACCOUNTING_ACCOUNT = Object.freeze({
     TAX_IRPF_WITHHOLDING_RECEIVABLE: "473000",
     TAX_EQUIVALENCE_SURCHARGE: "475800",
     CUSTOMER_ADVANCES: "438000",
-    INVENTORY: "300000", // Añadido para v5010-CLEAN
+    INVENTORY: "300000", // Anadido para v5010-CLEAN
 });
 
 // Nombres legibles para las cuentas (SSOT)
 export const ACCOUNTING_ACCOUNT_NAME = Object.freeze({
     "570000": "Caja EUR",
     "572000": "Bancos",
-    "705000": "Prestación de Servicios",
+    "705000": "Prestacion de Servicios",
     "477000": "HP IVA Repercutido",
     "472000": "HP IVA Soportado",
     "708000": "Devoluciones de Ventas",
     "400000": "Proveedores",
-    "600000": "Compra de Mercaderías",
+    "600000": "Compra de Mercaderias",
     "555000": "Cuenta Puente",
     "475100": "HP Retenciones a Practicar",
     "473000": "HP Retenciones Sufridas",
     "475800": "HP Recargo de Equivalencia",
     "438000": "Anticipos de Clientes",
-    "300000": "Existencias de Mercaderías",
+    "300000": "Existencias de Mercaderias",
 });
 
 export const AEAT_INVOICE_TYPE = Object.freeze({
@@ -737,7 +754,7 @@ export const FISCAL_LIMITS = Object.freeze({
     MAX_DATE: "2030-12-31",
 });
 
-// Conjunto de validación centralizado (CFG-13)
+// Conjunto de validacion centralizado (CFG-13)
 export const VALIDATION_SETS = Object.freeze({
     MOVEMENT_TYPES: new Set(Object.values(MOVEMENT_TYPE)),
     PAYMENT_METHODS: new Set(Object.values(PAYMENT_METHOD)),
@@ -745,7 +762,7 @@ export const VALIDATION_SETS = Object.freeze({
     EVENT_TYPES_REQUIRING_CATALOG: new Set(["VENTA_LINEA", "COMPRA_LINEA", "RECTIFICATIVA", "MOV_STOCK"]),
 });
 
-// Tipos de movimiento con signo negativo en contabilidad
+// Tipos de movimiento con signo negativo (PGC: cargos/abonos)
 export const NEGATIVE_SIGN_MOVEMENT_TYPES = Object.freeze([
     MOVEMENT_TYPE.REEMBOLSO,
     MOVEMENT_TYPE.DEVOLUCION_SERVICIO,
@@ -761,7 +778,7 @@ export const NEGATIVE_SIGN_MOVEMENT_TYPES = Object.freeze([
 
 /**
  * Construye el objeto COMPUTER_SYSTEM fusionando el fallback con la config real.
- * Lanza error si falta el NIF del emisor en tiempo de ejecución.
+ * Lanza error si falta el NIF del emisor en tiempo de ejecucion.
  */
 export function buildComputerSystem(fiscalConfig) {
     const fallback = { ...COMPUTER_SYSTEM };
@@ -772,7 +789,7 @@ export function buildComputerSystem(fiscalConfig) {
         return Object.freeze(fallback);
     }
     
-    // Validación estricta: Si hay config, debe tener NIF
+    // Validacion estricta: Si hay config, debe tener NIF
     if (!fiscalConfig.producerTaxId) {
         throw new Error("FISCAL_VIOLATION: producerTaxId es obligatorio en ConfiguracionFiscal para operar en modo Veri*factu");
     }
@@ -791,7 +808,7 @@ export function buildComputerSystem(fiscalConfig) {
 }
 
 /**
- * Resuelve la cuenta contable de retención IRPF según el rol fiscal.
+ * Resuelve la cuenta contable de retencion IRPF segun el rol fiscal.
  */
 export function resolveWithholdingAccount(fiscalRole) {
     switch (fiscalRole) {
@@ -810,12 +827,12 @@ export function resolveWithholdingAccount(fiscalRole) {
 export function validateInternalConfig() {
     const issues = [];
 
-    // Verificar colecciones críticas
+    // Verificar colecciones criticas
     if (!BUSINESS_COLLECTIONS.CITAS_F2 || !OPERATIONAL_COLLECTIONS.SLOT_LOCKS) {
-        issues.push("Colecciones críticas faltantes");
+        issues.push("Colecciones criticas faltantes");
     }
 
-    // Verificar enums críticos
+    // Verificar enums criticos
     if (Object.keys(BOOKING_FIELDS).length < 10) {
         issues.push("BOOKING_FIELDS incompleto");
     }
@@ -825,9 +842,9 @@ export function validateInternalConfig() {
         issues.push(`VIOLACION_B3: TIME_SLOTS es ${SDK_CONFIG.LOCATION_TYPES.TIME_SLOTS}, debe ser BUSINESS`);
     }
 
-    // Verificar límites fiscales
+    // Verificar limites fiscales
     if (FISCAL_LIMITS.CASHPAYMENT_MAX_EUR !== 1000) {
-        issues.push("Límite efectivo incorrecto (debe ser 1000)");
+        issues.push("Limite efectivo incorrecto (debe ser 1000)");
     }
 
     return {
@@ -838,7 +855,7 @@ export function validateInternalConfig() {
 }
 
 /**
- * Valida el contexto de ejecución (usuario, location, timestamp).
+ * Valida el contexto de ejecucion (usuario, location, timestamp).
  */
 export function validateRuntimeContext(context) {
     const errors = [];
@@ -870,7 +887,7 @@ export function validateRuntimeContext(context) {
 }
 
 /**
- * Comparador seguro de enums (ignora mayúsculas/minúsculas y espacios).
+ * Comparador seguro de enums (ignora mayusculas/minusculas y espacios).
  */
 export function enumEq(value, expectedEnumValue) {
     if (!value || !expectedEnumValue) return false;
@@ -878,7 +895,7 @@ export function enumEq(value, expectedEnumValue) {
 }
 
 /**
- * Verifica si un valor pertenece a un enum (ignora mayúsculas/minúsculas y espacios).
+ * Verifica si un valor pertenece a un enum (ignora mayusculas/minusculas y espacios).
  */
 export function enumIn(value, enumObject) {
     if (!value || !enumObject) return false;
@@ -887,7 +904,7 @@ export function enumIn(value, enumObject) {
 }
 
 /**
- * Normaliza el tipo de reserva a valores canónicos.
+ * Normaliza el tipo de reserva a valores canonicos.
  */
 export function normalizeBookingType(type) {
     if (!type) return BOOKING_TYPE.NORMAL;
@@ -914,7 +931,7 @@ export function isValidGuid(guid) {
 }
 
 /**
- * Genera número de factura secuencial YYYYMM-SEQ.
+ * Genera numero de factura secuencial YYYYMM-SEQ.
  */
 export function buildInvoiceNumber(date, sequenceNumber) {
     const d = new Date(date);

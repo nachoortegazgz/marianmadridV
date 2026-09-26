@@ -259,7 +259,7 @@ export async function generateJWT(payload, traceId = null) {
 
         const issuedAt = Math.floor(Date.now() / 1000);
         const expiration =
-            issuedAt + Math.floor(Number(JWT.EXPIRATION_MS) / 1000);
+            issuedAt + Math.floor(Number(JWT.MS_EXPIRACION) / 1000);
 
         if (!Number.isFinite(expiration) || expiration <= issuedAt) {
             throw new Error("INVALID_JWT_EXPIRATION");

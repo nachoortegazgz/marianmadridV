@@ -24,7 +24,7 @@ import wixData from "wix-data";
 
 import { COLLECTIONS, SDK_CONFIG, MOVEMENT_TYPE } from "backend/internalConfig";
 import { makeTraceId, _safeTrim, _roundMoney, withTimeout } from "public/mmUtils";
-import { requireCajero, requireAdmin, requireMarianManager, rateLimiter } from "backend/security";
+import { requireCajero, requireAdmin, rateLimiter } from "backend/security";
 import { logger } from "backend/logger";
 
 import { _toPublicError } from "backend/responseUtils";
