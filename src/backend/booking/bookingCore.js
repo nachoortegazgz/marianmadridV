@@ -144,10 +144,16 @@ export const ERROR_CODES = Object.freeze({
 // =============================================================================
 // BLOQUE 2 - ELEVATED PROXIES (Bookings V2 + eCommerce)
 // =============================================================================
+// v5010.6: superficie reducida a los proxies con consumidor real.
+//   cancelBookingElevated -> bookingSaga (compensacion SAGA-06) + crons.js.
+//   confirmOrDecline...   -> bookingSaga (paso ConfirmPresencial, CORE-06).
+//   createCheckout/getCheckoutUrl -> bookingSaga (flujo ONLINE).
+// createBookingElevated y rescheduleBookingElevated eliminados: cero
+// consumidores en src/ y tools/. La creacion usa elevacion selectiva
+// (bookingSaga._createBookingWithSelectiveElevation, FIX-37), que solo
+// eleva bajo ACCESS_DENIED; el reprogramado no tiene flujo activo.
 
-export const createBookingElevated = elevate(bookings.createBooking);
 export const cancelBookingElevated = elevate(bookings.cancelBooking);
-export const rescheduleBookingElevated = elevate(bookings.rescheduleBooking);
 export const createCheckoutElevated = elevate(checkout.createCheckout);
 export const getCheckoutUrlElevated = elevate(checkout.getCheckoutUrl);
 
@@ -442,21 +448,6 @@ export async function _forceStaffInPristineSlot(slot, resourceId, serviceIdOverr
 
 export function _extractCheckoutId(checkoutSession) {
     return checkoutSession?.checkout?._id || checkoutSession?._id || null;
-}
-
-export async function getCheckoutUrlSafe(checkoutSessionOrId) {
-    const direct = checkoutSessionOrId?.checkoutUrl || checkoutSessionOrId?.checkout?.checkoutUrl || null;
-    if (direct) return direct;
-    const checkoutId =
-        typeof checkoutSessionOrId === "string" ? checkoutSessionOrId : _extractCheckoutId(checkoutSessionOrId);
-    if (!checkoutId) return null;
-    try {
-        const result = await getCheckoutUrlElevated(checkoutId, {});
-        return result?.checkoutUrl || null;
-    } catch (error) {
-        log.warn("getCheckoutUrlSafe failed", { checkoutId, error: error?.message });
-        return null;
-    }
 }
 
 // =============================================================================
@@ -865,83 +856,6 @@ export async function _updateCitaSafe(bookingId, updater, traceId, operation) {
 }
 
 // =============================================================================
-// BLOQUE 13 - DUAL CACHE
-// =============================================================================
-
-const DUAL_CACHE_COL = COLLECTIONS.DUAL_SLOT_CACHE;
-
-export async function _getDualPairFromCache(pairToken, traceId, expected = {}) {
-    if (!pairToken) return null;
-
-    const res = await wixData
-        .query(DUAL_CACHE_COL)
-        .eq("_id", String(pairToken))
-        .limit(1)
-        .find({ suppressAuth: true })
-        .catch(() => null);
-
-    const item = res?.items?.[0] || null;
-    if (!item) return null;
-
-    const exp = _toDateSafe(item.expiresAt);
-    if (exp && exp.getTime() < Date.now()) return null;
-
-    if (expected.serviceId && _safeTrim(item.serviceId) !== _safeTrim(expected.serviceId)) {
-        log.warn("_getDualPairFromCache: serviceId mismatch", {
-            pairToken, traceId, cached: item.serviceId, expected: expected.serviceId,
-        });
-        return null;
-    }
-    if (expected.resourceId && _safeTrim(item.resourceId) !== _safeTrim(expected.resourceId)) {
-        log.warn("_getDualPairFromCache: resourceId mismatch", {
-            pairToken, traceId, cached: item.resourceId, expected: expected.resourceId,
-        });
-        return null;
-    }
-    if (expected.phase2ServiceId) {
-        const cachedPhase2 = _safeTrim(item.phase2ServiceId || item.linkFases);
-        if (cachedPhase2 !== _safeTrim(expected.phase2ServiceId)) {
-            log.warn("_getDualPairFromCache: phase2ServiceId mismatch", {
-                pairToken, traceId, cached: cachedPhase2, expected: expected.phase2ServiceId,
-            });
-            return null;
-        }
-    }
-    if (Number.isFinite(expected.minSchemaVersion)) {
-        const cachedVersion = Number(item.schemaVersion || 1);
-        if (cachedVersion < Number(expected.minSchemaVersion)) {
-            log.warn("_getDualPairFromCache: schemaVersion too old", {
-                pairToken, traceId, cached: cachedVersion, expected: expected.minSchemaVersion,
-            });
-            return null;
-        }
-    }
-
-    return item;
-}
-
-// =============================================================================
-// BLOQUE 14 - HELPERS DE ADDONS
-// =============================================================================
-
-export function _normalizeAddons(addons) {
-    if (!Array.isArray(addons)) return [];
-    return addons.map((a) => {
-        const rawPrice = Number(a?.precio ?? a?.price ?? 0);
-        const precio = Number.isFinite(rawPrice) && rawPrice >= 0 ? rawPrice : 0;
-        return {
-            id: a?.id || a?._id || "",
-            nombre: a?.nombre || a?.name || "Complemento",
-            precio,
-        };
-    });
-}
-
-export function _sumAddons(addons) {
-    return _normalizeAddons(addons).reduce((acc, a) => acc + a.precio, 0);
-}
-
-// =============================================================================
 // BLOQUE 15 - EXTRACCION DE RESOURCEIDS DESDE SLOTS (CORE-01)
 // =============================================================================
 
@@ -959,14 +873,6 @@ export function _extractResourceIdsFromSlot(slot) {
     // v5010.4 (FASE 2): delegacion total en bookingUtils.getResourceIdsFromSlot
     // (unica implementacion; reservas.web importa el mismo helper). Cero 1:1.
     return getResourceIdsFromSlot(slot, STAFF_RESOURCE_TYPE_ID);
-}
-
-// =============================================================================
-// BLOQUE 16 - VALIDACION DE GUID
-// =============================================================================
-
-export function isValidGuid(id) {
-    return _looksLikeGuid(id);
 }
 
 // =============================================================================
@@ -1125,57 +1031,6 @@ export function _projectWriterSlotFromAvailability(slot, resourceId, serviceId) 
 }
 
 // =============================================================================
-// BLOQUE 19 - SLOTS DUALES OPTIMIZADOS CON CACHE PRE-WARM
-// =============================================================================
-
-export async function getCertifiedDualSlotsOptimized(serviceId, resourceId, dateYMD, addonIds = []) {
-    const traceId = makeTraceId("dual-opt");
-    try {
-        const reservasModule = await import("backend/reservas.web");
-
-        const cached = await wixData
-            .query(DUAL_CACHE_COL)
-            .eq("serviceId", serviceId)
-            .eq("dateYmd", dateYMD)
-            .eq("status", "ACTIVE")
-            .gt("expiresAt", new Date())
-            .limit(50)
-            .find({ suppressAuth: true })
-            .catch(() => ({ items: [] }));
-
-        if (cached?.items?.length > 0 && resourceId) {
-            const matchingPairs = cached.items.filter((p) => {
-                const sameService = _safeTrim(p.serviceId) === _safeTrim(serviceId);
-                const sameResource = _safeTrim(p.resourceId) === _safeTrim(resourceId);
-                const isActive = _safeTrim(p.status).toUpperCase() === "ACTIVE";
-                return sameService && sameResource && isActive;
-            });
-            if (matchingPairs.length > 0) {
-                log.info("getCertifiedDualSlotsOptimized: cache hit", { serviceId, dateYMD, traceId });
-                return {
-                    status: "SUCCESS",
-                    data: matchingPairs.map((p) => ({
-                        fase1: { slotRef: p.slotF1, resourceId: p.resourceId },
-                        fase2: { slotRef: p.slotF2, resourceId: p.resourceId },
-                        pairToken: p.pairToken,
-                        serviceId: p.serviceId,
-                        linkedPhases: p.phase2ServiceId,
-                        dateYMD: p.dateYmd,
-                    })),
-                    error: null,
-                    cached: true,
-                };
-            }
-        }
-
-        return await reservasModule._getCertifiedDualSlotsInternal(serviceId, resourceId, dateYMD, addonIds);
-    } catch (err) {
-        log.error("getCertifiedDualSlotsOptimized failed", { error: err?.message, traceId });
-        return { status: "ERROR", data: null, error: { code: "DUAL_SLOTS_FAILED", message: err?.message } };
-    }
-}
-
-// =============================================================================
 // BLOQUE 20 - PAIR TOKEN CANONICO COMPARTIDO (CORE-05)
 // =============================================================================
 
@@ -1199,24 +1054,6 @@ export async function getCertifiedDualSlotsOptimized(serviceId, resourceId, date
  */
 export function _buildPairTokenDeterministic(input) {
     return _hashKey(_buildPairFingerprint(input || {}));
-}
-
-export function _areSlotsCompatible(slot1, slot2, maxGapMinutes) {
-    return _areSlotsContiguous(slot1, slot2, maxGapMinutes);
-}
-
-export function _auditBookingPrice(basePrice, addons) {
-    const base = Number(basePrice) || 0;
-    const addonsTotal = _sumAddons(addons);
-    const totalPrice = base + addonsTotal;
-    return {
-        totalPrice,
-        audit: {
-            basePrice: base,
-            addonsTotal,
-            addonsCount: Array.isArray(addons) ? addons.length : 0,
-        },
-    };
 }
 
 // =============================================================================

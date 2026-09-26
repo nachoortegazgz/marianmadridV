@@ -488,9 +488,12 @@ test('CONTRACT-BOOKINGS-APP-ID-NOT-PLACEHOLDER: APP_IDS.BOOKINGS es GUID real, n
   assert.equal(APP_IDS.BOOKINGS, '13d21c63-b5ec-5912-8397-c3a5ddb27a97', 'BIBLIA R19: app id canonica preservada');
 });
 
-test('CONTRACT-ELEVATE-COUNT: exactamente 8 call-sites elevate() en backend de produccion', () => {
-  // Rectifica el informe maestro (afirmo 12). Conteo sobre lineas no-comentario:
-  // reservas.web.js x1 + bookingCore.js x6 + bookingSaga.js x1 = 8.
+test('CONTRACT-ELEVATE-COUNT: exactamente 6 call-sites elevate() en backend de produccion', () => {
+  // v5010.6: re-metrica tras reducir la superficie de elevacion a proxies con
+  // consumidor real (cero codigo muerto, regla de excelencia). Conteo sobre
+  // lineas no-comentario: reservas.web.js x1 + bookingCore.js x4 + bookingSaga.js x1 = 6.
+  // Historico: 12 (informe maestro, inflado) -> 8 (v5010.5) -> 6 (v5010.6,
+  // eliminados createBookingElevated y rescheduleBookingElevated sin uso).
   const files = [
     `${SRC}/backend/reservas.web.js`,
     `${SRC}/backend/booking/bookingCore.js`,
@@ -504,7 +507,7 @@ test('CONTRACT-ELEVATE-COUNT: exactamente 8 call-sites elevate() en backend de p
       total += (line.match(/elevate\(/g) || []).length;
     }
   }
-  assert.equal(total, 8, 'metrica rectificada: 8 elevaciones (no 12 como afirmaba el informe maestro)');
+  assert.equal(total, 6, 'metrica v5010.6: 6 elevaciones canonicas (superficie minima con uso real)');
 });
 
 test('CONTRACT-ZERO-LEGACY: reservas.test.js, motor y booking importan solo superficie V2', () => {
