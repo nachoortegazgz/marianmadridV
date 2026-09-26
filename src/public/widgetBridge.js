@@ -1,4 +1,3 @@
-```js
 /*
 =============================================================================
 MODULE: public/widgetBridge.js
@@ -405,4 +404,3 @@ export function createWidgetBridge(widgetElement, options = {}) {
 }
 
 export default createWidgetBridge;
-```
