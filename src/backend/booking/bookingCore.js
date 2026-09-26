@@ -1,19 +1,49 @@
 /*
 =============================================================================
 MODULE: backend/booking/bookingCore.js
-VERSION: v5009-FISCAL-V20.1
-BASE: v5008.6-FINAL + Directriz V20 (IDs nativa en ingles)
+VERSION: v5009-FISCAL-V20.2-CORE
+BASE: v5009-FISCAL-V20.1 + Alineacion con bookingSaga v5009-FISCAL-V20.3
 RESPONSIBILITY: Capa de acceso y primitivas atomicas para reservas.
 STANDARDS: ASCII only. No Node builtins.
 
-FIXES APLICADOS v5009-FISCAL-V20.1:
-  - V20-01: sin renombrados funcionales. El modulo solo usa nombres cortos
-            (bookingId, pairToken, status, paymentStatus, traceId) que no
-            cambian en V20.1. CitasF2 mantiene su esquema corto; los campos
-            V20.1 nuevos (thirdPartyId, sourceEventId, fiscalData, etc.) los
-            escriben los modulos de nivel superior (bookingSaga, events).
+FIXES APLICADOS v5009-FISCAL-V20.2:
+  - CORE-01: _extractResourceIdsFromSlot acepta resourceTypeId,
+             resourceType.id, resourceType._id y typeId. Paridad 1:1 con
+             reservas.web._getResourceIdsFromSlot. Extrae tambien
+             resource.resourceId. Sin este fix, _projectCertifiedSlot
+             devolvia availableResources: [] con la variante anidada de Wix.
+  - CORE-02: _forceStaffInPristineSlot PRESERVA addOnIds / selectedAddOns
+             en el slot final. Antes los addons detectados por bookingSaga
+             se perdia antes de createBooking (precio/duracion incorrectos).
+  - CORE-03: _projectWriterSlotFromAvailability exige scheduleId GUID
+             valido (cascada projected -> slot -> slot.slot). Devuelve null
+             si no hay scheduleId util, en vez de proyectar scheduleId: "".
+  - CORE-04: _projectCertifiedSlot valida locationId contra
+             SDK_CONFIG.LOCATION_ID. Si el slot trae otra ubicacion,
+             devuelve null (fail-fast) en vez de sustituirla en silencio.
+             locationId resultante debe ser GUID valido.
+  - CORE-05: Huella de pairToken CANONICA compartida.
+             _buildPairFingerprint + _buildPairTokenDeterministic son la
+             UNICA fuente de verdad. reservas.web.js y bookingSaga.js deben
+             importarlas (ver parches de consumo mas abajo). Incluye los 8
+             campos exigidos: serviceId, linkedPhases, dateYMD, f1Start,
+             f1End, f2Start, f2End, resourceId.
+             _generatePairToken(traceId) queda SOLO como legacy no
+             determinista (no usar para correlacion dual).
+  - CORE-06: confirmOrDeclineBookingElevated traduce paymentStatus del
+             SSOT espanol (IMPAGADO, NO_PAGADO, PAGADO...) al enum nativo
+             de Wix (UNPAID, NOT_PAID, PAID...) segun BIBLIA 3.2.1.
+             Resuelve el riesgo SAGA-05: la saga envia PAYMENT_STATUS.UNPAID
+             ("IMPAGADO") y Wix solo acepta el enum nativo ingles.
+             Valores ingleses pasan sin cambios (back-compat total).
+  - CORE-07: Constantes CONCURRENCY tolerantes al renombrado V20
+             (MS_TTL_MUTEX / MUTEX_TTL_MS, MS_SONDEO_TRANSACCION / ...,
+             BIBLIA 3.2.1 filas 15-17). _persistBooking y
+             _rankResourcesByLoad toleran alias de estado CONFIRMADO /
+             PENDIENTE_PAGO / CANCELADO junto a los nativos ingleses.
 
 HISTORIAL (heredado):
+  v5009-FISCAL-V20.1 | Sin renombrados funcionales (esquema corto CitasF2).
   v5008.6 | 2026-09-20 | Alineacion final: FIX-32, FIX-33, FIX-43.
   v5008.5 | 2026-09-19 | COHERENCIA scheduleId: CORE-16, CORE-17.
   v5008.4 | 2026-09-19 | Date range, scheduleId obligatorio, cache validaciones.
@@ -54,6 +84,9 @@ const log = logger;
 // FIX-32: STAFF_RESOURCE_TYPE_ID via SSOT.
 const STAFF_RESOURCE_TYPE_ID = API.STAFF_RESOURCE_TYPE_ID;
 
+// CORE-07:Ubicacion configurada, normalizada una sola vez.
+const CONFIGURED_LOCATION_ID = _safeTrim(SDK_CONFIG?.LOCATION_ID);
+
 // =============================================================================
 // BLOQUE 1 - CODIGOS DE ERROR (25 codigos)
 // =============================================================================
@@ -73,6 +106,7 @@ export const ERROR_CODES = Object.freeze({
     SLOT_UNAVAILABLE: "SLOT_UNAVAILABLE",
     STAFF_UNAVAILABLE: "STAFF_UNAVAILABLE",
     SERVICE_NOT_FOUND: "SERVICE_NOT_FOUND",
+    LOCATION_MISMATCH: "LOCATION_MISMATCH",
     LOCK_KEY_OR_OWNER_INVALID: "LOCK_KEY_OR_OWNER_INVALID",
     LOCK_HELD_BY_ANOTHER_OWNER: "LOCK_HELD_BY_ANOTHER_OWNER",
     LOCK_EXPIRED_PENDING_CLEANUP: "LOCK_EXPIRED_PENDING_CLEANUP",
@@ -92,10 +126,55 @@ export const ERROR_CODES = Object.freeze({
 
 export const createBookingElevated = elevate(bookings.createBooking);
 export const cancelBookingElevated = elevate(bookings.cancelBooking);
-export const confirmOrDeclineBookingElevated = elevate(bookings.confirmOrDeclineBooking);
 export const rescheduleBookingElevated = elevate(bookings.rescheduleBooking);
 export const createCheckoutElevated = elevate(checkout.createCheckout);
 export const getCheckoutUrlElevated = elevate(checkout.getCheckoutUrl);
+
+// CORE-06: Mapa paymentStatus SSOT espanol -> enum nativo Wix (BIBLIA 3.2.1).
+// Los valores nativos ingleses NO aparecen como clave: pasan sin traduccion,
+// lo que garantiza compatibilidad total con consumidores existentes.
+const WIX_NATIVE_PAYMENT_STATUS = Object.freeze({
+    IMPAGADO: "UNPAID",
+    NO_PAGADO: "NOT_PAID",
+    PARCIALMENTE_PAGADO: "PARTIALLY_PAID",
+    PAGADO: "PAID",
+    REEMBOLSADO: "REFUNDED",
+    REEMBOLSADO_PARCIAL: "PARTIALLY_REFUNDED",
+});
+
+function _toWixNativePaymentStatus(value) {
+    const v = _safeTrim(value).toUpperCase();
+    if (!v) return value;
+    return WIX_NATIVE_PAYMENT_STATUS[v] || value;
+}
+
+const _confirmOrDeclineElevatedRaw = elevate(bookings.confirmOrDeclineBooking);
+
+/**
+ * CORE-06: Wrapper elevado que traduce el paymentStatus del SSOT (espanol)
+ * al enum nativo que acepta Wix Bookings. bookingSaga v20.3 envia
+ * PAYMENT_STATUS.UNPAID ("IMPAGADO"); sin esta traduccion Wix rechaza la
+ * confirmacion presencial.
+ *
+ * Contrato preservado: (bookingId, options) -> respuesta nativa elevada.
+ */
+export async function confirmOrDeclineBookingElevated(bookingId, options) {
+    let normalizedOptions = options;
+
+    if (options && typeof options === "object" && options.paymentStatus !== undefined) {
+        const translated = _toWixNativePaymentStatus(options.paymentStatus);
+        if (translated !== options.paymentStatus) {
+            log.info("CORE-06: paymentStatus translated SSOT -> Wix native", {
+                bookingId: _safeTrim(bookingId),
+                from: options.paymentStatus,
+                to: translated,
+            });
+        }
+        normalizedOptions = Object.assign({}, options, { paymentStatus: translated });
+    }
+
+    return _confirmOrDeclineElevatedRaw(bookingId, normalizedOptions);
+}
 
 // Back-compat: some modules historically imported logger from this file.
 export { logger };
@@ -196,8 +275,28 @@ export async function _resolveScheduleIdForResource(resourceId, sourceSlot) {
 }
 
 // =============================================================================
-// BLOQUE 6 - NORMALIZACION DE SLOTS PARA WRITER V2
+// BLOQUE 6 - NORMALIZACION DE SLOTS PARA WRITER V2 (CORE-02, CORE-04)
 // =============================================================================
+
+/**
+ * CORE-02: Extraccion tolerante de addons desde el slot entrante.
+ * Fuentes aceptadas (por orden): slot.addOnIds, slot.selectedAddOns,
+ * slot.customerChoices.addOnIds (forma usada en disponibilidad).
+ * Solo se conservan GUIDs validos, deduplicados.
+ */
+function _extractAddonIdsFromSlot(slot) {
+    const candidates = [].concat(
+        Array.isArray(slot?.addOnIds) ? slot.addOnIds : [],
+        Array.isArray(slot?.selectedAddOns) ? slot.selectedAddOns : [],
+        Array.isArray(slot?.customerChoices?.addOnIds) ? slot.customerChoices.addOnIds : []
+    );
+
+    const clean = candidates
+        .map(function (id) { return _safeTrim(id); })
+        .filter(function (id) { return _looksLikeGuid(id); });
+
+    return Array.from(new Set(clean));
+}
 
 export async function _forceStaffInPristineSlot(slot, resourceId, serviceIdOverride, defaultDurationMinutes) {
     if (!slot || typeof slot !== "object") return null;
@@ -263,17 +362,38 @@ export async function _forceStaffInPristineSlot(slot, resourceId, serviceIdOverr
         return null;
     }
 
-    const locationId = _safeTrim(SDK_CONFIG?.LOCATION_ID);
+    // CORE-04: validacion de ubicacion entrante contra la configurada.
+    // Si el slot trae OTRA ubicacion, fail-fast: nunca se sustituye en
+    // silencio (evitaria crear la reserva en un local equivocado).
+    const incomingLocationId = _safeTrim(slot.location?.id);
+    if (
+        incomingLocationId &&
+        CONFIGURED_LOCATION_ID &&
+        incomingLocationId !== CONFIGURED_LOCATION_ID
+    ) {
+        log.error("_forceStaffInPristineSlot: slot location conflicts with configured location", {
+            slotLocationId: incomingLocationId,
+            configuredLocationId: CONFIGURED_LOCATION_ID,
+            serviceId,
+        });
+        return null;
+    }
+
+    const locationId = CONFIGURED_LOCATION_ID || incomingLocationId;
+    if (!locationId || !_looksLikeGuid(locationId)) {
+        log.error("_forceStaffInPristineSlot: missing or invalid LOCATION_ID", {
+            configuredLocationId: CONFIGURED_LOCATION_ID,
+            incomingLocationId: incomingLocationId,
+        });
+        return null;
+    }
+
+    // BIBLIA 2.2.1 fila 8: creacion SIEMPRE con OWNER_BUSINESS.
     let locationType = _safeTrim(SDK_CONFIG?.LOCATION_TYPES?.BOOKINGS_WRITER) || "OWNER_BUSINESS";
     if (locationType === "BUSINESS") locationType = "OWNER_BUSINESS";
     const timezone = _safeTrim(SDK_CONFIG?.TZ) || "Europe/Madrid";
 
-    if (!locationId) {
-        log.error("_forceStaffInPristineSlot: missing LOCATION_ID in SDK_CONFIG");
-        return null;
-    }
-
-    return {
+    const result = {
         serviceId,
         scheduleId,
         startDate: startDate.toISOString(),
@@ -282,6 +402,17 @@ export async function _forceStaffInPristineSlot(slot, resourceId, serviceIdOverr
         resource: { id: resourceIdClean },
         location: { id: locationId, locationType },
     };
+
+    // CORE-02: preservar addons para createBooking. Se emiten ambas claves
+    // porque bookingSaga v20.3 inyecta addOnIds + selectedAddOns y el
+    // contrato del Writer V2 ha usado historicamente las dos formas.
+    const addOnIds = _extractAddonIdsFromSlot(slot);
+    if (addOnIds.length > 0) {
+        result.addOnIds = addOnIds.slice();
+        result.selectedAddOns = addOnIds.slice();
+    }
+
+    return result;
 }
 
 // =============================================================================
@@ -308,12 +439,14 @@ export async function getCheckoutUrlSafe(checkoutSessionOrId) {
 }
 
 // =============================================================================
-// BLOQUE 8 - MUTEX LOCKS (SlotLocks)
+// BLOQUE 8 - MUTEX LOCKS (SlotLocks) - CORE-07 renombrado V20
 // =============================================================================
 
-const MUTEX_TTL_MS = Number(CONCURRENCY?.MUTEX_TTL_MS);
+// CORE-07: BIBLIA 3.2.1 renombra MUTEX_TTL_MS -> MS_TTL_MUTEX. Se aceptan
+// ambos nombres durante la transicion V20.
+const MUTEX_TTL_MS = Number(CONCURRENCY?.MS_TTL_MUTEX ?? CONCURRENCY?.MUTEX_TTL_MS);
 if (!Number.isFinite(MUTEX_TTL_MS) || MUTEX_TTL_MS <= 0) {
-    throw new Error("MUTEX_TTL_MS must be positive");
+    throw new Error("MS_TTL_MUTEX (o MUTEX_TTL_MS legacy) must be positive");
 }
 const LOCKS_COL = COLLECTIONS.SLOT_LOCKS;
 
@@ -434,10 +567,6 @@ export function _generateSlotKey(serviceId, resourceId, startDate, endDate) {
     return "slot_" + prefix + "_" + staffPrefix + "_" + _hashKey(raw);
 }
 
-// FIX C-07 (v5010.1): alias legacy sin guion bajo ELIMINADOS.
-// Unicos nombres canonicos: _safeLockId / _generateSlotKey.
-// Cero consumidores externos de los aliases (verificado grep global).
-
 export function _buildLockKeys(phases, resourceId) {
     const keys = (phases || []).map(function (p) {
         const slot = p?.rawSlot || {};
@@ -447,12 +576,16 @@ export function _buildLockKeys(phases, resourceId) {
 }
 
 // =============================================================================
-// BLOQUE 10 - TRANSACCIONES IDEMPOTENTES (BookingTransactions)
+// BLOQUE 10 - TRANSACCIONES IDEMPOTENTES (BookingTransactions) - CORE-07
 // =============================================================================
 
 const TRANSACTIONS_COL = COLLECTIONS.BOOKING_TRANSACTIONS;
-const TRANSACTION_POLL_BASE_MS = Number(CONCURRENCY?.TRANSACTION_POLL_BASE_MS) || 250;
-const TRANSACTION_MAX_WAIT_MS = Number(CONCURRENCY?.TRANSACTION_MAX_WAIT_MS) || 3000;
+
+// CORE-07: tolerancia al renombrado V20 (BIBLIA 3.2.1).
+const TRANSACTION_POLL_BASE_MS =
+    Number(CONCURRENCY?.MS_SONDEO_TRANSACCION ?? CONCURRENCY?.TRANSACTION_POLL_BASE_MS) || 250;
+const TRANSACTION_MAX_WAIT_MS =
+    Number(CONCURRENCY?.MS_ESPERA_MAX_TRANSACCION ?? CONCURRENCY?.TRANSACTION_MAX_WAIT_MS) || 3000;
 
 async function _getTransactionById(pairToken) {
     const id = String(pairToken || "");
@@ -554,10 +687,13 @@ export async function _failTransaction(pairToken, errorMessage) {
 }
 
 // =============================================================================
-// BLOQUE 11 - PERSISTENCIA EN CITAS_F2
+// BLOQUE 11 - PERSISTENCIA EN CITAS_F2 (CORE-07: alias de estado)
 // =============================================================================
 
 const CITAS_COL = COLLECTIONS.CITAS_F2;
+
+// CORE-07: alias de pendiente de pago (nativo ingles + SSOT espanol).
+const PENDING_PAYMENT_ALIASES = Object.freeze(["PENDING_PAYMENT", "PENDIENTE_PAGO"]);
 
 export async function _persistBooking(params, traceId) {
     const p = params || {};
@@ -588,8 +724,18 @@ export async function _persistBooking(params, traceId) {
     const startLocal = getMadridLocalStringNoZ(startDateObj);
     const dateYmd = startLocal ? startLocal.slice(0, 10) : "";
     const now = new Date();
-    const metaPago = String(p.paymentStatus || p.meta?.paymentStatus || "UNPAID").toUpperCase();
-    const statusCita = String(p.status || (metaPago === "PENDING_PAYMENT" ? "PENDING_PAYMENT" : "CONFIRMED"));
+
+    const metaPago = String(
+        p.paymentStatus || p.meta?.paymentStatus || "UNPAID"
+    ).toUpperCase();
+
+    // CORE-07: el status explicito manda (la saga siempre lo envia). La
+    // derivacion por paymentStatus reconoce ambas grafias (ingles + SSOT).
+    const statusCita = String(
+        p.status ||
+        p.bookingStatus ||
+        (PENDING_PAYMENT_ALIASES.indexOf(metaPago) >= 0 ? "PENDING_PAYMENT" : "CONFIRMED")
+    );
 
     let normalizedMeta = p.meta || {};
     if (typeof normalizedMeta === "string") {
@@ -773,30 +919,66 @@ export function _sumAddons(addons) {
 }
 
 // =============================================================================
-// BLOQUE 15 - EXTRACCION DE RESOURCEIDS DESDE SLOTS
+// BLOQUE 15 - EXTRACCION DE RESOURCEIDS DESDE SLOTS (CORE-01)
 // =============================================================================
 
+/**
+ * CORE-01: Paridad 1:1 con reservas.web._getResourceIdsFromSlot.
+ * Acepta las cuatro variantes de tipo de recurso que Wix devuelve segun
+ * version de API y forma del slot:
+ *   group.resourceTypeId | group.resourceType.id | group.resourceType._id |
+ *   group.typeId
+ * Y las tres variantes de id de recurso:
+ *   resource.id | resource._id | resource.resourceId
+ * Fallback final: resource directo o resourceId plano en el slot.
+ */
 export function _extractResourceIdsFromSlot(slot) {
     if (!slot || typeof slot !== "object") return [];
 
     let groups = [];
-    if (Array.isArray(slot.availableResources)) groups = slot.availableResources;
-    else if (slot.slot && typeof slot.slot === "object" && Array.isArray(slot.slot.availableResources)) {
+    if (Array.isArray(slot.availableResources)) {
+        groups = slot.availableResources;
+    } else if (
+        slot.slot &&
+        typeof slot.slot === "object" &&
+        Array.isArray(slot.slot.availableResources)
+    ) {
         groups = slot.slot.availableResources;
-    } else if (slot.resourceId) {
-        return _looksLikeGuid(String(slot.resourceId)) ? [String(slot.resourceId)] : [];
-    } else if (slot.resource?.id) {
-        return _looksLikeGuid(String(slot.resource.id)) ? [String(slot.resource.id)] : [];
     }
 
-    const staffGroup = groups.find((g) => String(g.resourceTypeId) === String(STAFF_RESOURCE_TYPE_ID));
-    if (!staffGroup) return [];
+    if (groups.length > 0) {
+        const staffGroup = groups.find((group) => {
+            const typeId =
+                group?.resourceTypeId ||
+                group?.resourceType?.id ||
+                group?.resourceType?._id ||
+                group?.typeId;
 
-    return Array.from(new Set(
-        (staffGroup.resources || [])
-        .map((resource) => _safeTrim(resource?.id || resource?._id))
-        .filter((resourceId) => _looksLikeGuid(resourceId))
-    ));
+            return String(typeId) === String(STAFF_RESOURCE_TYPE_ID);
+        });
+
+        if (staffGroup) {
+            return Array.from(new Set(
+                (staffGroup.resources || [])
+                    .map((resource) =>
+                        _safeTrim(
+                            resource?.id ||
+                            resource?._id ||
+                            resource?.resourceId
+                        )
+                    )
+                    .filter((id) => _looksLikeGuid(id))
+            ));
+        }
+    }
+
+    const directId = _safeTrim(
+        slot.resource?.id ||
+        slot.resource?._id ||
+        slot.resource?.resourceId ||
+        slot.resourceId
+    );
+    return _looksLikeGuid(directId) ? [directId] : [];
 }
 
 // =============================================================================
@@ -832,9 +1014,14 @@ export function _areSlotsContiguous(slot1, slot2, maxGapMinutes) {
 }
 
 // =============================================================================
-// BLOQUE 18 - PROYECCION DE SLOTS CERTIFICADOS Y WRITER
+// BLOQUE 18 - PROYECCION DE SLOTS CERTIFICADOS Y WRITER (CORE-03, CORE-04)
 // =============================================================================
 
+/**
+ * CORE-04: locationId validado contra SDK_CONFIG.LOCATION_ID.
+ * - Slot con otra ubicacion  -> null (fail-fast, nunca sustitucion silenciosa).
+ * - Sin ubicacion util o sin GUID -> null.
+ */
 export function _projectCertifiedSlot(slot, resourceId) {
     if (!slot || typeof slot !== "object") return null;
 
@@ -854,6 +1041,33 @@ export function _projectCertifiedSlot(slot, resourceId) {
 
     if (!startDateUtc || !endDateUtc || endDateUtc.getTime() <= startDateUtc.getTime()) return null;
 
+    // CORE-04: validacion de ubicacion.
+    const slotLocationId = _safeTrim(slot.location?.id);
+
+    if (
+        slotLocationId &&
+        CONFIGURED_LOCATION_ID &&
+        slotLocationId !== CONFIGURED_LOCATION_ID
+    ) {
+        log.warn("_projectCertifiedSlot: slot location does not match configured location", {
+            slotLocationId,
+            configuredLocationId: CONFIGURED_LOCATION_ID,
+            serviceId,
+        });
+        return null;
+    }
+
+    const locationId = slotLocationId || CONFIGURED_LOCATION_ID;
+
+    if (!locationId || !_looksLikeGuid(locationId)) {
+        log.warn("_projectCertifiedSlot: missing or invalid locationId", {
+            slotLocationId,
+            configuredLocationId: CONFIGURED_LOCATION_ID,
+            serviceId,
+        });
+        return null;
+    }
+
     return {
         serviceId,
         resourceId: resourceIdClean,
@@ -865,12 +1079,17 @@ export function _projectCertifiedSlot(slot, resourceId) {
         bookable: slot.bookable === true,
         availableResources: _extractResourceIdsFromSlot(slot),
         timezone: SDK_CONFIG?.TZ || "Europe/Madrid",
-        locationId: _safeTrim(slot.location?.id || SDK_CONFIG?.LOCATION_ID || ""),
+        locationId,
         locationName: _safeTrim(slot.location?.name || ""),
         formattedAddress: _safeTrim(slot.location?.formattedAddress || ""),
     };
 }
 
+/**
+ * CORE-03: el Writer V2 exige scheduleId GUID valido (BIBLIA 2.2.1 fila 4).
+ * Cascada: projected -> slot -> slot.slot. Si no hay scheduleId util,
+ * devuelve null EN VEZ de proyectar scheduleId: "".
+ */
 export function _projectWriterSlotFromAvailability(slot, resourceId, serviceId) {
     const projected = _projectCertifiedSlot(slot, resourceId);
     if (!projected) return null;
@@ -878,12 +1097,26 @@ export function _projectWriterSlotFromAvailability(slot, resourceId, serviceId) 
     const finalServiceId = _safeTrim(serviceId) || projected.serviceId;
     if (!finalServiceId || !_looksLikeGuid(finalServiceId)) return null;
 
+    const scheduleId = _safeTrim(
+        projected.scheduleId ||
+        slot.scheduleId ||
+        slot.slot?.scheduleId
+    );
+
+    if (!scheduleId || !_looksLikeGuid(scheduleId)) {
+        log.warn("_projectWriterSlotFromAvailability: missing or invalid scheduleId", {
+            serviceId: finalServiceId,
+            scheduleIdRaw: projected.scheduleId || null,
+        });
+        return null;
+    }
+
     let writerLocationType = _safeTrim(SDK_CONFIG?.LOCATION_TYPES?.BOOKINGS_WRITER);
     if (writerLocationType === "BUSINESS" || !writerLocationType) writerLocationType = "OWNER_BUSINESS";
 
-    return {
+    const writerSlot = {
         serviceId: finalServiceId,
-        scheduleId: projected.scheduleId,
+        scheduleId,
         startDate: projected.startDate,
         endDate: projected.endDate,
         timezone: projected.timezone,
@@ -895,6 +1128,15 @@ export function _projectWriterSlotFromAvailability(slot, resourceId, serviceId) 
             locationType: writerLocationType,
         },
     };
+
+    // CORE-02: propagar addons si el slot certificado los porta.
+    const addOnIds = _extractAddonIdsFromSlot(slot);
+    if (addOnIds.length > 0) {
+        writerSlot.addOnIds = addOnIds.slice();
+        writerSlot.selectedAddOns = addOnIds.slice();
+    }
+
+    return writerSlot;
 }
 
 // =============================================================================
@@ -949,9 +1191,58 @@ export async function getCertifiedDualSlotsOptimized(serviceId, resourceId, date
 }
 
 // =============================================================================
-// BLOQUE 20 - HELPERS ADICIONALES
+// BLOQUE 20 - PAIR TOKEN CANONICO COMPARTIDO (CORE-05)
 // =============================================================================
 
+/**
+ * CORE-05: UNICA fuente de verdad de la huella del par dual.
+ *
+ * IMPORTANTE: esta huella debe ser IDENTICA en los tres puntos donde se
+ * genera o consume un pairToken:
+ *   1. reservas.web._getCertifiedDualSlotsInternal  (emisor en disponibilidad)
+ *   2. bookingSaga._resolveUnifiedPairToken          (consumidor/reemisor)
+ *   3. DualSlotCache.pairToken                       (persistencia)
+ *
+ * Cualquier cambio en el orden o contenido de los campos rompe la
+ * correlacion y la idempotencia. Los 8 campos son obligatorios por
+ * contrato (los opcionales se serializan como cadena vacia).
+ */
+export function _buildPairFingerprint({
+    serviceId,
+    linkedPhases,
+    dateYMD,
+    f1Start,
+    f1End,
+    f2Start,
+    f2End,
+    resourceId,
+} = {}) {
+    return [
+        _safeTrim(serviceId) || "",
+        _safeTrim(linkedPhases) || "",
+        _safeTrim(dateYMD) || "",
+        _safeTrim(f1Start) || "",
+        _safeTrim(f1End) || "",
+        _safeTrim(f2Start) || "",
+        _safeTrim(f2End) || "",
+        _safeTrim(resourceId) || "",
+    ].join("|");
+}
+
+/**
+ * CORE-05: token determinista canonico. Mismo input => mismo token en
+ * cualquier modulo, sin depender de reloj, email ni aleatoriedad.
+ */
+export function _buildPairTokenDeterministic(input) {
+    return _hashKey(_buildPairFingerprint(input || {}));
+}
+
+/**
+ * LEGACY: no determinista entre modulos (depende de un traceId aleatorio).
+ * Se conserva SOLO para compatibilidad con consumidores antiguos.
+ * NO usar para correlacion dual ni idempotencia: usar
+ * _buildPairTokenDeterministic.
+ */
 export function _generatePairToken(traceId) {
     return "pt_" + _hashKey(traceId || makeTraceId("pair")).slice(0, 32);
 }
@@ -975,8 +1266,13 @@ export function _auditBookingPrice(basePrice, addons) {
 }
 
 // =============================================================================
-// BLOQUE 21 - RANKING DE RECURSOS POR CARGA
+// BLOQUE 21 - RANKING DE RECURSOS POR CARGA (CORE-07)
 // =============================================================================
+
+// CORE-07: estados cancelados en ambas grafias (nativo ingles + SSOT espanol).
+const CANCELLED_STATUS_ALIASES = Object.freeze([
+    "CANCELLED", "CANCELED", "CANCELADO",
+]);
 
 export async function _rankResourcesByLoad(resourceIds, dateYMD, traceId) {
     const input = Array.isArray(resourceIds) ?
@@ -995,6 +1291,12 @@ export async function _rankResourcesByLoad(resourceIds, dateYMD, traceId) {
         load: 0,
         firstIndex: index,
     }]));
+
+    // CORE-07: defensa ante INACTIVE_BOOKING_STATUSES ausente o no-array
+    // (p. ej. durante la migracion a ESTADOS_CITA_INACTIVOS).
+    const inactiveList = Array.isArray(INACTIVE_BOOKING_STATUSES)
+        ? INACTIVE_BOOKING_STATUSES.map((s) => String(s || "").toUpperCase()).filter(Boolean)
+        : [];
 
     try {
         const pageSize = 1000;
@@ -1016,10 +1318,14 @@ export async function _rankResourcesByLoad(resourceIds, dateYMD, traceId) {
                 const resourceId = _safeTrim(item?.resourceId);
                 if (!loads[resourceId]) continue;
 
-                const status = String(item?.status || "").toUpperCase();
+                // CORE-07: tolerancia bookingStatus (canonico V20) || status.
+                const status = String(item?.bookingStatus || item?.status || "").toUpperCase();
                 const paymentStatus = String(item?.paymentStatus || "").toUpperCase();
-                const cancelled = INACTIVE_BOOKING_STATUSES.indexOf(status) >= 0;
-                const ignoredPayment = paymentStatus === "CANCELLED";
+
+                const cancelled =
+                    inactiveList.indexOf(status) >= 0 ||
+                    CANCELLED_STATUS_ALIASES.indexOf(status) >= 0;
+                const ignoredPayment = CANCELLED_STATUS_ALIASES.indexOf(paymentStatus) >= 0;
 
                 if (!cancelled && !ignoredPayment) loads[resourceId].load += 1;
             }
