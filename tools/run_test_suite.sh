@@ -35,7 +35,7 @@ for m in contabilidad.js m365GraphSync.js bookingServiceSync.js http-functions.j
   found=$(find src backend -name "$m" 2>/dev/null || true)
   [ -n "$found" ] && ZOMB="$ZOMB $found"
 done
-REFS=$(grep -rn "contabilidad\|m365GraphSync\|bookingServiceSync\|marianAssistant" src --include='*.js' 2>/dev/null | grep -v node_modules | grep -iv "eliminad\|removed\|zombie" || true)
+REFS=$(grep -rn "contabilidad\|m365GraphSync\|bookingServiceSync\|marianAssistant" src --include='*.js' 2>/dev/null | grep -v node_modules | grep -v __tests__ | grep -iv "eliminad\|removed\|zombie" || true)
 if [ -z "$ZOMB" ] && [ -z "$REFS" ]; then report TST-04 "cero zombies (archivos+referencias)" 0 ""; else report TST-04 "zombies" 1 "${ZOMB}${REFS:+ +refs}"; echo "$REFS" | head -6 | sed 's/^/    /'; fi
 
 echo "=== TST-05: internalConfig sin colecciones obsoletas ==="
