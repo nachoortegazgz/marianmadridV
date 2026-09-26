@@ -1,71 +1,62 @@
 /*
 =============================================================================
 MODULE: public/mmUtils.js
-VERSION: v5009.3-FISCAL-V20.1-AUDIT
-BASE: v5008.4-PUBLIC-CLEAN + revision revisada + FASE2 corrections
+VERSION: v5010.2-FISCAL-V20.2
+BASE: v5009.3-FISCAL-V20.1-AUDIT + widgetBridge alignment
 RESPONSIBILITY: Shared frontend-safe utilities.
 STANDARDS: G10 ASCII Strict, Velo V3 SDK.
 IMPORTANT: This module must not import backend modules.
-
-FIXES APLICADOS v5009.3-FISCAL-V20.1-AUDIT:
-  - MMU-01 [FASE2]: cleanText -> _cleanText en _normalizeIdPart (linea 84)
-  - MMU-02 [FASE2]: Regex /^\/+|\/+$/g corregida en _safeSlugOrId (linea 89)
-  - MMU-03 [FASE2]: Locale "sv-SE" sin espacio, bucle for-of en getMadridLocalStringNoZ (linea 187)
-  - MMU-04 [FASE2]: Export generateUUID alias resuelto (ver FIX-PUB-02 abajo)
-  - MMU-05 [FASE2]: catch (err) en _executeWithRetry (linea 483)
-  - MMU-06 [FASE2]: Anadir toMadridIsoLocal(), formatUtcOffset(), madridOffsetMinutes(),
-                    getMadridDateYmd(), getMadridTime(), getMadridMonthKey()
-  - MMU-07 [FASE2]: Validar ISO en _normalizeLocalIsoStr
-
-FIXES APLICADOS v5010.1-PUBLIC-ALIGN (frontend alignment pass):
-  - FIX-PUB-01: G10 ASCII strict en cabecera (eliminadas tildes/no-ASCII).
-  - FIX-PUB-02: Alias generateUUID = _generateUUID conservado como unica API
-                publica de UUID; comentario MMU-04 reescrito en ASCII. No se
-                elimina porque marianAdministrationController y widgets
-                legacy pueden consumirlo (regla: no romper consumidores).
-  - FIX-PUB-03: SSOT single-source: MESSAGE_TYPES pasa a ser MESSAGETYPES del
-                bridge (misma lista canonica MM_*); URLS/UI pasan a PROTOCOL
-                exportado por widgetBridge.js. mmUtils ya NO define
-                constantes de protocolo (deuda de duplicidad eliminada segun
-                directiva "cero duplicidades"). Los antiguos nombres
-                MESSAGE_TYPES/URLS/UI siguen disponibles via re-export desde
-                widgetBridge para consumidores legacy.
 =============================================================================
 */
 
-// =============================================================================
-// CONSTANTES DE PROTOCOLO (SSOT: public/widgetBridge.js - FIX-PUB-03)
-// mmUtils no define protocolo. Se reexporta desde widgetBridge para que los
-// consumidores historicos de "public/mmUtils" sigan funcionando sin duplicar
-// la fuente de verdad.
-// =============================================================================
+export {
+  MESSAGETYPES as MESSAGE_TYPES,
+  PROTOCOL_URLS as URLS,
+  PROTOCOL_UI as UI
+} from "public/widgetBridge";
 
-export { MESSAGETYPES as MESSAGE_TYPES, PROTOCOL_URLS as URLS, PROTOCOL_UI as UI } from "public/widgetBridge";
+const GUID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-const GUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const MAX_TEXT_LENGTH = 5000;
 const MADRID_TIME_ZONE = "Europe/Madrid";
+const LOCAL_ISO_PATTERN =
+  /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?(?:Z|[+-]\d{2}:\d{2})?$/;
 
-// =============================================================================
-// TEXTO
-// =============================================================================
+// ============================================================================
+// TEXT
+// ============================================================================
 
-export function _safeTrim(value, maxLength = MAX_TEXT_LENGTH) {
+export function _safeTrim(
+  value,
+  maxLength = MAX_TEXT_LENGTH
+) {
   if (value === null || value === undefined) return "";
+
   return String(value)
     .trim()
-    .slice(0, Math.max(1, Number(maxLength) || MAX_TEXT_LENGTH));
+    .slice(
+      0,
+      Math.max(1, Number(maxLength) || MAX_TEXT_LENGTH)
+    );
 }
 
-export function _cleanText(value, maxLength = MAX_TEXT_LENGTH) {
+export function _cleanText(
+  value,
+  maxLength = MAX_TEXT_LENGTH
+) {
   return _safeTrim(value, maxLength).replace(
     /[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g,
     ""
   );
 }
 
-export function _normalizeIdPart(value, maxLength = 200) {
-  return _cleanText(value, maxLength).replace(/[^a-zA-Z0-9._:-]/g, "_");
+export function _normalizeIdPart(
+  value,
+  maxLength = 200
+) {
+  return _cleanText(value, maxLength)
+    .replace(/[^a-zA-Z0-9._:-]/g, "_");
 }
 
 export function _safeSlugOrId(value) {
@@ -75,9 +66,9 @@ export function _safeSlugOrId(value) {
     .toLowerCase();
 }
 
-// =============================================================================
+// ============================================================================
 // GUID
-// =============================================================================
+// ============================================================================
 
 export function _looksLikeGuid(value) {
   return GUID_PATTERN.test(_safeTrim(value, 100));
@@ -87,13 +78,20 @@ export function isGuid(value) {
   return _looksLikeGuid(value);
 }
 
-export function cleanGuid(value, errorCode = "INVALID_GUID") {
+export function cleanGuid(
+  value,
+  errorCode = "INVALID_GUID"
+) {
   const clean = _safeTrim(value, 100);
+
   if (!_looksLikeGuid(clean)) {
-    const error = new Error(`${errorCode}: GUID invalido o ausente`);
+    const error = new Error(
+      `${errorCode}: Invalid or missing GUID`
+    );
     error.code = errorCode;
     throw error;
   }
+
   return clean;
 }
 
@@ -108,28 +106,54 @@ export function cleanGuidList(value) {
     ...new Set(
       source
         .map((item) => {
-          if (typeof item === "string") return _safeTrim(item, 100);
-          return _safeTrim(item?.resourceId || item?.id || item?._id, 100);
+          if (typeof item === "string") {
+            return _safeTrim(item, 100);
+          }
+
+          return _safeTrim(
+            item?.resourceId ||
+            item?.id ||
+            item?._id,
+            100
+          );
         })
         .filter(_looksLikeGuid)
-    ),
+    )
   ];
 }
 
-// =============================================================================
-// NUMEROS
-// =============================================================================
+// ============================================================================
+// NUMBERS
+// ============================================================================
 
-export function numberOrZero(value, minimum = 0) {
+export function numberOrZero(
+  value,
+  minimum = 0
+) {
   const number = Number(value);
-  return Number.isFinite(number) && number >= minimum ? number : 0;
+
+  return Number.isFinite(number) &&
+    number >= minimum
+    ? number
+    : 0;
 }
 
-export function _roundMoney(value, decimals = 2) {
+export function _roundMoney(
+  value,
+  decimals = 2
+) {
   const number = Number(value);
+
   if (!Number.isFinite(number)) return 0;
-  const factor = 10 ** Math.max(0, Number(decimals) || 2);
-  return Math.round((number + Number.EPSILON) * factor) / factor;
+
+  const factor = 10 ** Math.max(
+    0,
+    Number(decimals) || 2
+  );
+
+  return Math.round(
+    (number + Number.EPSILON) * factor
+  ) / factor;
 }
 
 export function booleanValue(...values) {
@@ -138,92 +162,188 @@ export function booleanValue(...values) {
 
 export function _readPositiveAmount(value) {
   const number = Number(value);
-  return Number.isFinite(number) && number > 0 ? number : 0;
+
+  return Number.isFinite(number) && number > 0
+    ? number
+    : 0;
 }
 
-// =============================================================================
-// FECHAS
-// =============================================================================
+// ============================================================================
+// DATES
+// ============================================================================
 
 export function _normalizeLocalIsoStr(value) {
   const raw = _safeTrim(value, 80);
+
   if (!raw) return "";
-  return raw.replace(" ", "T");
+
+  const normalized = raw.replace(/\s+/, "T");
+
+  if (!LOCAL_ISO_PATTERN.test(normalized)) {
+    return "";
+  }
+
+  const date = new Date(normalized);
+
+  if (Number.isNaN(date.getTime())) {
+    return "";
+  }
+
+  return normalized;
 }
 
 function parseDate(value) {
-  if (value instanceof Date) return new Date(value.getTime());
+  if (value instanceof Date) {
+    return Number.isNaN(value.getTime())
+      ? null
+      : new Date(value.getTime());
+  }
+
   const raw = _normalizeLocalIsoStr(value);
+
   if (!raw) return null;
+
   const date = new Date(raw);
-  return Number.isNaN(date.getTime()) ? null : date;
+
+  return Number.isNaN(date.getTime())
+    ? null
+    : date;
 }
 
 export function getUtcDateFromMadridLocal(value) {
   const date = parseDate(value);
-  return date && !Number.isNaN(date.getTime()) ? date : null;
+
+  return date && !Number.isNaN(date.getTime())
+    ? date
+    : null;
+}
+
+function formatMadridParts(
+  date,
+  options
+) {
+  const dt = date instanceof Date
+    ? date
+    : new Date(date);
+
+  if (Number.isNaN(dt.getTime())) {
+    return null;
+  }
+
+  return new Intl.DateTimeFormat(
+    "sv-SE",
+    {
+      timeZone: MADRID_TIME_ZONE,
+      ...options
+    }
+  )
+    .formatToParts(dt)
+    .reduce((result, part) => {
+      result[part.type] = part.value;
+      return result;
+    }, {});
 }
 
 export function getMadridLocalStringNoZ(value) {
-  const dt = value instanceof Date ? value : new Date(value);
-  if (Number.isNaN(dt.getTime())) return "";
-
-  const parts = new Intl.DateTimeFormat("sv-SE", {
-    timeZone: MADRID_TIME_ZONE,
+  const parts = formatMadridParts(value, {
     year: "numeric",
     month: "2-digit",
     day: "2-digit",
     hour: "2-digit",
     minute: "2-digit",
     second: "2-digit",
-    hour12: false,
-  })
-    .formatToParts(dt)
-    .reduce((acc, p) => {
-      acc[p.type] = p.value;
-      return acc;
-    }, {});
+    hour12: false
+  });
 
-  return `${parts.year}-${parts.month}-${parts.day}T${parts.hour}:${parts.minute}:${parts.second}`;
+  if (!parts) return "";
+
+  return [
+    `${parts.year}-${parts.month}-${parts.day}`,
+    `${parts.hour}:${parts.minute}:${parts.second}`
+  ].join("T");
 }
 
 export function _toDateSafe(value) {
   if (!value) return null;
+
   if (value instanceof Date) {
-    return Number.isNaN(value.getTime()) ? null : value;
+    return Number.isNaN(value.getTime())
+      ? null
+      : value;
   }
-  const dt = new Date(value);
-  return Number.isNaN(dt.getTime()) ? null : dt;
+
+  const date = new Date(value);
+
+  return Number.isNaN(date.getTime())
+    ? null
+    : date;
 }
 
 export function _readDate(value) {
   const clean = _safeTrim(value, 40);
-  if (/^\d{4}-\d{2}-\d{2}$/.test(clean)) return clean;
-  const dt = _toDateSafe(value);
-  if (!dt) return null;
-  return dt.toLocaleDateString("sv-SE", { timeZone: MADRID_TIME_ZONE });
-}
 
-export function toUtcRange(startLocal, endLocal) {
-  const startUtc = getUtcDateFromMadridLocal(startLocal);
-  const endUtc = getUtcDateFromMadridLocal(endLocal);
-  if (!startUtc || !endUtc || endUtc <= startUtc) return null;
-  return { startUtc, endUtc };
-}
-
-export function computeGapMinutes(firstEndUtc, secondStartUtc) {
-  if (!(firstEndUtc instanceof Date) || !(secondStartUtc instanceof Date)) {
-    return 0;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(clean)) {
+    return clean;
   }
-  return Math.max(
-    0,
-    Math.round((secondStartUtc.getTime() - firstEndUtc.getTime()) / 60000)
+
+  const date = _toDateSafe(value);
+
+  if (!date) return null;
+
+  return date.toLocaleDateString(
+    "sv-SE",
+    { timeZone: MADRID_TIME_ZONE }
   );
 }
 
-// =============================================================================
-// DURACION
-// =============================================================================
+export function toUtcRange(
+  startLocal,
+  endLocal
+) {
+  const startUtc = getUtcDateFromMadridLocal(
+    startLocal
+  );
+
+  const endUtc = getUtcDateFromMadridLocal(
+    endLocal
+  );
+
+  if (
+    !startUtc ||
+    !endUtc ||
+    endUtc <= startUtc
+  ) {
+    return null;
+  }
+
+  return { startUtc, endUtc };
+}
+
+export function computeGapMinutes(
+  firstEndUtc,
+  secondStartUtc
+) {
+  if (
+    !(firstEndUtc instanceof Date) ||
+    !(secondStartUtc instanceof Date)
+  ) {
+    return 0;
+  }
+
+  return Math.max(
+    0,
+    Math.round(
+      (
+        secondStartUtc.getTime() -
+        firstEndUtc.getTime()
+      ) / 60000
+    )
+  );
+}
+
+// ============================================================================
+// DURATION
+// ============================================================================
 
 export function readDurationRange(item = {}) {
   const constraints =
@@ -237,33 +357,53 @@ export function readDurationRange(item = {}) {
     item.data?.durationRange ||
     item.fields?.durationRange;
 
-  if (!range || typeof range !== "object") return null;
+  if (!range || typeof range !== "object") {
+    return null;
+  }
 
-  const min = numberOrZero(range.minDuration ?? range.min);
-  const rawMax = numberOrZero(range.maxDuration ?? range.max);
-  const max = rawMax > 0 ? rawMax : Infinity;
+  const min = numberOrZero(
+    range.minDuration ?? range.min
+  );
 
-  if (min <= 0 && max === Infinity) return null;
-  if (max !== Infinity && max <= min) return null;
+  const rawMax = numberOrZero(
+    range.maxDuration ?? range.max
+  );
+
+  const max = rawMax > 0
+    ? rawMax
+    : Infinity;
+
+  if (min <= 0 && max === Infinity) {
+    return null;
+  }
+
+  if (max !== Infinity && max <= min) {
+    return null;
+  }
 
   return { min, max };
 }
 
-export function resolveExpectedSlotMinutes(serviceConfig = {}) {
+export function resolveExpectedSlotMinutes(
+  serviceConfig = {}
+) {
   if (serviceConfig.allowCombine === true) {
-    return numberOrZero(serviceConfig.phase1Duration);
+    return numberOrZero(
+      serviceConfig.phase1Duration
+    );
   }
+
   return numberOrZero(
     serviceConfig.phase1Duration ||
-      serviceConfig.totalDuration ||
-      serviceConfig.metadata?.timing?.estimatedTotal
+    serviceConfig.totalDuration ||
+    serviceConfig.metadata?.timing?.estimatedTotal
   );
 }
 
 export function validateSlotDuration({
   serviceConfig = {},
   startLocal,
-  endLocal,
+  endLocal
 } = {}) {
   const result = {
     ok: true,
@@ -271,106 +411,185 @@ export function validateSlotDuration({
     actualMinutes: 0,
     expectedMinutes: null,
     min: null,
-    max: null,
+    max: null
   };
 
-  const range = toUtcRange(startLocal, endLocal);
-  if (!range) return { ...result, ok: false, code: "INVALID_SLOT_RANGE" };
-
-  result.actualMinutes = Math.round(
-    (range.endUtc - range.startUtc) / 60000
+  const range = toUtcRange(
+    startLocal,
+    endLocal
   );
 
-  const limits = readDurationRange(serviceConfig);
+  if (!range) {
+    return {
+      ...result,
+      ok: false,
+      code: "INVALID_SLOT_RANGE"
+    };
+  }
+
+  result.actualMinutes = Math.round(
+    (
+      range.endUtc.getTime() -
+      range.startUtc.getTime()
+    ) / 60000
+  );
+
+  const limits = readDurationRange(
+    serviceConfig
+  );
+
   if (limits) {
     result.min = limits.min;
-    result.max = limits.max === Infinity ? null : limits.max;
+    result.max = limits.max === Infinity
+      ? null
+      : limits.max;
+
     if (
       result.actualMinutes < limits.min ||
-      (limits.max !== Infinity && result.actualMinutes > limits.max)
+      (
+        limits.max !== Infinity &&
+        result.actualMinutes > limits.max
+      )
     ) {
-      return { ...result, ok: false, code: "SLOT_DURATION_OUT_OF_RANGE" };
+      return {
+        ...result,
+        ok: false,
+        code: "SLOT_DURATION_OUT_OF_RANGE"
+      };
     }
+
     return result;
   }
 
-  const expected = resolveExpectedSlotMinutes(serviceConfig);
+  const expected = resolveExpectedSlotMinutes(
+    serviceConfig
+  );
+
   if (expected > 0) {
     result.expectedMinutes = expected;
-    if (Math.abs(result.actualMinutes - expected) > 1) {
-      return { ...result, ok: false, code: "SLOT_DURATION_MISMATCH" };
+
+    if (
+      Math.abs(
+        result.actualMinutes - expected
+      ) > 1
+    ) {
+      return {
+        ...result,
+        ok: false,
+        code: "SLOT_DURATION_MISMATCH"
+      };
     }
   }
 
   return result;
 }
 
-// =============================================================================
-// OBJETOS
-// =============================================================================
+// ============================================================================
+// OBJECTS
+// ============================================================================
 
 export function _cloneDeep(value) {
-  if (value === null || typeof value !== "object") return value;
-  if (value instanceof Date) return new Date(value.getTime());
-  if (Array.isArray(value)) return value.map(_cloneDeep);
+  if (value === null || typeof value !== "object") {
+    return value;
+  }
+
+  if (value instanceof Date) {
+    return new Date(value.getTime());
+  }
+
+  if (Array.isArray(value)) {
+    return value.map(_cloneDeep);
+  }
 
   const result = {};
+
   for (const [key, child] of Object.entries(value)) {
     result[key] = _cloneDeep(child);
   }
+
   return result;
 }
 
 export function isPlainObject(value) {
   return Boolean(
     value &&
-      typeof value === "object" &&
-      !Array.isArray(value) &&
-      !(value instanceof Date)
+    typeof value === "object" &&
+    !Array.isArray(value) &&
+    !(value instanceof Date)
   );
 }
 
 export function _stableSerialize(value) {
-  if (value === null || value === undefined) return String(value);
-  if (Array.isArray(value)) return `[${value.map(_stableSerialize).join(",")}]`;
-  if (value instanceof Date) return `"${value.toISOString()}"`;
+  if (value === null || value === undefined) {
+    return String(value);
+  }
+
+  if (Array.isArray(value)) {
+    return `[${value.map(_stableSerialize).join(",")}]`;
+  }
+
+  if (value instanceof Date) {
+    return `"${value.toISOString()}"`;
+  }
+
   if (typeof value === "object") {
     return `{${Object.keys(value)
       .sort()
-      .map((key) => `${JSON.stringify(key)}:${_stableSerialize(value[key])}`)
+      .map(
+        (key) =>
+          `${JSON.stringify(key)}:${_stableSerialize(
+            value[key]
+          )}`
+      )
       .join(",")}}`;
   }
+
   return JSON.stringify(value);
 }
 
-// =============================================================================
-// PII MASK
-// =============================================================================
+// ============================================================================
+// PII MASKING
+// ============================================================================
 
 export function _maskEmail(value) {
   const email = _safeTrim(value, 254);
   const at = email.indexOf("@");
+
   if (at <= 1) return "[REDACTED_EMAIL]";
+
   return `${email[0]}***${email.slice(at - 1)}`;
 }
 
 export function _maskPhone(value) {
   const phone = _safeTrim(value, 40);
-  return phone.length > 4 ? `***${phone.slice(-4)}` : "[REDACTED_PHONE]";
+
+  return phone.length > 4
+    ? `***${phone.slice(-4)}`
+    : "[REDACTED_PHONE]";
 }
 
 export function _maskName(value) {
   const name = _safeTrim(value, 120);
-  return name ? `${name[0]}***` : "[REDACTED_NAME]";
+
+  return name
+    ? `${name[0]}***`
+    : "[REDACTED_NAME]";
 }
 
-// =============================================================================
-// IDs
-// =============================================================================
+// ============================================================================
+// IDS
+// ============================================================================
 
 export function makeTraceId(prefix = "trace") {
-  const safePrefix = _normalizeIdPart(prefix, 40) || "trace";
-  const random = Math.random().toString(36).slice(2, 10);
+  const safePrefix = _normalizeIdPart(
+    prefix,
+    40
+  ) || "trace";
+
+  const random = Math.random()
+    .toString(36)
+    .slice(2, 10);
+
   return `${safePrefix}-${Date.now().toString(36)}-${random}`;
 }
 
@@ -382,60 +601,99 @@ export function _generateUUID() {
     try {
       return crypto.randomUUID();
     } catch (_) {
-      // fallthrough
+      // Use fallback.
     }
   }
-  return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (c) => {
-    const r = (Math.random() * 16) | 0;
-    const v = c === "x" ? r : (r & 0x3) | 0x8;
-    return v.toString(16);
-  });
+
+  return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx"
+    .replace(/[xy]/g, (character) => {
+      const random = (Math.random() * 16) | 0;
+      const value = character === "x"
+        ? random
+        : (random & 0x3) | 0x8;
+
+      return value.toString(16);
+    });
 }
 
-export function _hashKey(value) {
-  const str = String(value || "");
-  let h1 = 0xdeadbeef ^ str.length;
-  let h2 = 0x41c6ce57 ^ str.length;
+export const generateUUID = _generateUUID;
 
-  for (let i = 0; i < str.length; i++) {
-    const ch = str.charCodeAt(i);
-    h1 = Math.imul(h1 ^ ch, 2654435761);
-    h2 = Math.imul(h2 ^ ch, 1597334677);
+export function _hashKey(value) {
+  const stringValue = String(value || "");
+
+  let hash1 = 0xdeadbeef ^ stringValue.length;
+  let hash2 = 0x41c6ce57 ^ stringValue.length;
+
+  for (let index = 0; index < stringValue.length; index++) {
+    const character = stringValue.charCodeAt(index);
+
+    hash1 = Math.imul(
+      hash1 ^ character,
+      2654435761
+    );
+
+    hash2 = Math.imul(
+      hash2 ^ character,
+      1597334677
+    );
   }
 
-  h1 =
-    Math.imul(h1 ^ (h1 >>> 16), 2246822507) ^
-    Math.imul(h2 ^ (h2 >>> 13), 3266489909);
-  h2 =
-    Math.imul(h2 ^ (h2 >>> 16), 2246822507) ^
-    Math.imul(h1 ^ (h1 >>> 13), 3266489909);
+  hash1 =
+    Math.imul(
+      hash1 ^ (hash1 >>> 16),
+      2246822507
+    ) ^
+    Math.imul(
+      hash2 ^ (hash2 >>> 13),
+      3266489909
+    );
+
+  hash2 =
+    Math.imul(
+      hash2 ^ (hash2 >>> 16),
+      2246822507
+    ) ^
+    Math.imul(
+      hash1 ^ (hash1 >>> 13),
+      3266489909
+    );
 
   return (
-    (h2 >>> 0).toString(16).padStart(8, "0") +
-    (h1 >>> 0).toString(16).padStart(8, "0")
+    (hash2 >>> 0).toString(16).padStart(8, "0") +
+    (hash1 >>> 0).toString(16).padStart(8, "0")
   );
 }
 
-// =============================================================================
+// ============================================================================
 // ASYNC
-// =============================================================================
+// ============================================================================
 
-export function withTimeout(promiseOrFactory, timeoutMs, label = "OPERATION_TIMEOUT") {
+export function withTimeout(
+  promiseOrFactory,
+  timeoutMs,
+  label = "OPERATION_TIMEOUT"
+) {
   const factory =
     typeof promiseOrFactory === "function"
       ? promiseOrFactory
       : () => promiseOrFactory;
 
-  const timeout = Math.max(1, Number(timeoutMs) || 15000);
+  const timeout = Math.max(
+    1,
+    Number(timeoutMs) || 15000
+  );
 
   return new Promise((resolve, reject) => {
     let settled = false;
 
     const timer = setTimeout(() => {
       if (settled) return;
+
       settled = true;
+
       const error = new Error(label);
       error.code = "TIMEOUT";
+
       reject(error);
     }, timeout);
 
@@ -443,12 +701,14 @@ export function withTimeout(promiseOrFactory, timeoutMs, label = "OPERATION_TIME
       .then(factory)
       .then((value) => {
         if (settled) return;
+
         settled = true;
         clearTimeout(timer);
         resolve(value);
       })
       .catch((error) => {
         if (settled) return;
+
         settled = true;
         clearTimeout(timer);
         reject(error);
@@ -456,19 +716,40 @@ export function withTimeout(promiseOrFactory, timeoutMs, label = "OPERATION_TIME
   });
 }
 
-export async function _executeWithRetry(fn, maxRetries = 2, delayMs = 300) {
+export async function _executeWithRetry(
+  fn,
+  maxRetries = 2,
+  delayMs = 300
+) {
   let lastError;
-  const retries = Math.max(0, Number(maxRetries) || 0);
-  const baseDelay = Math.max(0, Number(delayMs) || 0);
 
-  for (let attempt = 0; attempt <= retries; attempt++) {
+  const retries = Math.max(
+    0,
+    Number(maxRetries) || 0
+  );
+
+  const baseDelay = Math.max(
+    0,
+    Number(delayMs) || 0
+  );
+
+  for (
+    let attempt = 0;
+    attempt <= retries;
+    attempt++
+  ) {
     try {
       return await fn();
-    } catch (err) {
-      lastError = err;
+    } catch (error) {
+      lastError = error;
+
       if (attempt < retries) {
-        const wait = baseDelay * Math.pow(2, attempt);
-        await new Promise((resolve) => setTimeout(resolve, wait));
+        const wait =
+          baseDelay * Math.pow(2, attempt);
+
+        await new Promise((resolve) => {
+          setTimeout(resolve, wait);
+        });
       }
     }
   }
@@ -476,103 +757,98 @@ export async function _executeWithRetry(fn, maxRetries = 2, delayMs = 300) {
   throw lastError;
 }
 
-// =============================================================================
-// FUNCIONES DE FECHA MADRID (MMU-06)
-// =============================================================================
+// ============================================================================
+// MADRID DATE HELPERS
+// ============================================================================
 
-export function madridOffsetMinutes(date = new Date()) {
-  const tzDate = new Date(date.toLocaleString("en-US", { timeZone: MADRID_TIME_ZONE }));
-  const utcDate = new Date(date.toLocaleString("en-US", { timeZone: "UTC" }));
-  return Math.round((tzDate.getTime() - utcDate.getTime()) / 60000);
+export function madridOffsetMinutes(
+  date = new Date()
+) {
+  const source = date instanceof Date
+    ? date
+    : new Date(date);
+
+  if (Number.isNaN(source.getTime())) {
+    return 0;
+  }
+
+  const madridDate = new Date(
+    source.toLocaleString("en-US", {
+      timeZone: MADRID_TIME_ZONE
+    })
+  );
+
+  const utcDate = new Date(
+    source.toLocaleString("en-US", {
+      timeZone: "UTC"
+    })
+  );
+
+  return Math.round(
+    (madridDate.getTime() - utcDate.getTime()) / 60000
+  );
 }
 
 export function formatUtcOffset(offsetMinutes) {
-  const sign = offsetMinutes >= 0 ? "+" : "-";
-  const abs = Math.abs(offsetMinutes);
-  const hours = String(Math.floor(abs / 60)).padStart(2, "0");
-  const mins = String(abs % 60).padStart(2, "0");
-  return `${sign}${hours}:${mins}`;
+  const offset = Number(offsetMinutes) || 0;
+  const sign = offset >= 0 ? "+" : "-";
+  const absolute = Math.abs(offset);
+
+  const hours = String(
+    Math.floor(absolute / 60)
+  ).padStart(2, "0");
+
+  const minutes = String(
+    absolute % 60
+  ).padStart(2, "0");
+
+  return `${sign}${hours}:${minutes}`;
 }
 
-export function toMadridIsoLocal(date = new Date()) {
-  const d = date instanceof Date ? date : new Date(date);
-  if (Number.isNaN(d.getTime())) return "";
-  
-  const parts = new Intl.DateTimeFormat("sv-SE", {
-    timeZone: MADRID_TIME_ZONE,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-    hour12: false,
-  })
-    .formatToParts(d)
-    .reduce((acc, p) => {
-      acc[p.type] = p.value;
-      return acc;
-    }, {});
-
-  return `${parts.year}-${parts.month}-${parts.day}T${parts.hour}:${parts.minute}:${parts.second}`;
+export function toMadridIsoLocal(
+  date = new Date()
+) {
+  return getMadridLocalStringNoZ(date);
 }
 
-export function getMadridDateYmd(date = new Date()) {
-  const d = date instanceof Date ? date : new Date(date);
-  if (Number.isNaN(d.getTime())) return "";
-  
-  const parts = new Intl.DateTimeFormat("sv-SE", {
-    timeZone: MADRID_TIME_ZONE,
+export function getMadridDateYmd(
+  date = new Date()
+) {
+  const parts = formatMadridParts(date, {
     year: "numeric",
     month: "2-digit",
-    day: "2-digit",
-  })
-    .formatToParts(d)
-    .reduce((acc, p) => {
-      acc[p.type] = p.value;
-      return acc;
-    }, {});
+    day: "2-digit"
+  });
+
+  if (!parts) return "";
 
   return `${parts.year}-${parts.month}-${parts.day}`;
 }
 
-export function getMadridTime(date = new Date()) {
-  const d = date instanceof Date ? date : new Date(date);
-  if (Number.isNaN(d.getTime())) return "";
-  
-  const parts = new Intl.DateTimeFormat("sv-SE", {
-    timeZone: MADRID_TIME_ZONE,
+export function getMadridTime(
+  date = new Date()
+) {
+  const parts = formatMadridParts(date, {
     hour: "2-digit",
     minute: "2-digit",
     second: "2-digit",
-    hour12: false,
-  })
-    .formatToParts(d)
-    .reduce((acc, p) => {
-      acc[p.type] = p.value;
-      return acc;
-    }, {});
+    hour12: false
+  });
+
+  if (!parts) return "";
 
   return `${parts.hour}:${parts.minute}:${parts.second}`;
 }
 
-export function getMadridMonthKey(date = new Date()) {
-  const d = date instanceof Date ? date : new Date(date);
-  if (Number.isNaN(d.getTime())) return "";
-  
-  const parts = new Intl.DateTimeFormat("sv-SE", {
-    timeZone: MADRID_TIME_ZONE,
+export function getMadridMonthKey(
+  date = new Date()
+) {
+  const parts = formatMadridParts(date, {
     year: "numeric",
-    month: "2-digit",
-  })
-    .formatToParts(d)
-    .reduce((acc, p) => {
-      acc[p.type] = p.value;
-      return acc;
-    }, {});
+    month: "2-digit"
+  });
+
+  if (!parts) return "";
 
   return `${parts.year}-${parts.month}`;
 }
-
-// Alias publico de UUID (MMU-04 / FIX-PUB-02)
-export const generateUUID = _generateUUID;
