@@ -1,18 +1,18 @@
 /**
  * ============================================================================
  * FILE: backend/reservas.web.js
- * VERSION: v5009-FISCAL-V20.5-PROD
- * BASE: v5009-FISCAL-V20.4-ROBUST + 4 correcciones críticas de producción
+ * VERSION: v5009-FISCAL-V20.6-PROD
+ * BASE: v5009-FISCAL-V20.5-PROD + Patches 2, 8, 9
  * RESPONSIBILITY: Availability engine, dual slots, staff pairing and caching.
  * STANDARDS: G10 ASCII Strict.
  *
- * FIXES APLICADOS v5009-FISCAL-V20.5:
- *  - PROD-01: Separación LOCATION_TS (BUSINESS) vs LOCATION_BOOKING (OWNER_BUSINESS).
- *  - PROD-02: pairToken determinista basado en huella del par F1+F2+recurso.
- *  - PROD-03: Validación de service.locationId contra LOCATION_ID configurado.
- *  - PROD-04: Lectura robusta de pairToken en getConfirmedBookingForDisplay.
+ * FIXES APLICADOS v5009-FISCAL-V20.6:
+ *  - PATCH-02: _buildPairFingerprint + _hashKey para pairToken determinista.
+ *  - PATCH-08: _verifyRequiredStaffViaGet valida recursos devueltos.
+ *  - PATCH-09: _getServiceBySlugOrIdInternal captura SERVICE_LOCATION_MISMATCH.
  * ============================================================================
  */
+
 
 import { webMethod, Permissions } from "wix-web-module";
 import wixData from "wix-data";
@@ -37,7 +37,8 @@ import {
   _normalizeLocalIsoStr,
   getUtcDateFromMadridLocal,
   _executeWithRetry,
-  withTimeout
+  withTimeout,
+  _hashKey
 } from "public/mmUtils";
 
 import {
@@ -101,20 +102,16 @@ const STAFF_LOAD_QUERY_LIMIT = Math.max(
   Number(SDK_CONFIG?.JOBS?.HEALTH_CHECK_QUERY_LIMIT) || 1000
 );
 
-// Validación estricta de ubicación al cargar módulo
 const LOCATION_ID = _safeTrim(SDK_CONFIG?.LOCATION_ID);
 if (!LOCATION_ID || !_looksLikeGuid(LOCATION_ID)) {
   throw new Error("Configured booking location is invalid.");
 }
 
-// PROD-01: Separación de ubicaciones por contexto
-// BUSINESS → consultas de disponibilidad (list/get)
 const LOCATION_TS = Object.freeze({
   id: LOCATION_ID,
   locationType: "BUSINESS"
 });
 
-// OWNER_BUSINESS → creación de reserva (respuesta de revalidación)
 const LOCATION_BOOKING = Object.freeze({
   id: LOCATION_ID,
   locationType: "OWNER_BUSINESS"
@@ -189,7 +186,6 @@ function _normalizeResourceIds(resourceId, traceId) {
   return [];
 }
 
-// Detección robusta de recursos (acepta resourceType.id)
 function _getResourceIdsFromSlot(slot) {
   const normalizedSlot = _normalizeSlotShape(slot);
   if (!normalizedSlot || typeof normalizedSlot !== "object") return [];
@@ -294,6 +290,9 @@ function _resolveAddonContextInternal(service, requestedAddonIds) {
   return _getRequestedAddonContext(service, requestedAddonIds);
 }
 
+// ============================================================================
+// PATCH-08: Validación de recursos en getAvailabilityTimeSlot
+// ============================================================================
 async function _verifyRequiredStaffViaGet({
   serviceId,
   start,
@@ -326,7 +325,18 @@ async function _verifyRequiredStaffViaGet({
       2,
       300
     );
-    if (result?.timeSlot) return { ok: true, slot: result.timeSlot, errorCode: null };
+
+    if (result?.timeSlot) {
+      const slot = result.timeSlot;
+      const resourceIds = _getResourceIdsFromSlot(slot);
+
+      if (slot?.bookable === true && resourceIds.includes(requiredResourceId)) {
+        return { ok: true, slot: slot, errorCode: null };
+      }
+
+      return { ok: false, slot: null, errorCode: "STAFF_UNAVAILABLE" };
+    }
+
     return { ok: false, slot: null, errorCode: "STAFF_UNAVAILABLE" };
   } catch (error) {
     log.warn("getAvailabilityTimeSlot verification failed", {
@@ -337,6 +347,31 @@ async function _verifyRequiredStaffViaGet({
     });
     return { ok: false, slot: null, errorCode: "STAFF_UNAVAILABLE" };
   }
+}
+
+// ============================================================================
+// PATCH-02: Huella determinista para pairToken dual
+// ============================================================================
+function _buildPairFingerprint({
+  serviceId,
+  linkedPhases,
+  dateYMD,
+  f1Start,
+  f1End,
+  f2Start,
+  f2End,
+  resourceId
+}) {
+  return [
+    _safeTrim(serviceId) || "",
+    _safeTrim(linkedPhases) || "",
+    _safeTrim(dateYMD) || "",
+    _safeTrim(f1Start) || "",
+    _safeTrim(f1End) || "",
+    _safeTrim(f2Start) || "",
+    _safeTrim(f2End) || "",
+    _safeTrim(resourceId) || ""
+  ].join("|");
 }
 
 // ============================================================================
@@ -402,7 +437,25 @@ export async function _getServiceBySlugOrIdInternal(slugOrId, externalTraceId = 
       };
     }
 
-    const mapped = await _mapServiceImport2ToUX(service, traceId);
+    // PATCH-09: Capturar errores de location mismatch como error estructurado
+    let mapped;
+    try {
+      mapped = await _mapServiceImport2ToUX(service, traceId);
+    } catch (mapError) {
+      const msg = String(mapError?.message || "");
+      if (msg.includes("location does not match")) {
+        return {
+          status: "ERROR",
+          data: null,
+          error: {
+            code: "SERVICE_LOCATION_MISMATCH",
+            message: msg
+          }
+        };
+      }
+      throw mapError;
+    }
+
     const cacheEntry = { data: mapped, timestamp: Date.now() };
     _cacheSetBounded(serviceCatalogRAM, clean, cacheEntry, CACHE_MAX_SIZE);
     if (mapped.serviceId) {
@@ -445,7 +498,6 @@ export async function _mapServiceImport2ToUX(service, traceId) {
     throw new Error("Catalog serviceId is missing or invalid.");
   }
 
-  // PROD-03: Validación de locationId del servicio contra LOCATION_ID configurado
   const serviceLocationId = _safeTrim(_readImport2Field(service, "locationId"));
   if (
     serviceLocationId &&
@@ -941,7 +993,7 @@ async function _countStaffLoadForDay(dateYMD, resourceIds, traceId) {
 }
 
 // ============================================================================
-// DISPONIBILIDAD DUAL
+// DISPONIBILIDAD DUAL (PATCH-02: pairToken determinista con _hashKey)
 // ============================================================================
 
 export async function _getCertifiedDualSlotsInternal(serviceId, resourceId, dateYMD, addonIds = []) {
@@ -1065,7 +1117,6 @@ export async function _getCertifiedDualSlotsInternal(serviceId, resourceId, date
       const f2StartUtc = getUtcDateFromMadridLocal(f2Start);
       if (!f2StartUtc) continue;
 
-      // Cálculo explícito de gap para rechazar solapamientos
       const rawGapMinutes = Math.round(
         (f2StartUtc.getTime() - range.endUtc.getTime()) / 60000
       );
@@ -1085,17 +1136,19 @@ export async function _getCertifiedDualSlotsInternal(serviceId, resourceId, date
           ? requestedResourceId[0]
           : pickStaffByLowestLoad(shared, loadByResource) || shared[0];
 
-      // PROD-02: pairToken determinista basado en huella del par
-      const pairToken = [
-        service.serviceId,
-        service.linkedPhases,
-        ymd,
-        f1Start,
-        f1End,
-        f2Start,
-        f2End,
-        pairResourceId
-      ].join("|");
+      // PATCH-02: pairToken determinista con _hashKey sobre huella completa
+      const pairToken = _hashKey(
+        _buildPairFingerprint({
+          serviceId: service.serviceId,
+          linkedPhases: service.linkedPhases,
+          dateYMD: ymd,
+          f1Start,
+          f1End,
+          f2Start,
+          f2End,
+          resourceId: pairResourceId
+        })
+      );
 
       pairs.push({
         fase1: {
@@ -1575,7 +1628,6 @@ export async function revalidateExactAvailabilitySlot({
         },
         resourceId: balancedResourceId,
         candidateResourceIds: availableResourceIds,
-        // Uso de LOCATION_BOOKING para la respuesta que alimenta la saga de creación
         location: LOCATION_BOOKING
       },
       error: null
@@ -1657,7 +1709,6 @@ export const getConfirmedBookingForDisplay = webMethod(
       const firstEntity = entities[0] || {};
       const firstSlot = firstEntity.slot || slot.schedule || {};
 
-      // PROD-04: Lectura robusta de pairToken cubriendo múltiples rutas
       const pairToken =
         info?.form?.fields?.pairToken ||
         raw?.booking?.formInfo?.fields?.pairToken ||
