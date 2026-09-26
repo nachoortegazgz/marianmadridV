@@ -8,46 +8,39 @@ STANDARDS: G10 ASCII Strict, Velo V3 SDK.
 IMPORTANT: This module must not import backend modules.
 
 FIXES APLICADOS v5009.3-FISCAL-V20.1-AUDIT:
-  - MMU-01 [FASE2]: cleanText -> _cleanText en _normalizeIdPart (línea 84)
-  - MMU-02 [FASE2]: Regex /^\/+|\/+$/g corregida en _safeSlugOrId (línea 89)
-  - MMU-03 [FASE2]: Locale "sv-SE" sin espacio, bucle for-of en getMadridLocalStringNoZ (línea 187)
-  - MMU-04 [FASE2]: Export generateUUID = generateUUID (línea 409)
-  - MMU-05 [FASE2]: catch (err) en _executeWithRetry (línea 483)
-  - MMU-06 [FASE2]: Añadir toMadridIsoLocal(), formatUtcOffset(), madridOffsetMinutes(), 
+  - MMU-01 [FASE2]: cleanText -> _cleanText en _normalizeIdPart (linea 84)
+  - MMU-02 [FASE2]: Regex /^\/+|\/+$/g corregida en _safeSlugOrId (linea 89)
+  - MMU-03 [FASE2]: Locale "sv-SE" sin espacio, bucle for-of en getMadridLocalStringNoZ (linea 187)
+  - MMU-04 [FASE2]: Export generateUUID alias resuelto (ver FIX-PUB-02 abajo)
+  - MMU-05 [FASE2]: catch (err) en _executeWithRetry (linea 483)
+  - MMU-06 [FASE2]: Anadir toMadridIsoLocal(), formatUtcOffset(), madridOffsetMinutes(),
                     getMadridDateYmd(), getMadridTime(), getMadridMonthKey()
   - MMU-07 [FASE2]: Validar ISO en _normalizeLocalIsoStr
 
-NOTA DE DUPLICACION: readDurationRange, resolveExpectedSlotMinutes,
-toUtcRange, computeGapMinutes y validateSlotDuration viven tambien en
-backend/booking/bookingUtils.js. Se recomienda que bookingUtils reexporte
-desde aqui en v5010 para eliminar la duplicacion.
+FIXES APLICADOS v5010.1-PUBLIC-ALIGN (frontend alignment pass):
+  - FIX-PUB-01: G10 ASCII strict en cabecera (eliminadas tildes/no-ASCII).
+  - FIX-PUB-02: Alias generateUUID = _generateUUID conservado como unica API
+                publica de UUID; comentario MMU-04 reescrito en ASCII. No se
+                elimina porque marianAdministrationController y widgets
+                legacy pueden consumirlo (regla: no romper consumidores).
+  - FIX-PUB-03: SSOT single-source: MESSAGE_TYPES pasa a ser MESSAGETYPES del
+                bridge (misma lista canonica MM_*); URLS/UI pasan a PROTOCOL
+                exportado por widgetBridge.js. mmUtils ya NO define
+                constantes de protocolo (deuda de duplicidad eliminada segun
+                directiva "cero duplicidades"). Los antiguos nombres
+                MESSAGE_TYPES/URLS/UI siguen disponibles via re-export desde
+                widgetBridge para consumidores legacy.
 =============================================================================
 */
 
 // =============================================================================
-// CONSTANTES DE PROTOCOLO
+// CONSTANTES DE PROTOCOLO (SSOT: public/widgetBridge.js - FIX-PUB-03)
+// mmUtils no define protocolo. Se reexporta desde widgetBridge para que los
+// consumidores historicos de "public/mmUtils" sigan funcionando sin duplicar
+// la fuente de verdad.
 // =============================================================================
 
-export const MESSAGE_TYPES = Object.freeze({
-  READY: "READY",
-  CONTEXT: "CONTEXT",
-  NAV: "NAV",
-  AVAIL: "AVAIL",
-  SELECT: "SELECT",
-  BOOK: "BOOK",
-});
-
-export const URLS = Object.freeze({
-  SERVICIOS: "/reserva-online",
-  CALENDARIO_2: "/booking-calendar/calendario-2",
-  PRIVACY_POLICY: "/politica-de-privacidad",
-});
-
-export const UI = Object.freeze({
-  FRONTEND_API_TIMEOUT_MS: 60000,
-  HANDSHAKE_TIMEOUT_MS: 15000,
-  CONTEXT_TIMEOUT_MS: 30000,
-});
+export { MESSAGETYPES as MESSAGE_TYPES, PROTOCOL_URLS as URLS, PROTOCOL_UI as UI } from "public/widgetBridge";
 
 const GUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const MAX_TEXT_LENGTH = 5000;
@@ -581,5 +574,5 @@ export function getMadridMonthKey(date = new Date()) {
   return `${parts.year}-${parts.month}`;
 }
 
-// Alias de exportación para compatibilidad (MMU-04)
+// Alias publico de UUID (MMU-04 / FIX-PUB-02)
 export const generateUUID = _generateUUID;

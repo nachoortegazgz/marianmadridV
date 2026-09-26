@@ -1,10 +1,10 @@
 /**
- * MOCK DE MÓDULOS WIX PARA TESTING EN ENTORNO NODE.JS
+ * MOCK DE MODULOS WIX PARA TESTING EN ENTORNO NODE.JS
  * 
- * PROPÓSITO: Simular APIs de wix-data, wix-secrets, etc. para permitir
- * ejecución de tests estáticos y dinámicos fuera del entorno Velo.
+ * PROPOSITO: Simular APIs de wix-data, wix-secrets, etc. para permitir
+ * ejecucion de tests estaticos y dinamicos fuera del entorno Velo.
  * 
- * NOTA: Este archivo NO se despliega en producción Wix.
+ * NOTA: Este archivo NO se despliega en produccion Wix.
  */
 
 // Mock de wix-data
@@ -34,12 +34,12 @@ export const wixDataMock = {
   },
   
   async insert(collectionName, item) {
-    // Simular inserción con _id generado
+    // Simular insercion con _id generado
     return { ...item, _id: item._id || `mock_${Date.now()}` };
   },
   
   async update(collectionName, item) {
-    // Para tests de inmutabilidad, lanzar error si es colección fiscal
+    // Para tests de inmutabilidad, lanzar error si es coleccion fiscal
     if (collectionName === 'MovimientosCaja' || collectionName === 'RegistrosHorariosStaff') {
       const error = new Error(`FISCAL_IMMUTABILITY_VIOLATION: No se permite update en ${collectionName}`);
       error.code = 'IMMUTABILITY_VIOLATION';
@@ -98,7 +98,7 @@ export const wixNotificationsMock = {
   send: async (config) => ({ messageId: 'mock_msg_id' })
 };
 
-// Exportar todos los mocks como objeto único
+// Exportar todos los mocks como objeto unico
 export default {
   'wix-data': wixDataMock,
   'wix-secrets': wixSecretsMock,

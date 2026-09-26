@@ -2,7 +2,7 @@
 =============================================================================
 MODULE: backend/internalConfig.js
 VERSION: v5010-CLEAN
-BASE: v5009.3 + Eliminación Total Legacy + SSOT V20.1 Definitivo
+BASE: v5009.3 + Eliminacion Total Legacy + SSOT V20.1 Definitivo
 RESPONSIBILITY: Single Source of Truth (SSOT) for backend configuration.
 STANDARDS: G10 ASCII Strict, Zero Deprecated Aliases, Zero Legacy.
 =============================================================================
@@ -28,7 +28,7 @@ export const STAFF = Object.freeze({
 
 // =============================================================================
 // BLOQUE 2 - COLECCIONES CMS CANONICAS (SEPARADAS POR DOMINIO)
-// CFG-10: Separación estricta Business vs Operacional
+// CFG-10: Separacion estricta Business vs Operacional
 // =============================================================================
 
 // SSOT v5010.1: 20 colecciones canonicas activas.
@@ -65,7 +65,7 @@ export const OPERATIONAL_COLLECTIONS = Object.freeze({
     LIBRO_REGISTRO_FACTURAS_RECIBIDAS: "LibroRegistroFacturasRecibidas",
 });
 
-// Alias de solo lectura para compatibilidad interna estricta (no usar en nuevo código)
+// Alias de solo lectura para compatibilidad interna estricta (no usar en nuevo codigo)
 export const COLLECTIONS = Object.freeze({
     ...BUSINESS_COLLECTIONS,
     ...OPERATIONAL_COLLECTIONS
@@ -179,7 +179,7 @@ export const SDK_CONFIG = Object.freeze({
     M365: Object.freeze({ ENABLED: false }),
     ACCOUNTING: Object.freeze({ ENABLED: false }),
 
-    // Flag explícito para activar/desactivar sync de servicios (Deuda #6 resuelta)
+    // Flag explicito para activar/desactivar sync de servicios (Deuda #6 resuelta)
     SYNC_BOOKINGS_SERVICES_ENABLED: false,
 
     DOCUMENTS: Object.freeze({
@@ -207,7 +207,7 @@ export const CONCURRENCY = Object.freeze({
 
 // =============================================================================
 // BLOQUE 6 - ENUMS DE NEGOCIO (SSOT COMPLETO)
-// Sin aliases, solo nombres canónicos en inglés/V20.1
+// Sin aliases, solo nombres canonicos en ingles/V20.1
 // =============================================================================
 
 export const REGIME_KEY = Object.freeze({
@@ -594,25 +594,25 @@ export const ACCOUNTING_ACCOUNT = Object.freeze({
     TAX_IRPF_WITHHOLDING_RECEIVABLE: "473000",
     TAX_EQUIVALENCE_SURCHARGE: "475800",
     CUSTOMER_ADVANCES: "438000",
-    INVENTORY: "300000", // Añadido para v5010-CLEAN
+    INVENTORY: "300000", // Anadido para v5010-CLEAN
 });
 
 // Nombres legibles para las cuentas (SSOT)
 export const ACCOUNTING_ACCOUNT_NAME = Object.freeze({
     "570000": "Caja EUR",
     "572000": "Bancos",
-    "705000": "Prestación de Servicios",
+    "705000": "Prestacion de Servicios",
     "477000": "HP IVA Repercutido",
     "472000": "HP IVA Soportado",
     "708000": "Devoluciones de Ventas",
     "400000": "Proveedores",
-    "600000": "Compra de Mercaderías",
+    "600000": "Compra de Mercaderias",
     "555000": "Cuenta Puente",
     "475100": "HP Retenciones a Practicar",
     "473000": "HP Retenciones Sufridas",
     "475800": "HP Recargo de Equivalencia",
     "438000": "Anticipos de Clientes",
-    "300000": "Existencias de Mercaderías",
+    "300000": "Existencias de Mercaderias",
 });
 
 export const AEAT_INVOICE_TYPE = Object.freeze({
@@ -735,7 +735,7 @@ export const FISCAL_LIMITS = Object.freeze({
     MAX_DATE: "2030-12-31",
 });
 
-// Conjunto de validación centralizado (CFG-13)
+// Conjunto de validacion centralizado (CFG-13)
 export const VALIDATION_SETS = Object.freeze({
     MOVEMENT_TYPES: new Set(Object.values(MOVEMENT_TYPE)),
     PAYMENT_METHODS: new Set(Object.values(PAYMENT_METHOD)),
@@ -743,7 +743,7 @@ export const VALIDATION_SETS = Object.freeze({
     EVENT_TYPES_REQUIRING_CATALOG: new Set(["VENTA_LINEA", "COMPRA_LINEA", "RECTIFICATIVA", "MOV_STOCK"]),
 });
 
-// Tipos de movimiento con signo negativo en contabilidad
+// Tipos de movimiento con signo negativo (PGC: cargos/abonos)
 export const NEGATIVE_SIGN_MOVEMENT_TYPES = Object.freeze([
     MOVEMENT_TYPE.REEMBOLSO,
     MOVEMENT_TYPE.DEVOLUCION_SERVICIO,
@@ -759,7 +759,7 @@ export const NEGATIVE_SIGN_MOVEMENT_TYPES = Object.freeze([
 
 /**
  * Construye el objeto COMPUTER_SYSTEM fusionando el fallback con la config real.
- * Lanza error si falta el NIF del emisor en tiempo de ejecución.
+ * Lanza error si falta el NIF del emisor en tiempo de ejecucion.
  */
 export function buildComputerSystem(fiscalConfig) {
     const fallback = { ...COMPUTER_SYSTEM };
@@ -770,7 +770,7 @@ export function buildComputerSystem(fiscalConfig) {
         return Object.freeze(fallback);
     }
     
-    // Validación estricta: Si hay config, debe tener NIF
+    // Validacion estricta: Si hay config, debe tener NIF
     if (!fiscalConfig.producerTaxId) {
         throw new Error("FISCAL_VIOLATION: producerTaxId es obligatorio en ConfiguracionFiscal para operar en modo Veri*factu");
     }
@@ -789,7 +789,7 @@ export function buildComputerSystem(fiscalConfig) {
 }
 
 /**
- * Resuelve la cuenta contable de retención IRPF según el rol fiscal.
+ * Resuelve la cuenta contable de retencion IRPF segun el rol fiscal.
  */
 export function resolveWithholdingAccount(fiscalRole) {
     switch (fiscalRole) {
@@ -808,12 +808,12 @@ export function resolveWithholdingAccount(fiscalRole) {
 export function validateInternalConfig() {
     const issues = [];
 
-    // Verificar colecciones críticas
+    // Verificar colecciones criticas
     if (!BUSINESS_COLLECTIONS.CITAS_F2 || !OPERATIONAL_COLLECTIONS.SLOT_LOCKS) {
-        issues.push("Colecciones críticas faltantes");
+        issues.push("Colecciones criticas faltantes");
     }
 
-    // Verificar enums críticos
+    // Verificar enums criticos
     if (Object.keys(BOOKING_FIELDS).length < 10) {
         issues.push("BOOKING_FIELDS incompleto");
     }
@@ -823,9 +823,9 @@ export function validateInternalConfig() {
         issues.push(`VIOLACION_B3: TIME_SLOTS es ${SDK_CONFIG.LOCATION_TYPES.TIME_SLOTS}, debe ser BUSINESS`);
     }
 
-    // Verificar límites fiscales
+    // Verificar limites fiscales
     if (FISCAL_LIMITS.CASHPAYMENT_MAX_EUR !== 1000) {
-        issues.push("Límite efectivo incorrecto (debe ser 1000)");
+        issues.push("Limite efectivo incorrecto (debe ser 1000)");
     }
 
     return {
@@ -836,7 +836,7 @@ export function validateInternalConfig() {
 }
 
 /**
- * Valida el contexto de ejecución (usuario, location, timestamp).
+ * Valida el contexto de ejecucion (usuario, location, timestamp).
  */
 export function validateRuntimeContext(context) {
     const errors = [];
@@ -868,7 +868,7 @@ export function validateRuntimeContext(context) {
 }
 
 /**
- * Comparador seguro de enums (ignora mayúsculas/minúsculas y espacios).
+ * Comparador seguro de enums (ignora mayusculas/minusculas y espacios).
  */
 export function enumEq(value, expectedEnumValue) {
     if (!value || !expectedEnumValue) return false;
@@ -876,7 +876,7 @@ export function enumEq(value, expectedEnumValue) {
 }
 
 /**
- * Verifica si un valor pertenece a un enum (ignora mayúsculas/minúsculas y espacios).
+ * Verifica si un valor pertenece a un enum (ignora mayusculas/minusculas y espacios).
  */
 export function enumIn(value, enumObject) {
     if (!value || !enumObject) return false;
@@ -885,7 +885,7 @@ export function enumIn(value, enumObject) {
 }
 
 /**
- * Normaliza el tipo de reserva a valores canónicos.
+ * Normaliza el tipo de reserva a valores canonicos.
  */
 export function normalizeBookingType(type) {
     if (!type) return BOOKING_TYPE.NORMAL;
@@ -912,7 +912,7 @@ export function isValidGuid(guid) {
 }
 
 /**
- * Genera número de factura secuencial YYYYMM-SEQ.
+ * Genera numero de factura secuencial YYYYMM-SEQ.
  */
 export function buildInvoiceNumber(date, sequenceNumber) {
     const d = new Date(date);

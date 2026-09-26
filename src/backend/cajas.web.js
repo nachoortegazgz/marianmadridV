@@ -69,7 +69,8 @@ import { normalizeError } from "backend/booking/bookingCore";
 import { _toPublicError } from "backend/responseUtils";
 
 import { logAuditEvent } from "backend/audit";
-import { projectLedgerMovementToAccounting } from "backend/contabilidad";
+// [SSOT-v5010.1 ZOMB-01] backend/contabilidad.js ELIMINADO: MovimientosCaja es SSOT fiscal unico.
+// Las proyecciones secundarias se encolan en CompensacionesPendientes y las consume crons.runPendingCompensationsJob.
 
 // [CONSOL-01] Secuencia unica compartida con eventLog.js
 import { _getNextSequenceInternal } from "backend/eventLog";
@@ -715,22 +716,15 @@ export const registerManualTransaction = webMethod(Permissions.SiteMember, async
             const saved = await wixData.insert(COLLECTIONS.MOVIMIENTOS_CAJA, movement, { suppressAuth: true });
             await _updateCajaActual(movement, traceId);
 
-            projectLedgerMovementToAccounting(movement)
-                .then((accResult) => {
-                    if (accResult?.status === "SUCCESS" || accResult?.status === "SKIPPED") return;
-                    log.warn("Accounting projection non-success", {
-                        traceId,
-                        status: accResult?.status,
-                        reason: accResult?.reason,
-                    });
-                })
-                .catch(async (accErr) => {
-                    log.error("Accounting projection failed; queuing resync", {
-                        traceId,
-                        error: accErr?.message || String(accErr),
-                    });
-                    await _queueAccountingResync(movement, accErr, traceId);
-                });
+            // [SSOT-v5010.1 ZOMB-01] Sin proyeccion contable en linea (movimiento ya es SSOT).
+            // Marcar estado de proyeccion para reconciliacion diferida via crons.
+            try {
+                await wixData.update(COLLECTIONS.MOVIMIENTOS_CAJA,
+                    Object.assign({}, saved, { projectionStatus: "PENDIENTE" }),
+                    { suppressAuth: true });
+            } catch (pe) {
+                log.warn("projectionStatus mark failed (non-blocking)", { traceId, error: pe?.message });
+            }
 
             if (SDK_CONFIG?.M365?.ENABLED) {
                 try {
@@ -1290,11 +1284,7 @@ export const registerGiftCardSale = webMethod(Permissions.SiteMember, async (pay
             const saved = await wixData.insert(COLLECTIONS.MOVIMIENTOS_CAJA, movement, { suppressAuth: true });
             await _updateCajaActual(movement, traceId);
 
-            projectLedgerMovementToAccounting(movement)
-                .catch(async (accErr) => {
-                    log.error("Accounting projection failed", { traceId, error: accErr?.message });
-                    await _queueAccountingResync(movement, accErr, traceId);
-                });
+            // [SSOT-v5010.1 ZOMB-01] Proyeccion contable en linea eliminada (MovimientosCaja es SSOT).
 
             await logAuditEvent("GIFT_CARD_SOLD", "INFO", `Tarjeta regalo vendida: ${giftCardId}`, { giftCardId, amount, traceId }, traceId, giftCardId, "backend/cajas.web.js");
 
@@ -1447,11 +1437,7 @@ export const registerGiftCardRedemption = webMethod(Permissions.SiteMember, asyn
             const saved = await wixData.insert(COLLECTIONS.MOVIMIENTOS_CAJA, movement, { suppressAuth: true });
             await _updateCajaActual(movement, traceId);
 
-            projectLedgerMovementToAccounting(movement)
-                .catch(async (accErr) => {
-                    log.error("Accounting projection failed", { traceId, error: accErr?.message });
-                    await _queueAccountingResync(movement, accErr, traceId);
-                });
+            // [SSOT-v5010.1 ZOMB-01] Proyeccion contable en linea eliminada (MovimientosCaja es SSOT).
 
             await logAuditEvent("GIFT_CARD_REDEEMED", "INFO", `Tarjeta regalo canjeada: ${giftCardId}`, { giftCardId, amount, serviceId, traceId }, traceId, giftCardId, "backend/cajas.web.js");
 

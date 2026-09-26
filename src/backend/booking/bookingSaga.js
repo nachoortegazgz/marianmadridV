@@ -26,7 +26,7 @@ HISTORIAL (heredado):
 =============================================================================
 */
 
-import { bookings } from "wix-bookings.v2";
+import { bookings } from "@wix/bookings";
 import { elevate } from "wix-auth";
 import wixData from "wix-data";
 

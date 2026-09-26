@@ -32,8 +32,6 @@ import {
   downloadManagerPackageVersion,
   emailManagerPackageVersion,
 } from "backend/fiscalDocuments.web";
-import { askMarianAssistant } from "backend/marianAssistant.web";
-
 import { makeTraceId, URLS } from "public/mmUtils";
 import { createWidgetBridge } from "public/widgetBridge";
 
@@ -93,12 +91,6 @@ const ACTIONS = {
 
   DOCUMENT_EMAIL: ({ payload }) =>
     emailManagerPackageVersion(payload || {}),
-
-  AI_CHAT: ({ payload, traceId }) =>
-    askMarianAssistant({
-      ...(payload || {}),
-      traceId,
-    }),
 };
 
 $w.onReady(async () => {
@@ -134,9 +126,6 @@ $w.onReady(async () => {
   }
 
   createWidgetBridge(widget, {
-    slugUrl: "administracion",
-    traceId,
-
     onContextReady: async () => {
       const [
         cashierRes,
@@ -177,7 +166,7 @@ $w.onReady(async () => {
       };
     },
 
-    onWidgetMessage: async (message, reply) => {
+    onWidgetMessage: async (message, bridge) => {
       const type = String(message?.type || "")
         .trim()
         .toUpperCase();
@@ -186,7 +175,7 @@ $w.onReady(async () => {
       const handler = ACTIONS[type];
 
       if (!handler) {
-        reply(
+        bridge.reply(
           `${type || "UNKNOWN"}_RES`,
           {
             status: "ERROR",
@@ -206,9 +195,9 @@ $w.onReady(async () => {
           traceId,
         });
 
-        reply(`${type}_RES`, result, payload);
+        bridge.reply(`${type}_RES`, result, message);
       } catch (error) {
-        reply(
+        bridge.reply(
           `${type}_RES`,
           {
             status: "ERROR",

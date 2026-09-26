@@ -169,6 +169,7 @@ export const checkStaffCollaboratorAccess = webMethod(
                 isAdmin: admin === true,
                 isCajero: cashier === true,
                 // Campos informativos retrocompatibles:
+                isStaffCollaborator: collaborator === true,
                 authorized: collaborator === true,
                 role: collaborator === true
                     ? (marianManager ? "ADMIN" : (cashier ? "GESTION" : "ESTILISTA"))

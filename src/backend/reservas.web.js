@@ -22,7 +22,7 @@
 
 import { webMethod, Permissions } from "wix-web-module";
 import wixData from "wix-data";
-import { bookings } from "wix-bookings.v2";
+import { bookings } from "@wix/bookings";
 import { elevate } from "wix-auth";
 import { availabilityTimeSlots } from "@wix/bookings";
 

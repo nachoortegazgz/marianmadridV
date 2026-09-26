@@ -375,8 +375,6 @@ $w.onReady(async () => {
     }
 
     bridge = createWidgetBridge(widget, {
-      slugUrl: lookupValue,
-      traceId,
 
       onContextReady: async () => {
         resolvedService = await loadService(lookupValue);
