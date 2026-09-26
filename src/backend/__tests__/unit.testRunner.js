@@ -228,8 +228,9 @@ export async function testCollectionsDefined() {
  */
 export async function testSdkConfig() {
   assert.ok(CONCURRENCY && typeof CONCURRENCY === 'object', 'CONCURRENCY definido');
-  assert.ok(Number(CONCURRENCY.MUTEX_TTL_MS) > 0, 'MUTEX_TTL_MS debe ser positivo');
-  assert.ok(Number(CONCURRENCY.HEARTBEAT_MS) > 0, 'HEARTBEAT_MS debe ser positivo');
+  // v5010.4 (FASE 2): claves V20 segun BIBLIA 3.2.1 f15/f16 (ex MUTEX_TTL_MS/HEARTBEAT_MS)
+  assert.ok(Number(CONCURRENCY.MS_TTL_MUTEX) > 0, 'MS_TTL_MUTEX debe ser positivo');
+  assert.ok(Number(CONCURRENCY.MS_LATIDO) > 0, 'MS_LATIDO debe ser positivo');
   return { testId: 'UNIT-STRUCT-02', status: 'PASS', message: 'CONCURRENCY/SDK config valida' };
 }
 

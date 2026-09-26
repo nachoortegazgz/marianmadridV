@@ -198,13 +198,19 @@ export const SDK_CONFIG = Object.freeze({
 // =============================================================================
 
 export const CONCURRENCY = Object.freeze({
-    MUTEX_TTL_MS: 300000,
-    HEARTBEAT_MS: 15000,
+    // v5010.4 (FASE 2): renombrado V20 segun BIBLIA 3.2 fila 11 y 3.2.1
+    // filas 15-17. Cero nombres legacy: los consumidores usan ya el alias
+    // espanol canonico.
+    MS_TTL_MUTEX: 300000,          // REF: BIBLIA 3.2.1 f15 (ex MUTEX_TTL_MS)
+    MS_LATIDO: 15000,              // REF: BIBLIA 3.2.1 f16 (ex HEARTBEAT_MS)
+    // SIN EQUIVALENTE V20 DOCUMENTADO - MANTENER LEGACY
+    // (grep BIBLIA/SSOT1: MS_SONDEO_TRANSACCION / MS_ESPERA_MAX_TRANSACCION
+    // no existen en la norma; decision registrada en certificacion v5010.4)
     TRANSACTION_POLL_BASE_MS: 250,
     TRANSACTION_MAX_WAIT_MS: 3000,
     LOCK_CLEANUP_GRACE_MS: 60000,
     MAX_COMPENSATION_RETRIES: 3,
-    LEDGER_MUTEX_TTL_MS: 45000,
+    MS_TTL_MUTEX_ASIENTO: 45000,   // REF: BIBLIA 3.2.1 f17 (ex LEDGER_MUTEX_TTL_MS)
     LOCK_RELEASE_MIN_REMAINING_MS: 15000,
     DEFAULT_DURATION_MIN: 30,
 });
@@ -496,6 +502,9 @@ export const PAYMENT_STATUS = Object.freeze({
     PENDING_PAYMENT: "PENDING_PAYMENT",
     PENDING_LEDGER: "PENDING_LEDGER",
     PAID: "PAID",
+    // v5010.4 (FASE 0): valor valido segun SSOT1.txt seccion 4 y mapa CORE-06
+    // de bookingCore.js (PARCIALMENTE_PAGADO -> PARTIALLY_PAID). Cero gap.
+    PARTIALLY_PAID: "PARTIALLY_PAID",
     REFUNDED: "REFUNDED",
     PARTIALLY_REFUNDED: "PARTIALLY_REFUNDED",
 });
@@ -529,12 +538,14 @@ export const CATALOG_CONFIG = Object.freeze({
 
 export const SLOT_SEARCH = Object.freeze({
     DIAS_LIMITE: 14,
-    TOLERANCE_MINUTES: 10,
-    MAX_DUAL_GAP_MINUTES: 120,
+    // v5010.4 (FASE 2): renombrado V20 segun BIBLIA 3.2 fila 9 y 3.2.1
+    // filas 12-13. Cero nombres legacy.
+    MINUTOS_TOLERANCIA: 10,        // REF: BIBLIA 3.2.1 f12 (ex TOLERANCE_MINUTES)
+    MINUTOS_MAX_HUECO_DUAL: 120,   // REF: BIBLIA 3.2.1 f13 (ex MAX_DUAL_GAP_MINUTES)
 });
 
 export const BOOKINGS_ADDON_CONFIG = Object.freeze({
-    MAX_PER_BOOKING: 5,
+    MAX_POR_RESERVA: 5,            // REF: BIBLIA 3.2.1 f14 (ex MAX_PER_BOOKING)
     ACTIVE_NATIVE_IDS: Object.freeze([]),
 });
 
@@ -544,7 +555,7 @@ export const BOOKINGS_ADDON_CONFIG = Object.freeze({
 
 export const JWT = Object.freeze({
     ALGORITHM: "HS256",
-    EXPIRATION_MS: 1800000,
+    MS_EXPIRACION: 1800000,        // REF: BIBLIA 3.2.1 f20 (ex EXPIRATION_MS)
 });
 
 export const BOOKING_FIELDS = Object.freeze({
@@ -578,8 +589,8 @@ export const STAFF_ACCESS = Object.freeze({
 });
 
 export const CURRENCY_CONFIG = Object.freeze({
-    DISPLAY_CURRENCY: "EUR",
-    DECIMALS: 2,
+    MONEDA_VISUALIZACION: "EUR",   // REF: BIBLIA 3.2.1 f18 (ex DISPLAY_CURRENCY)
+    DECIMALES: 2,                  // REF: BIBLIA 3.2.1 f19 (ex DECIMALS)
 });
 
 export const STAFF_DEFAULT_NAME = "Profesional";

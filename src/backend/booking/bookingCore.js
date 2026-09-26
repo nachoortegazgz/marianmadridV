@@ -35,11 +35,15 @@ FIXES APLICADOS v5009-FISCAL-V20.2:
              Resuelve el riesgo SAGA-05: la saga envia PAYMENT_STATUS.UNPAID
              ("IMPAGADO") y Wix solo acepta el enum nativo ingles.
              Valores ingleses pasan sin cambios (back-compat total).
-  - CORE-07: Constantes CONCURRENCY tolerantes al renombrado V20
-             (MS_TTL_MUTEX / MUTEX_TTL_MS, MS_SONDEO_TRANSACCION / ...,
-             BIBLIA 3.2.1 filas 15-17). _persistBooking y
-             _rankResourcesByLoad toleran alias de estado CONFIRMADO /
-             PENDIENTE_PAGO / CANCELADO junto a los nativos ingleses.
+  - CORE-07: Constantes CONCURRENCY V20 canonicas (BIBLIA 3.2.1 filas
+             15-17: MS_TTL_MUTEX, MS_LATIDO, MS_TTL_MUTEX_ASIENTO).
+             v5010.4 FASE 2: internalConfig ya solo expone los nombres V20;
+             las cascadas de transicion legacy se eliminaron. TRANSACTION_
+             POLL_BASE_MS / TRANSACTION_MAX_WAIT_MS se conservan porque la
+             norma no documenta equivalente V20 (grep BIBLIA/SSOT1 vacio).
+             _persistBooking y _rankResourcesByLoad toleran alias de estado
+             CONFIRMADO / PENDIENTE_PAGO / CANCELADO junto a los nativos
+             ingleses (esos alias son del DOMINIO Wix/CitasF2, no del SSOT).
 
 HISTORIAL (heredado):
   v5009-FISCAL-V20.1 | Sin renombrados funcionales (esquema corto CitasF2).
@@ -68,6 +72,8 @@ import {
     CONCURRENCY,
     SDK_CONFIG,
     API,
+    BOOKING_STATUS,
+    PAYMENT_STATUS,
     INACTIVE_BOOKING_STATUSES,
 } from "backend/internalConfig";
 import {
@@ -82,12 +88,23 @@ import {
 } from "public/mmUtils";
 import {
     computeGapMinutes,
+    normalizeSlotShape,
+    getResourceIdsFromSlot,
+    // v5010.4 (FASE 2): huella canonica definida en bookingUtils (capa de
+    // utilidades puras, segun precedencia mmUtils > bookingUtils > core > web).
+    // Evita el ciclo bookingUtils -> bookingCore que se habia introducido.
+    _buildPairFingerprint,
 } from "backend/booking/bookingUtils";
 
 const log = logger;
 
 // FIX-32: STAFF_RESOURCE_TYPE_ID via SSOT.
 const STAFF_RESOURCE_TYPE_ID = API.STAFF_RESOURCE_TYPE_ID;
+
+// v5010.4 (FASE 2): unica definicion de la huella en bookingUtils; aqui solo
+// se REEXPORTA la superficie publica historica (sin duplicar logica) y se
+// define el token determinista canonico sobre esa huella (CORE-05).
+export { _buildPairFingerprint };
 
 // CORE-07:Ubicacion configurada, normalizada una sola vez.
 const CONFIGURED_LOCATION_ID = _safeTrim(SDK_CONFIG?.LOCATION_ID);
@@ -139,12 +156,12 @@ export const getCheckoutUrlElevated = elevate(checkout.getCheckoutUrl);
 // Los valores nativos ingleses NO aparecen como clave: pasan sin traduccion,
 // lo que garantiza compatibilidad total con consumidores existentes.
 const WIX_NATIVE_PAYMENT_STATUS = Object.freeze({
-    IMPAGADO: "UNPAID",
-    NO_PAGADO: "NOT_PAID",
-    PARCIALMENTE_PAGADO: "PARTIALLY_PAID",
-    PAGADO: "PAID",
-    REEMBOLSADO: "REFUNDED",
-    REEMBOLSADO_PARCIAL: "PARTIALLY_REFUNDED",
+    IMPAGADO: PAYMENT_STATUS.UNPAID,                    // REF: BIBLIA 3.2.1 f4
+    NO_PAGADO: PAYMENT_STATUS.NOT_PAID,                 // REF: BIBLIA 3.2.1 f5
+    PARCIALMENTE_PAGADO: PAYMENT_STATUS.PARTIALLY_PAID, // REF: SSOT 4 / CORE-06
+    PAGADO: PAYMENT_STATUS.PAID,                        // REF: BIBLIA 3.2.1 f8
+    REEMBOLSADO: PAYMENT_STATUS.REFUNDED,               // REF: BIBLIA 3.2.1 f9
+    REEMBOLSADO_PARCIAL: PAYMENT_STATUS.PARTIALLY_REFUNDED, // REF: BIBLIA 3.2.1 f10
 });
 
 function _toWixNativePaymentStatus(value) {
@@ -447,11 +464,12 @@ export async function getCheckoutUrlSafe(checkoutSessionOrId) {
 // BLOQUE 8 - MUTEX LOCKS (SlotLocks) - CORE-07 renombrado V20
 // =============================================================================
 
-// CORE-07: BIBLIA 3.2.1 renombra MUTEX_TTL_MS -> MS_TTL_MUTEX. Se aceptan
-// ambos nombres durante la transicion V20.
-const MUTEX_TTL_MS = Number(CONCURRENCY?.MS_TTL_MUTEX ?? CONCURRENCY?.MUTEX_TTL_MS);
+// CORE-07 / v5010.4 (FASE 2): BIBLIA 3.2.1 f15 renombro MUTEX_TTL_MS ->
+// MS_TTL_MUTEX y el SSOT (internalConfig) ya solo expone el nombre V20, por
+// lo que la cascada de transicion se elimina (cero codigo de fallback inutil).
+const MUTEX_TTL_MS = Number(CONCURRENCY?.MS_TTL_MUTEX);
 if (!Number.isFinite(MUTEX_TTL_MS) || MUTEX_TTL_MS <= 0) {
-    throw new Error("MS_TTL_MUTEX (o MUTEX_TTL_MS legacy) must be positive");
+    throw new Error("MS_TTL_MUTEX must be positive");
 }
 const LOCKS_COL = COLLECTIONS.SLOT_LOCKS;
 
@@ -587,10 +605,11 @@ export function _buildLockKeys(phases, resourceId) {
 const TRANSACTIONS_COL = COLLECTIONS.BOOKING_TRANSACTIONS;
 
 // CORE-07: tolerancia al renombrado V20 (BIBLIA 3.2.1).
-const TRANSACTION_POLL_BASE_MS =
-    Number(CONCURRENCY?.MS_SONDEO_TRANSACCION ?? CONCURRENCY?.TRANSACTION_POLL_BASE_MS) || 250;
-const TRANSACTION_MAX_WAIT_MS =
-    Number(CONCURRENCY?.MS_ESPERA_MAX_TRANSACCION ?? CONCURRENCY?.TRANSACTION_MAX_WAIT_MS) || 3000;
+// SIN EQUIVALENTE V20 DOCUMENTADO en BIBLIA 3.2.1 para estas dos claves
+// (grep verifico: MS_SONDEO_TRANSACCION / MS_ESPERA_MAX_TRANSACCION no
+// existen en la norma). Se mantiene el nombre actual como canonico del SSOT.
+const TRANSACTION_POLL_BASE_MS = Number(CONCURRENCY?.TRANSACTION_POLL_BASE_MS) || 250;
+const TRANSACTION_MAX_WAIT_MS = Number(CONCURRENCY?.TRANSACTION_MAX_WAIT_MS) || 3000;
 
 async function _getTransactionById(pairToken) {
     const id = String(pairToken || "");
@@ -938,52 +957,9 @@ export function _sumAddons(addons) {
  * Fallback final: resource directo o resourceId plano en el slot.
  */
 export function _extractResourceIdsFromSlot(slot) {
-    if (!slot || typeof slot !== "object") return [];
-
-    let groups = [];
-    if (Array.isArray(slot.availableResources)) {
-        groups = slot.availableResources;
-    } else if (
-        slot.slot &&
-        typeof slot.slot === "object" &&
-        Array.isArray(slot.slot.availableResources)
-    ) {
-        groups = slot.slot.availableResources;
-    }
-
-    if (groups.length > 0) {
-        const staffGroup = groups.find((group) => {
-            const typeId =
-                group?.resourceTypeId ||
-                group?.resourceType?.id ||
-                group?.resourceType?._id ||
-                group?.typeId;
-
-            return String(typeId) === String(STAFF_RESOURCE_TYPE_ID);
-        });
-
-        if (staffGroup) {
-            return Array.from(new Set(
-                (staffGroup.resources || [])
-                    .map((resource) =>
-                        _safeTrim(
-                            resource?.id ||
-                            resource?._id ||
-                            resource?.resourceId
-                        )
-                    )
-                    .filter((id) => _looksLikeGuid(id))
-            ));
-        }
-    }
-
-    const directId = _safeTrim(
-        slot.resource?.id ||
-        slot.resource?._id ||
-        slot.resource?.resourceId ||
-        slot.resourceId
-    );
-    return _looksLikeGuid(directId) ? [directId] : [];
+    // v5010.4 (FASE 2): delegacion total en bookingUtils.getResourceIdsFromSlot
+    // (unica implementacion; reservas.web importa el mismo helper). Cero 1:1.
+    return getResourceIdsFromSlot(slot, STAFF_RESOURCE_TYPE_ID);
 }
 
 // =============================================================================
@@ -1202,6 +1178,11 @@ export async function getCertifiedDualSlotsOptimized(serviceId, resourceId, date
 /**
  * CORE-05: UNICA fuente de verdad de la huella del par dual.
  *
+ * v5010.4 (FASE 2): la definicion canonica vive en bookingUtils.js (capa de
+ * utilidades puras; precedencia mmUtils > bookingUtils > core > web). Este
+ * modulo la importa y la reexporta como superficie publica historica, sin
+ * duplicar logica y sin ciclo de imports.
+ *
  * IMPORTANTE: esta huella debe ser IDENTICA en los tres puntos donde se
  * genera o consume un pairToken:
  *   1. reservas.web._getCertifiedDualSlotsInternal  (emisor en disponibilidad)
@@ -1212,44 +1193,8 @@ export async function getCertifiedDualSlotsOptimized(serviceId, resourceId, date
  * correlacion y la idempotencia. Los 8 campos son obligatorios por
  * contrato (los opcionales se serializan como cadena vacia).
  */
-export function _buildPairFingerprint({
-    serviceId,
-    linkedPhases,
-    dateYMD,
-    f1Start,
-    f1End,
-    f2Start,
-    f2End,
-    resourceId,
-} = {}) {
-    return [
-        _safeTrim(serviceId) || "",
-        _safeTrim(linkedPhases) || "",
-        _safeTrim(dateYMD) || "",
-        _safeTrim(f1Start) || "",
-        _safeTrim(f1End) || "",
-        _safeTrim(f2Start) || "",
-        _safeTrim(f2End) || "",
-        _safeTrim(resourceId) || "",
-    ].join("|");
-}
-
-/**
- * CORE-05: token determinista canonico. Mismo input => mismo token en
- * cualquier modulo, sin depender de reloj, email ni aleatoriedad.
- */
 export function _buildPairTokenDeterministic(input) {
     return _hashKey(_buildPairFingerprint(input || {}));
-}
-
-/**
- * LEGACY: no determinista entre modulos (depende de un traceId aleatorio).
- * Se conserva SOLO para compatibilidad con consumidores antiguos.
- * NO usar para correlacion dual ni idempotencia: usar
- * _buildPairTokenDeterministic.
- */
-export function _generatePairToken(traceId) {
-    return "pt_" + _hashKey(traceId || makeTraceId("pair")).slice(0, 32);
 }
 
 export function _areSlotsCompatible(slot1, slot2, maxGapMinutes) {

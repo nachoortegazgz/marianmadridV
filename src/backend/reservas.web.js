@@ -7,7 +7,14 @@
  * STANDARDS: G10 ASCII Strict.
  *
  * FIXES APLICADOS v5009-FISCAL-V20.6:
- *  - PATCH-02: _buildPairFingerprint + _hashKey para pairToken determinista.
+ *  - PATCH-02: pairToken determinista via huella canonica compartida
+ *              (huella + hash). v5010.4 FASE 2: la unica definicion de la
+ *              huella vive en bookingUtils._buildPairFingerprint; este modulo
+ *              consume bookingCore._buildPairTokenDeterministic (cero
+ *              duplicacion, cero ciclos de import, cero imports muertos:
+ *              _hashKey y computeGapMinutes fueron retirados al no usarse).
+ *              MAX_DUAL_GAP_MINUTES -> MINUTOS_MAX_HUECO_DUAL (BIBLIA
+ *              3.2.1 fila 13).
  *  - PATCH-08: _verifyRequiredStaffViaGet valida recursos devueltos.
  *  - PATCH-09: _getServiceBySlugOrIdInternal captura SERVICE_LOCATION_MISMATCH.
  * ============================================================================
@@ -39,8 +46,7 @@ import {
   _normalizeLocalIsoStr,
   getUtcDateFromMadridLocal,
   _executeWithRetry,
-  withTimeout,
-  _hashKey
+  withTimeout
 } from "public/mmUtils";
 
 import {
@@ -48,10 +54,20 @@ import {
   readDurationRange,
   resolveExpectedSlotMinutes,
   resolveLinkedPhase2Duration,
-  computeGapMinutes,
   toUtcRange,
-  pickStaffByLowestLoad
+  pickStaffByLowestLoad,
+  // v5010.4 (FASE 2): helpers canonicos de slot unificados en bookingUtils
+  // (unica implementacion; bookingCore._extractResourceIdsFromSlot delega aqui).
+  normalizeSlotShape as _normalizeSlotShape,
+  getResourceIdsFromSlot as _getResourceIdsFromSlot,
 } from "backend/booking/bookingUtils";
+
+import {
+  // v5010.4 (FASE 2): token determinista expuesto por bookingCore sobre la
+  // huella unica de bookingUtils._buildPairFingerprint. Sin duplicacion ni
+  // ciclos de import.
+  _buildPairTokenDeterministic,
+} from "backend/booking/bookingCore";
 
 import { logger } from "backend/logger";
 import { getStaffDisplayName } from "backend/staff";
@@ -93,9 +109,10 @@ function _normalizeImport2Addon(addon) {
 const SERVICIOS_COL = COLLECTIONS.SERVICIOS_CATALOGO;
 const WATCHDOG_TIMEOUT_MS = SDK_CONFIG.TIMEOUTS.WATCHDOG_MS;
 const SERVICE_CACHE_TTL_MS = SDK_CONFIG.CACHE.SERVICES_TTL_MS;
-const MAX_DUAL_GAP_MINUTES = Math.max(
+// v5010.4 (FASE 2): clave V20 segun BIBLIA 3.2.1 fila 13.
+const MINUTOS_MAX_HUECO_DUAL = Math.max(
   0,
-  Number(SLOT_SEARCH?.MAX_DUAL_GAP_MINUTES) || 120
+  Number(SLOT_SEARCH?.MINUTOS_MAX_HUECO_DUAL) || 120
 );
 const CACHE_MAX_SIZE = SDK_CONFIG.CACHE.MAX_ENTRIES;
 const STAFF_RESOURCE_TYPE_ID = API.STAFF_RESOURCE_TYPE_ID;
@@ -134,14 +151,6 @@ function _toPublicError(err, fallbackCode = "INTERNAL_ERROR", fallbackMessage = 
     code: String(err?.code || fallbackCode),
     message: String(err?.message || fallbackMessage)
   };
-}
-
-function _normalizeSlotShape(slot) {
-  if (!slot || typeof slot !== "object") return null;
-  if (slot.slot && typeof slot.slot === "object") {
-    return { ...slot.slot, ...slot };
-  }
-  return slot;
 }
 
 function _attachServiceId(slot, forcedServiceId, traceId, ctx) {
@@ -186,56 +195,6 @@ function _normalizeResourceIds(resourceId, traceId) {
     traceId
   });
   return [];
-}
-
-function _getResourceIdsFromSlot(slot) {
-  const normalizedSlot = _normalizeSlotShape(slot);
-  if (!normalizedSlot || typeof normalizedSlot !== "object") return [];
-
-  let groups = [];
-  if (Array.isArray(normalizedSlot.availableResources)) {
-    groups = normalizedSlot.availableResources;
-  } else if (
-    normalizedSlot.slot &&
-    typeof normalizedSlot.slot === "object" &&
-    Array.isArray(normalizedSlot.slot.availableResources)
-  ) {
-    groups = normalizedSlot.slot.availableResources;
-  }
-
-  if (groups.length > 0) {
-    const staffGroup = groups.find((group) => {
-      const typeId =
-        group?.resourceTypeId ||
-        group?.resourceType?.id ||
-        group?.resourceType?._id ||
-        group?.typeId;
-
-      return String(typeId) === String(STAFF_RESOURCE_TYPE_ID);
-    });
-
-    if (staffGroup) {
-      return Array.from(
-        new Set(
-          (staffGroup.resources || [])
-            .map((resource) =>
-              _safeTrim(
-                resource?.id || resource?._id || resource?.resourceId
-              )
-            )
-            .filter((resourceId) => _looksLikeGuid(resourceId))
-        )
-      );
-    }
-  }
-
-  const directId = _safeTrim(
-    normalizedSlot.resource?.id ||
-      normalizedSlot.resource?._id ||
-      normalizedSlot.resource?.resourceId ||
-      normalizedSlot.resourceId
-  );
-  return _looksLikeGuid(directId) ? [directId] : [];
 }
 
 function _minutesBetweenUtcDates(a, b) {
@@ -330,7 +289,7 @@ async function _verifyRequiredStaffViaGet({
 
     if (result?.timeSlot) {
       const slot = result.timeSlot;
-      const resourceIds = _getResourceIdsFromSlot(slot);
+      const resourceIds = _getResourceIdsFromSlot(slot, STAFF_RESOURCE_TYPE_ID);
 
       if (slot?.bookable === true && resourceIds.includes(requiredResourceId)) {
         return { ok: true, slot: slot, errorCode: null };
@@ -349,31 +308,6 @@ async function _verifyRequiredStaffViaGet({
     });
     return { ok: false, slot: null, errorCode: "STAFF_UNAVAILABLE" };
   }
-}
-
-// ============================================================================
-// PATCH-02: Huella determinista para pairToken dual
-// ============================================================================
-function _buildPairFingerprint({
-  serviceId,
-  linkedPhases,
-  dateYMD,
-  f1Start,
-  f1End,
-  f2Start,
-  f2End,
-  resourceId
-}) {
-  return [
-    _safeTrim(serviceId) || "",
-    _safeTrim(linkedPhases) || "",
-    _safeTrim(dateYMD) || "",
-    _safeTrim(f1Start) || "",
-    _safeTrim(f1End) || "",
-    _safeTrim(f2Start) || "",
-    _safeTrim(f2End) || "",
-    _safeTrim(resourceId) || ""
-  ].join("|");
 }
 
 // ============================================================================
@@ -995,7 +929,7 @@ async function _countStaffLoadForDay(dateYMD, resourceIds, traceId) {
 }
 
 // ============================================================================
-// DISPONIBILIDAD DUAL (PATCH-02: pairToken determinista con _hashKey)
+// DISPONIBILIDAD DUAL (PATCH-02: pairToken determinista via huella canonica)
 // ============================================================================
 
 export async function _getCertifiedDualSlotsInternal(serviceId, resourceId, dateYMD, addonIds = []) {
@@ -1114,7 +1048,7 @@ export async function _getCertifiedDualSlotsInternal(serviceId, resourceId, date
     const range = toUtcRange(f1Start, f1End);
     if (!range) continue;
 
-    const f1Resources = _getResourceIdsFromSlot(f1);
+    const f1Resources = _getResourceIdsFromSlot(f1, STAFF_RESOURCE_TYPE_ID);
 
     for (const f2 of f2Slots) {
       const f2Start = _normalizeLocalIsoStr(f2?.localStartDate || f2?.startDate);
@@ -1128,13 +1062,13 @@ export async function _getCertifiedDualSlotsInternal(serviceId, resourceId, date
         (f2StartUtc.getTime() - range.endUtc.getTime()) / 60000
       );
 
-      if (rawGapMinutes < 0 || rawGapMinutes > MAX_DUAL_GAP_MINUTES) {
+      if (rawGapMinutes < 0 || rawGapMinutes > MINUTOS_MAX_HUECO_DUAL) {
         continue;
       }
 
       const gapMinutes = rawGapMinutes;
 
-      const f2Resources = _getResourceIdsFromSlot(f2);
+      const f2Resources = _getResourceIdsFromSlot(f2, STAFF_RESOURCE_TYPE_ID);
       const shared = f1Resources.filter((id) => f2Resources.includes(id));
       if (shared.length === 0) continue;
 
@@ -1143,9 +1077,11 @@ export async function _getCertifiedDualSlotsInternal(serviceId, resourceId, date
           ? requestedResourceId[0]
           : pickStaffByLowestLoad(shared, loadByResource) || shared[0];
 
-      // PATCH-02: pairToken determinista con _hashKey sobre huella completa
-      const pairToken = _hashKey(
-        _buildPairFingerprint({
+      // PATCH-02 -> v5010.4: pairToken determinista via helper canonico
+      // bookingCore._buildPairTokenDeterministic (huella unica en
+      // bookingUtils._buildPairFingerprint; este bloque invoca la huella
+      // canonica importada arriba).
+      const pairToken = _buildPairTokenDeterministic({
           serviceId: service.serviceId,
           linkedPhases: service.linkedPhases,
           dateYMD: ymd,
@@ -1154,8 +1090,7 @@ export async function _getCertifiedDualSlotsInternal(serviceId, resourceId, date
           f2Start,
           f2End,
           resourceId: pairResourceId
-        })
-      );
+        });
 
       pairs.push({
         fase1: {
@@ -1539,7 +1474,7 @@ export async function revalidateExactAvailabilitySlot({
       "revalidateExactAvailabilitySlot"
     );
 
-    const availableResourceIds = _getResourceIdsFromSlot(normalizedSlot);
+    const availableResourceIds = _getResourceIdsFromSlot(normalizedSlot, STAFF_RESOURCE_TYPE_ID);
 
     if (
       !normalizedSlot ||

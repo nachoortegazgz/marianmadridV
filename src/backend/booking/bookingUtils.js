@@ -73,6 +73,126 @@ export function cleanGuidList(value) {
     );
 }
 
+// =============================================================================
+// BLOQUE 1B - HELPERS CANONICOS DE SLOT Y PAIR TOKEN
+// (v5010.4 FASE 2: cero duplicado, cero ciclos de import)
+//
+// Unicas implementaciones de:
+//   - normalizacion de forma de slot (normalizeSlotShape)
+//   - extraccion de resourceIds de staff (getResourceIdsFromSlot)
+//   - huella canonica del par dual (_buildPairFingerprint) [CORE-05]
+//
+// Precedencia de modulo segun regla FASE 2:
+//   mmUtils > bookingUtils > core > web.
+// Por eso la huella vive AQUI (capa utilidades puras), no en bookingCore:
+// bookingCore ya depende de bookingUtils; definir la huella en bookingCore
+// obligaria a un import bookingUtils -> bookingCore (CICLO real). Todos los
+// consumidores (bookingCore, reservas.web, bookingSaga) importan de aqui o
+// reciben la reexportacion canonica de bookingCore.
+// =============================================================================
+
+/**
+ * CORE-05 / SAGA-02 / PATCH-02: UNICA fuente de verdad de la huella del par
+ * dual. Debe ser IDENTICA en los tres puntos donde se genera o consume un
+ * pairToken:
+ *   1. reservas.web._getCertifiedDualSlotsInternal (emisor en disponibilidad)
+ *   2. bookingSaga._resolveUnifiedPairToken        (consumidor/reemisor)
+ *   3. DualSlotCache.pairToken                     (persistencia)
+ * Cualquier cambio en el orden o contenido de los campos rompe la correlacion
+ * y la idempotencia. Los 8 campos son obligatorios por contrato (los
+ * opcionales se serializan como cadena vacia).
+ */
+export function _buildPairFingerprint({
+    serviceId,
+    linkedPhases,
+    dateYMD,
+    f1Start,
+    f1End,
+    f2Start,
+    f2End,
+    resourceId,
+} = {}) {
+    return [
+        _safeTrim(serviceId) || "",
+        _safeTrim(linkedPhases) || "",
+        _safeTrim(dateYMD) || "",
+        _safeTrim(f1Start) || "",
+        _safeTrim(f1End) || "",
+        _safeTrim(f2Start) || "",
+        _safeTrim(f2End) || "",
+        _safeTrim(resourceId) || "",
+    ].join("|");
+}
+
+/**
+ * Normaliza la forma de un slot Time Slots V2: si llega envuelto en
+ * { slot: {...} }, fusiona el slot interno con el contenedor (el contenedor
+ * manda). Idempotente sobre slots ya planos.
+ */
+export function normalizeSlotShape(slot) {
+    if (!slot || typeof slot !== "object") return null;
+    if (slot.slot && typeof slot.slot === "object") {
+        return { ...slot.slot, ...slot };
+    }
+    return slot;
+}
+
+/**
+ * Extrae los resourceIds GUID del grupo de staff de un slot (formato plano o
+ * envuelto), deduplicados. Fallback: resource directo / resourceId plano.
+ * @param {object} slot slot crudo o normalizado
+ * @param {string} staffResourceTypeId id del tipo de recurso STAFF (API.*)
+ */
+export function getResourceIdsFromSlot(slot, staffResourceTypeId) {
+    const normalizedSlot = normalizeSlotShape(slot);
+    if (!normalizedSlot || typeof normalizedSlot !== "object") return [];
+
+    let groups = [];
+    if (Array.isArray(normalizedSlot.availableResources)) {
+        groups = normalizedSlot.availableResources;
+    } else if (
+        normalizedSlot.slot &&
+        typeof normalizedSlot.slot === "object" &&
+        Array.isArray(normalizedSlot.slot.availableResources)
+    ) {
+        groups = normalizedSlot.slot.availableResources;
+    }
+
+    if (groups.length > 0) {
+        const staffGroup = groups.find((group) => {
+            const typeId =
+                group?.resourceTypeId ||
+                group?.resourceType?.id ||
+                group?.resourceType?._id ||
+                group?.typeId;
+
+            return String(typeId) === String(staffResourceTypeId);
+        });
+
+        if (staffGroup) {
+            return Array.from(
+                new Set(
+                    (staffGroup.resources || [])
+                        .map((resource) =>
+                            _safeTrim(
+                                resource?.id || resource?._id || resource?.resourceId
+                            )
+                        )
+                        .filter((resourceId) => _looksLikeGuid(resourceId))
+                )
+            );
+        }
+    }
+
+    const directId = _safeTrim(
+        normalizedSlot.resource?.id ||
+        normalizedSlot.resource?._id ||
+        normalizedSlot.resource?.resourceId ||
+        normalizedSlot.resourceId
+    );
+    return _looksLikeGuid(directId) ? [directId] : [];
+}
+
 export function numberOrZero(value) {
     const number = Number(value);
 

@@ -14,8 +14,9 @@ FIXES APLICADOS v5009-FISCAL-V20.3:
              "no desactivar nativo"). Wix re-valida disponibilidad real.
   - SAGA-02: pairToken UNIFICADO. Prioridad absoluta al token emitido por
              reservas.web.getCertifiedDualSlots. Fallback dual determinista
-             con la MISMA huella (_buildPairFingerprint) que el backend de
-             disponibilidad. Fallback simple por _resolveStablePairToken.
+             con la MISMA huella (_buildPairFingerprint, unica definicion en
+             bookingUtils y reexportada por bookingCore; sin copia local).
+             Fallback simple por _resolveStablePairToken.
   - SAGA-03: OWNER_BUSINESS GARANTIZADO. Resolucion de locationId con
              cascada (slot validado -> catalogo) + _assertPristineSlotContract
              que BLOQUEA la creacion si el slot no cumple BIBLIA 2.2.1.
@@ -25,8 +26,10 @@ FIXES APLICADOS v5009-FISCAL-V20.3:
   - SAGA-06: Compensacion NO cancela reservas CONFIRMED/CANCELLED/REFUNDED.
              Compara contra enum nativo Wix Y valor SSOT espanol (BIBLIA
              3.2.1: CONFIRMED -> CONFIRMADO, CANCELLED -> CANCELADO).
-  - SAGA-07: Constantes de configuracion tolerantes al renombrado V20
-             (MS_TTL_MUTEX / MUTEX_TTL_MS, MINUTOS_MAX_HUECO_DUAL / ...).
+  - SAGA-07: Constantes de configuracion V20 canonicas (BIBLIA 3.2.1
+             f13/f15/f16: MS_TTL_MUTEX, MS_LATIDO, MINUTOS_MAX_HUECO_DUAL).
+             v5010.4 FASE 2: cascadas legacy eliminadas; internalConfig ya
+             solo expone los nombres V20.
   - SAGA-08: availableStaff con fallback (staffDisponible, staffMemberIds).
 
 NOTA CONTRACTUAL (BIBLIA 2.2.1):
@@ -100,6 +103,11 @@ import {
     normalizeError,
     ERROR_CODES,
     _extractCheckoutId,
+    // v5010.4 (FASE 2 / CORE-05): huella canonica UNICA (definida en
+    // bookingUtils, reexportada por bookingCore). SAGA-02 la consume para
+    // que el token FINGERPRINT coincida 1:1 con el emitido por
+    // reservas.web._getCertifiedDualSlotsInternal. Sin copia local.
+    _buildPairFingerprint,
 } from "backend/booking/bookingCore";
 
 export { _extractCheckoutId };
@@ -117,22 +125,21 @@ const log = logger;
 // CONSTANTES (SAGA-07: tolerantes al renombrado V20, BIBLIA 3.2.1)
 // =============================================================================
 
-const LOCKTTLMS =
-    Number(CONCURRENCY?.MS_TTL_MUTEX ?? CONCURRENCY?.MUTEX_TTL_MS) || 300000;
+// v5010.4 (FASE 2): SSOT renombrado a V20 (BIBLIA 3.2.1 f15/f16); cascada
+// legacy eliminada porque internalConfig ya no expone los nombres ingleses.
+const LOCKTTLMS = Number(CONCURRENCY?.MS_TTL_MUTEX) || 300000;
 
-const HEARTBEATMS =
-    Number(CONCURRENCY?.MS_LATIDO ?? CONCURRENCY?.HEARTBEAT_MS) || 15000;
+const HEARTBEATMS = Number(CONCURRENCY?.MS_LATIDO) || 15000;
 
 const CITASCOL = COLLECTIONS.CITAS_F2;
 const SERVICIOSCOL = COLLECTIONS.SERVICIOS_CATALOGO;
 const COMPENSACIONESCOL = COLLECTIONS.COMPENSACIONES_PENDIENTES;
 
-const MAX_DUAL_GAP_MINUTES = Math.max(
+// v5010.4 (FASE 2): clave V20 segun BIBLIA 3.2.1 f13; cascada legacy
+// eliminada (internalConfig ya no expone MAX_DUAL_GAP_MINUTES).
+const MINUTOS_MAX_HUECO_DUAL = Math.max(
     0,
-    Number(
-        SLOT_SEARCH?.MINUTOS_MAX_HUECO_DUAL ??
-        SLOT_SEARCH?.MAX_DUAL_GAP_MINUTES
-    ) || 120
+    Number(SLOT_SEARCH?.MINUTOS_MAX_HUECO_DUAL) || 120
 );
 
 const BOOKING_CREATION_TIMEOUT_MS =
@@ -195,32 +202,11 @@ const NON_CANCELABLE_STATUSES = new Set(
 // BLOCK 1 - PAIR TOKEN UNIFICADO (SAGA-02)
 // =============================================================================
 
-/**
- * Huella EXACTAMENTE identica a la de
- * backend/reservas.web.js::_buildPairFingerprint.
- * Cualquier cambio debe aplicarse en ambos modulos a la vez.
- */
-function _buildPairFingerprint({
-    serviceId,
-    linkedPhases,
-    dateYMD,
-    f1Start,
-    f1End,
-    f2Start,
-    f2End,
-    resourceId,
-}) {
-    return [
-        _safeTrim(serviceId) || "",
-        _safeTrim(linkedPhases) || "",
-        _safeTrim(dateYMD) || "",
-        _safeTrim(f1Start) || "",
-        _safeTrim(f1End) || "",
-        _safeTrim(f2Start) || "",
-        _safeTrim(f2End) || "",
-        _safeTrim(resourceId) || "",
-    ].join("|");
-}
+// v5010.4 (FASE 2): la copia local de _buildPairFingerprint fue ELIMINADA.
+// Unica fuente de verdad: bookingUtils._buildPairFingerprint, consumida aqui
+// via re-export de bookingCore (ver import arriba). Esto elimina el riesgo
+// normativo de divergencia silenciosa de huella entre saga y disponibilidad
+// (CORE-05 / SAGA-02).
 
 function _resolveStablePairToken({ serviceId, resourceId, f1Start, f2Start, email }) {
     const emailHash = _hashKey(_safeTrim(email).toLowerCase());
@@ -553,16 +539,16 @@ function _validateDualGap(f1LocalEnd, f2LocalStart, traceId) {
 
     const gapMinutes = computeGapMinutes(f1EndUtc, f2StartUtc);
 
-    if (gapMinutes > MAX_DUAL_GAP_MINUTES) {
+    if (gapMinutes > MINUTOS_MAX_HUECO_DUAL) {
         throw createBookingError(
             ERROR_CODES.INVALID_PAYLOAD,
             "Dual gap validation: gap " + gapMinutes.toFixed(2) +
-            " min exceeds MAX (" + MAX_DUAL_GAP_MINUTES + ")",
-            { traceId, gapMinutes, maxGapMinutes: MAX_DUAL_GAP_MINUTES }
+            " min exceeds MAX (" + MINUTOS_MAX_HUECO_DUAL + ")",
+            { traceId, gapMinutes, maxGapMinutes: MINUTOS_MAX_HUECO_DUAL }
         );
     }
 
-    return { gapMinutes, maxGapMinutes: MAX_DUAL_GAP_MINUTES };
+    return { gapMinutes, maxGapMinutes: MINUTOS_MAX_HUECO_DUAL };
 }
 
 // =============================================================================

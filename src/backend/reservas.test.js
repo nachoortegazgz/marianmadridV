@@ -378,7 +378,7 @@ test('CONTRACT-DUALGAP: _getCertifiedDualSlotsInternal usa Promise.all y filter/
   assert.match(body, /\.listAvailabilityTimeSlots\(buildListPayload\(service\.serviceId\)\)/, 'F1 via Time Slots V2');
   assert.match(body, /\.listAvailabilityTimeSlots\(buildListPayload\(service\.linkedPhases\)\)/, 'F2 via Time Slots V2');
   assert.match(body, /\.filter\(/, 'filtrado con metodos puros');
-  assert.match(body, /rawGapMinutes\s*<\s*0\s*\|\|\s*rawGapMinutes\s*>\s*MAX_DUAL_GAP_MINUTES/, 'matematica del gap certificada');
+  assert.match(body, /rawGapMinutes\s*<\s*0\s*\|\|\s*rawGapMinutes\s*>\s*MINUTOS_MAX_HUECO_DUAL/, 'matematica del gap certificada (clave V20, BIBLIA 3.2.1 f13)');
   assert.match(body, /_buildPairFingerprint/, 'pairToken determinista desde huella canonica');
 });
 
