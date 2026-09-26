@@ -1,35 +1,28 @@
+```js
 /*
 =============================================================================
 MODULE: public/widgetBridge.js
-VERSION: v5009-FISCAL-V20.1
-BASE: v5007.5-FUNCTIONAL + revision revisada
-RESPONSIBILITY: Comunicacion segura entre paginas Velo y widgets HTML.
+VERSION: v5010.2-FISCAL-V20.2
+BASE: v5009-FISCAL-V20.1 + listener alignment
+RESPONSIBILITY: Secure communication between Velo pages and HTML widgets.
 STANDARDS: G10 ASCII Strict.
 
-FIXES APLICADOS v5009-FISCAL-V20.1:
-  - V20-01: cabecera actualizada.
-  - V20-02: revision revisada. Anade validacion de origen, limite de
-            tamano de mensaje, whitelist de tipos, y desuscripcion segura.
-  - V20-03: onWidgetMessage recibe (message, bridge). Los consumidores
-            antiguos que esperaban (message, reply) deben actualizarse a
-            bridge.reply(...) o bridge.send(...).
-
-FIXES APLICADOS v5010.1-PUBLIC-ALIGN:
-  - FIX-PUB-03: MESSAGETYPES/PROTOCOL_URLS/PROTOCOL_UI exportados como SSOT
-    unico del protocolo; DEFAULT_ALLOWED_TYPES derivado de MESSAGETYPES.
-  - FIX-PUB-09: isAllowedType(): ademas de la whitelist explicita, se
-    aceptan los tipos de respuesta por contrato de pagina (<TYPE>_RES) y
-    MM_ADMIN_RESPONSE. Elimina WB-B01 residual (respuestas reales eran
-    rechazadas por send()).
-  - NOTA CERRADA: calendario-2/servicio-2 ya usan bridge.reply (FASE7).
+FIXES:
+- SSOT protocol constants.
+- Legacy aliases preserved.
+- Origin validation.
+- Message size limit.
+- Message type whitelist.
+- Dynamic response type support.
+- Safe subscription and unsubscription.
+- bridge.reply(message) compatibility.
+- No callback reference before bridge initialization.
 =============================================================================
 */
 
-// =============================================================================
-// PROTOCOLO SSOT (FIX-PUB-03): widgetBridge es la unica fuente de verdad.
-// MESSAGETYPES define los tipos canonicos MM_*; DEFAULT_ALLOWED_TYPES se
-// deriva de el (WB-B01: whitelist == tipos reales del protocolo).
-// =============================================================================
+// ============================================================================
+// PROTOCOL SSOT
+// ============================================================================
 
 export const MESSAGETYPES = Object.freeze({
   READY: "MM_READY",
@@ -37,32 +30,41 @@ export const MESSAGETYPES = Object.freeze({
   AVAIL: "MM_AVAIL",
   SELECT: "MM_SELECT",
   BOOK: "MM_BOOK",
-  NAV: "MM_NAV",
+  NAV: "MM_NAV"
 });
 
 export const PROTOCOL_URLS = Object.freeze({
   SERVICIOS: "/reserva-online",
   CALENDARIO_2: "/booking-calendar/calendario-2",
-  PRIVACY_POLICY: "/politica-de-privacidad",
+  PRIVACY_POLICY: "/politica-de-privacidad"
 });
 
 export const PROTOCOL_UI = Object.freeze({
   FRONTEND_API_TIMEOUT_MS: 60000,
   HANDSHAKE_TIMEOUT_MS: 15000,
-  CONTEXT_TIMEOUT_MS: 30000,
+  CONTEXT_TIMEOUT_MS: 30000
 });
+
+// Legacy aliases.
+// These aliases preserve compatibility with existing consumers.
+export const MESSAGE_TYPES = MESSAGETYPES;
+export const URLS = PROTOCOL_URLS;
+export const UI = PROTOCOL_UI;
 
 const DEFAULT_ALLOWED_TYPES = new Set(Object.values(MESSAGETYPES));
 
-// Respuestas de accion por pagina (suffix _RES): tipos dinamicos derivados
-// del tipo peticion. Se whitelistan automaticamente con el mismo patron que
-// los tipos canonicos, evitando WB-B01 (whitelist != tipos reales).
 const RESPONSE_TYPE_PATTERN = /^[A-Z][A-Z0-9_]{0,38}_RES$/;
 
 const MAX_MESSAGE_BYTES = 100000;
 
+// ============================================================================
+// INTERNAL HELPERS
+// ============================================================================
+
 function safeObject(value) {
-  return value && typeof value === "object" && !Array.isArray(value)
+  return value &&
+    typeof value === "object" &&
+    !Array.isArray(value)
     ? value
     : {};
 }
@@ -71,6 +73,7 @@ function safeType(value) {
   const type = String(value || "")
     .trim()
     .toUpperCase();
+
   return type.slice(0, 40);
 }
 
@@ -84,10 +87,26 @@ function safeMessageId(value) {
 function estimateSize(value) {
   try {
     return JSON.stringify(value).length;
-  } catch {
+  } catch (_) {
     return MAX_MESSAGE_BYTES + 1;
   }
 }
+
+function isResponseType(type) {
+  return RESPONSE_TYPE_PATTERN.test(type);
+}
+
+function isAllowedProtocolType(type, allowedTypes) {
+  return (
+    allowedTypes.has(type) ||
+    isResponseType(type) ||
+    type === "MM_ADMIN_RESPONSE"
+  );
+}
+
+// ============================================================================
+// BRIDGE FACTORY
+// ============================================================================
 
 export function createWidgetBridge(widgetElement, options = {}) {
   if (
@@ -99,21 +118,28 @@ export function createWidgetBridge(widgetElement, options = {}) {
   }
 
   const allowedOrigin = String(options.allowedOrigin || "").trim();
-  const allowedTypes = new Set(options.allowedTypes || DEFAULT_ALLOWED_TYPES);
 
-  function isAllowedType(type) {
-    return (
-      allowedTypes.has(type) ||
-      RESPONSE_TYPE_PATTERN.test(type) ||
-      type === "MM_ADMIN_RESPONSE"
-    );
-  }
+  const allowedTypes = new Set(
+    Array.isArray(options.allowedTypes)
+      ? options.allowedTypes.map(safeType).filter(Boolean)
+      : DEFAULT_ALLOWED_TYPES
+  );
+
   const onError =
-    typeof options.onError === "function" ? options.onError : () => {};
+    typeof options.onError === "function"
+      ? options.onError
+      : () => {};
+
   const onMessage =
-    typeof options.onMessage === "function" ? options.onMessage : () => {};
+    typeof options.onMessage === "function"
+      ? options.onMessage
+      : () => {};
+
   const onContextReady =
-    typeof options.onContextReady === "function" ? options.onContextReady : null;
+    typeof options.onContextReady === "function"
+      ? options.onContextReady
+      : null;
+
   const onWidgetMessage =
     typeof options.onWidgetMessage === "function"
       ? options.onWidgetMessage
@@ -121,23 +147,35 @@ export function createWidgetBridge(widgetElement, options = {}) {
 
   let destroyed = false;
   let sequence = 0;
+  let bridge = null;
+
+  const listeners = new Set();
 
   function fail(code, detail = null) {
     const error = new Error(code);
     error.code = code;
+
     try {
       onError(error, detail);
-    } catch (_) {}
+    } catch (_) {
+      // Ignore consumer error handlers.
+    }
   }
 
   function extractEvent(event) {
     const origin = String(event?.origin || "");
-    if (allowedOrigin && origin && origin !== allowedOrigin) {
+
+    if (
+      allowedOrigin &&
+      origin &&
+      origin !== allowedOrigin
+    ) {
       fail("WIDGET_ORIGIN_REJECTED", { origin });
       return null;
     }
 
     const message = safeObject(event?.data);
+
     if (estimateSize(message) > MAX_MESSAGE_BYTES) {
       fail("WIDGET_MESSAGE_TOO_LARGE");
       return null;
@@ -148,27 +186,61 @@ export function createWidgetBridge(widgetElement, options = {}) {
 
   function normalizeMessage(message) {
     const source = safeObject(message);
-    const type = safeType(source.type || source.messageType || source.eventType);
 
-    if (!isAllowedType(type)) return null;
+    const type = safeType(
+      source.type ||
+      source.messageType ||
+      source.eventType
+    );
 
-    const payload = safeObject(source.payload || source.data);
-    const messageId = safeMessageId(source.messageId || source.id);
+    if (!isAllowedProtocolType(type, allowedTypes)) {
+      return null;
+    }
+
+    const payload = safeObject(
+      source.payload || source.data
+    );
+
+    const messageId = safeMessageId(
+      source.messageId || source.id
+    );
 
     return {
       type,
       payload,
       messageId,
       requestId: messageId,
-      version: source.version || 1,
+      version: source.version || 1
     };
   }
 
-  function send(type, payload = {}, messageId = null) {
-    if (destroyed) throw new Error("WIDGET_BRIDGE_DESTROYED");
+  function notifyListeners(message) {
+    for (const listener of listeners) {
+      try {
+        listener(message, bridge);
+      } catch (error) {
+        fail("WIDGET_MESSAGE_LISTENER_FAILED", error);
+      }
+    }
+  }
+
+  function send(
+    type,
+    payload = {},
+    messageId = null
+  ) {
+    if (destroyed) {
+      throw new Error("WIDGET_BRIDGE_DESTROYED");
+    }
 
     const normalizedType = safeType(type);
-    if (!isAllowedType(normalizedType)) {
+
+    if (
+      !isAllowedProtocolType(
+        normalizedType,
+        allowedTypes
+      )
+    ) {
       throw new Error("WIDGET_MESSAGE_TYPE_NOT_ALLOWED");
     }
 
@@ -177,8 +249,10 @@ export function createWidgetBridge(widgetElement, options = {}) {
       payload: safeObject(payload),
       messageId:
         safeMessageId(messageId) ||
-        `msg-${Date.now().toString(36)}-${(++sequence).toString(36)}`,
-      version: 1,
+        `msg-${Date.now().toString(36)}-${(
+          ++sequence
+        ).toString(36)}`,
+      version: 1
     };
 
     if (estimateSize(message) > MAX_MESSAGE_BYTES) {
@@ -186,51 +260,109 @@ export function createWidgetBridge(widgetElement, options = {}) {
     }
 
     widgetElement.postMessage(message);
+
     return message.messageId;
   }
 
-  function reply(type, payload, requestMessage) {
-    return send(
-      type,
-      payload,
-      requestMessage?.messageId || requestMessage?.requestId || null
-    );
+  function reply(
+    type,
+    payload = {},
+    requestMessage = null
+  ) {
+    const requestId =
+      requestMessage?.messageId ||
+      requestMessage?.requestId ||
+      requestMessage?.id ||
+      null;
+
+    return send(type, payload, requestId);
   }
 
-  function postMessage(payload, type = "MM_CONTEXT") {
+  function replyToMessage(
+    requestMessage,
+    type,
+    payload = {}
+  ) {
+    return reply(type, payload, requestMessage);
+  }
+
+  function postMessage(
+    payload,
+    type = MESSAGETYPES.CONTEXT
+  ) {
     return send(type, payload);
   }
 
-  const unsubscribe = widgetElement.onMessage((event) => {
-    if (destroyed) return;
-
-    try {
-      const message = normalizeMessage(extractEvent(event));
-
-      if (!message) {
-        fail("WIDGET_MESSAGE_REJECTED");
-        return;
-      }
-
-      onMessage(message);
-
-      if (onWidgetMessage) onWidgetMessage(message, bridge);
-
-      if (message.type === "MM_READY" && onContextReady) {
-        Promise.resolve(onContextReady(message))
-          .then((context) => {
-            if (context !== undefined && context !== null) {
-              send("MM_CONTEXT", context, message.messageId);
-            }
-          })
-          .catch((error) => fail("WIDGET_CONTEXT_FAILED", error));
-      }
-    } catch (error) {
-      fail(error?.code || "WIDGET_MESSAGE_HANDLER_FAILED", error);
+  function subscribe(callback) {
+    if (
+      destroyed ||
+      typeof callback !== "function"
+    ) {
+      return () => {};
     }
-  });
 
-  const bridge = {
+    listeners.add(callback);
+
+    return () => {
+      listeners.delete(callback);
+    };
+  }
+
+  const unsubscribeWidget = widgetElement.onMessage(
+    (event) => {
+      if (destroyed) return;
+
+      try {
+        const extracted = extractEvent(event);
+
+        if (!extracted) return;
+
+        const message = normalizeMessage(extracted);
+
+        if (!message) {
+          fail("WIDGET_MESSAGE_REJECTED");
+          return;
+        }
+
+        notifyListeners(message);
+        onMessage(message);
+
+        if (onWidgetMessage) {
+          onWidgetMessage(message, bridge);
+        }
+
+        if (
+          message.type === MESSAGETYPES.READY &&
+          onContextReady
+        ) {
+          Promise.resolve(onContextReady(message))
+            .then((context) => {
+              if (
+                context !== undefined &&
+                context !== null
+              ) {
+                send(
+                  MESSAGETYPES.CONTEXT,
+                  context,
+                  message.messageId
+                );
+              }
+            })
+            .catch((error) => {
+              fail("WIDGET_CONTEXT_FAILED", error);
+            });
+        }
+      } catch (error) {
+        fail(
+          error?.code ||
+            "WIDGET_MESSAGE_HANDLER_FAILED",
+          error
+        );
+      }
+    }
+  );
+
+  bridge = {
     widget: widgetElement,
 
     get destroyed() {
@@ -238,28 +370,39 @@ export function createWidgetBridge(widgetElement, options = {}) {
     },
 
     origin: allowedOrigin,
+
     type: "WIX_HTML_COMPONENT_BRIDGE",
 
     postMessage,
+
     send,
+
     reply,
 
-    onMessage(callback) {
-      return typeof callback === "function" ? callback : () => {};
-    },
+    replyToMessage,
+
+    onMessage: subscribe,
 
     destroy() {
       if (destroyed) return;
+
       destroyed = true;
-      if (typeof unsubscribe === "function") {
+      listeners.clear();
+
+      if (
+        typeof unsubscribeWidget === "function"
+      ) {
         try {
-          unsubscribe();
-        } catch (_) {}
+          unsubscribeWidget();
+        } catch (_) {
+          // Ignore widget unsubscribe errors.
+        }
       }
-    },
+    }
   };
 
   return bridge;
 }
 
 export default createWidgetBridge;
+```
