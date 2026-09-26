@@ -171,7 +171,7 @@ function _isValidNifOrEuVat(nif) {
 }
 
 // =============================================================================
-// HELPERS DE LECTURA — Aceptan nomenclatura V20.1 y aliases legacy
+// HELPERS DE LECTURA - Aceptan nomenclatura V20.1 y aliases legacy
 // =============================================================================
 
 function _readTaxableBase(item) {

@@ -22,7 +22,7 @@ HISTORIAL (heredado):
 =============================================================================
 */
 
-import { bookings } from "wix-bookings.v2";
+import { bookings } from "@wix/bookings";
 import { checkout } from "wix-ecom-backend";
 import { elevate } from "wix-auth";
 import wixData from "wix-data";
@@ -323,12 +323,6 @@ export function _safeLockId(key) {
     return "lk_" + _hashKey(k) + "_" + k.slice(0, 24);
 }
 
-// Alias público para compatibilidad con módulos que importan safeLockId sin guión bajo
-export const safeLockId = _safeLockId;
-
-// Alias público para compatibilidad con módulos que importan generateSlotKey sin guión bajo
-export const generateSlotKey = _generateSlotKey;
-
 async function _getLock(slotClave) {
     const k = String(slotClave || "");
     if (!k) return null;
@@ -439,6 +433,10 @@ export function _generateSlotKey(serviceId, resourceId, startDate, endDate) {
     const staffPrefix = resourceId ? String(resourceId).slice(0, 8) : "nostaff";
     return "slot_" + prefix + "_" + staffPrefix + "_" + _hashKey(raw);
 }
+
+// FIX C-07 (v5010.1): alias legacy sin guion bajo ELIMINADOS.
+// Unicos nombres canonicos: _safeLockId / _generateSlotKey.
+// Cero consumidores externos de los aliases (verificado grep global).
 
 export function _buildLockKeys(phases, resourceId) {
     const keys = (phases || []).map(function (p) {

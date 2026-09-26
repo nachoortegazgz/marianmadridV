@@ -1,10 +1,10 @@
 /**
  * TEST RUNNER DE UNIDAD AISLADO - SIN DEPENDENCIAS WIX
  * 
- * PROPÓSITO: Ejecutar tests unitarios puros que NO requieren el entorno Wix Velo.
- * Valida lógica de negocio, generación de tokens, estructuras de datos y enums.
+ * PROPOSITO: Ejecutar tests unitarios puros que NO requieren el entorno Wix Velo.
+ * Valida logica de negocio, generacion de tokens, estructuras de datos y enums.
  * 
- * SSOT v5002.6 · CERO SUPOSICIONES
+ * SSOT v5002.6 ? CERO SUPOSICIONES
  */
 
 import assert from 'assert';
@@ -29,7 +29,7 @@ const ENUMS = {
 };
 
 // ============================================================================
-// CONFIGURACIÓN
+// CONFIGURACION
 // ============================================================================
 
 const UNIT_CONFIG = {
@@ -44,11 +44,11 @@ const UNIT_CONFIG = {
 };
 
 // ============================================================================
-// BATERÍA UNIT-GEN: GENERADORES Y UTILIDADES
+// BATERIA UNIT-GEN: GENERADORES Y UTILIDADES
 // ============================================================================
 
 /**
- * Test UNIT-GEN-01: Generación determinista de pairToken
+ * Test UNIT-GEN-01: Generacion determinista de pairToken
  */
 export async function testPairTokenDeterministic() {
   const traceId = `${UNIT_CONFIG.TRACE_ID}:UNIT-GEN-01`;
@@ -67,13 +67,13 @@ export async function testPairTokenDeterministic() {
   
   assert.strictEqual(token1, token2, 'Idempotencia fallida');
   assert.notStrictEqual(token1, token3, 'Unicidad fallida');
-  assert.match(token1, /^[a-f0-9]{16}$/, 'Formato inválido');
+  assert.match(token1, /^[a-f0-9]{16}$/, 'Formato invalido');
   
   return { testId: 'UNIT-GEN-01', status: 'PASS', message: 'pairToken determinista verificado', data: { token: token1 } };
 }
 
 /**
- * Test UNIT-GEN-02: Construcción de SlotKey
+ * Test UNIT-GEN-02: Construccion de SlotKey
  */
 export async function testSlotKeyFormat() {
   const { DATE_YMD, TIME_SLOT_F1, RESOURCE_ID } = UNIT_CONFIG.TEST_DATA;
@@ -86,15 +86,15 @@ export async function testSlotKeyFormat() {
   const key2 = buildSlotKey(DATE_YMD, TIME_SLOT_F1, RESOURCE_ID);
   const key3 = buildSlotKey(DATE_YMD, '11:00', RESOURCE_ID);
   
-  assert.strictEqual(key1, key2, 'Colisión fallida');
+  assert.strictEqual(key1, key2, 'Colision fallida');
   assert.notStrictEqual(key1, key3, 'Unicidad fallida');
-  assert.match(key1, /^lock:[^:]+:\d{4}-\d{2}-\d{2}:\d{4}$/, 'Formato inválido');
+  assert.match(key1, /^lock:[^:]+:\d{4}-\d{2}-\d{2}:\d{4}$/, 'Formato invalido');
   
   return { testId: 'UNIT-GEN-02', status: 'PASS', message: 'SlotKey formato correcto', data: { slotKey: key1 } };
 }
 
 /**
- * Test UNIT-GEN-03: Conversión de fecha UTC a Europe/Madrid
+ * Test UNIT-GEN-03: Conversion de fecha UTC a Europe/Madrid
  */
 export async function testDateConversion() {
   const formatDateYmd = (utcDate) => {
@@ -106,21 +106,21 @@ export async function testDateConversion() {
     return `${year}-${month}-${day}`;
   };
   
-  // Noche: 22:00 UTC en verano = 00:00+2 día siguiente
+  // Noche: 22:00 UTC en verano = 00:00+2 dia siguiente
   const utcDateNight = new Date('2026-09-20T22:00:00Z');
   const dateYmdNight = formatDateYmd(utcDateNight);
-  assert.strictEqual(dateYmdNight, '2026-09-21', 'Conversión nocturna fallida');
+  assert.strictEqual(dateYmdNight, '2026-09-21', 'Conversion nocturna fallida');
   
-  // Día: 10:00 UTC = 12:00 Madrid mismo día
+  // Dia: 10:00 UTC = 12:00 Madrid mismo dia
   const utcDateDay = new Date('2026-09-20T10:00:00Z');
   const dateYmdDay = formatDateYmd(utcDateDay);
-  assert.strictEqual(dateYmdDay, '2026-09-20', 'Conversión diurna fallida');
+  assert.strictEqual(dateYmdDay, '2026-09-20', 'Conversion diurna fallida');
   
-  return { testId: 'UNIT-GEN-03', status: 'PASS', message: 'Conversión timezone correcta' };
+  return { testId: 'UNIT-GEN-03', status: 'PASS', message: 'Conversion timezone correcta' };
 }
 
 // ============================================================================
-// BATERÍA UNIT-ENUM: VALIDACIÓN DE ENUMS
+// BATERIA UNIT-ENUM: VALIDACION DE ENUMS
 // ============================================================================
 
 /**
@@ -165,7 +165,7 @@ export async function testFiscalEnums() {
   assert.ok(paymentMethods.includes('BIZUM'), 'BIZUM faltante');
   assert.ok(paymentMethods.includes('ONLINE'), 'ONLINE faltante');
   
-  return { testId: 'UNIT-ENUM-02', status: 'PASS', message: 'Enums fiscales AEAT válidos' };
+  return { testId: 'UNIT-ENUM-02', status: 'PASS', message: 'Enums fiscales AEAT validos' };
 }
 
 /**
@@ -184,11 +184,11 @@ export async function testAccountingEnums() {
   assert.ok(accountNature.includes('INGRESO'), 'INGRESO faltante');
   assert.ok(accountNature.includes('GASTO'), 'GASTO faltante');
   
-  return { testId: 'UNIT-ENUM-03', status: 'PASS', message: 'Enums contables PGC válidos' };
+  return { testId: 'UNIT-ENUM-03', status: 'PASS', message: 'Enums contables PGC validos' };
 }
 
 // ============================================================================
-// BATERÍA UNIT-STRUCT: ESTRUCTURAS DE DATOS
+// BATERIA UNIT-STRUCT: ESTRUCTURAS DE DATOS
 // ============================================================================
 
 /**
@@ -210,9 +210,9 @@ export async function testCollectionsDefined() {
   ];
   
   requiredCollections.forEach(col => {
-    assert.ok(COLLECTIONS[col], `Colección ${col} no definida`);
-    assert.strictEqual(typeof COLLECTIONS[col], 'string', `Colección ${col} no es string`);
-    assert.ok(COLLECTIONS[col].length > 0, `Colección ${col} vacía`);
+    assert.ok(COLLECTIONS[col], `Coleccion ${col} no definida`);
+    assert.strictEqual(typeof COLLECTIONS[col], 'string', `Coleccion ${col} no es string`);
+    assert.ok(COLLECTIONS[col].length > 0, `Coleccion ${col} vacia`);
   });
   
   // Verificar que no hay duplicados en valores
@@ -224,7 +224,7 @@ export async function testCollectionsDefined() {
 }
 
 /**
- * Test UNIT-STRUCT-02: SDK_CONFIG válido
+ * Test UNIT-STRUCT-02: SDK_CONFIG valido
  */
 export async function testSdkConfig() {
   assert.ok(CONCURRENCY && typeof CONCURRENCY === 'object', 'CONCURRENCY definido');
@@ -257,7 +257,7 @@ export async function testCitasF2NoLegacy() {
     assert.ok(bookingPayload[field] !== undefined, `Campo requerido faltante: ${field}`);
   });
   
-  // Validar AUSÊNCIA de campos legacy
+  // Validar AUSENCIA de campos legacy
   assert.strictEqual(bookingPayload.startDateLocal, undefined, 'startDateLocal es legacy - ELIMINAR');
   assert.strictEqual(bookingPayload.endDateLocal, undefined, 'endDateLocal es legacy - ELIMINAR');
   assert.strictEqual(bookingPayload.uiPairToken, undefined, 'uiPairToken es legacy - ELIMINAR');
@@ -277,7 +277,7 @@ export async function testCitasF2NoLegacy() {
 
 export async function runAllUnitTests() {
   const results = [];
-  console.log(`[UNIT_TEST_RUNNER] Iniciando batería de unidad. Trace: ${UNIT_CONFIG.TRACE_ID}`);
+  console.log(`[UNIT_TEST_RUNNER] Iniciando bateria de unidad. Trace: ${UNIT_CONFIG.TRACE_ID}`);
   
   const tests = [
     testPairTokenDeterministic,
@@ -295,9 +295,9 @@ export async function runAllUnitTests() {
     try {
       const result = await testFn();
       results.push(result);
-      console.log(`✅ [${result.testId}] PASS: ${result.message}`);
+      console.log(`[OK] [${result.testId}] PASS: ${result.message}`);
     } catch (error) {
-      console.error(`❌ [${testFn.name}] FAIL: ${error.message}`);
+      console.error(`[X] [${testFn.name}] FAIL: ${error.message}`);
       results.push({ 
         testId: testFn.name.replace('test', ''), 
         status: 'FAIL', 
@@ -319,7 +319,7 @@ export async function runAllUnitTests() {
     details: results
   };
   
-  console.log(`\n[UNIT_TEST_RUNNER] Finalizado. Éxito: ${summary.successRate}. Estado: ${summary.status}`);
+  console.log(`\n[UNIT_TEST_RUNNER] Finalizado. Exito: ${summary.successRate}. Estado: ${summary.status}`);
   
   return summary;
 }

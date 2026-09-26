@@ -314,15 +314,15 @@ async function handleNavigation(payload) {
   }
 }
 
-async function handleAvailability(payload, reply) {
+async function handleAvailability(payload, bridge, requestMessage) {
   if (!currentService) {
-    reply(
+    bridge.reply(
       MESSAGE_TYPES.AVAIL,
       createResultError(
         "SERVICE_CONTEXT_NOT_READY",
         "El servicio todavia se esta cargando."
       ),
-      payload
+      requestMessage
     );
     return;
   }
@@ -385,7 +385,7 @@ async function handleAvailability(payload, reply) {
       );
     }
 
-    reply(
+    bridge.reply(
       MESSAGE_TYPES.AVAIL,
       {
         ...(result || createResultError(
@@ -394,29 +394,29 @@ async function handleAvailability(payload, reply) {
         )),
         requestSequence: payload.requestSequence || 0
       },
-      payload
+      requestMessage
     );
   } catch (error) {
-    reply(
+    bridge.reply(
       MESSAGE_TYPES.AVAIL,
       createResultError(
         "AVAILABILITY_FAILED",
         "No se pudo obtener disponibilidad."
       ),
-      payload
+      requestMessage
     );
   }
 }
 
-async function handleSelection(payload, reply) {
+async function handleSelection(payload, bridge, requestMessage) {
   if (!currentService) {
-    reply(
+    bridge.reply(
       MESSAGE_TYPES.SELECT,
       createResultError(
         "SERVICE_CONTEXT_NOT_READY",
         "El servicio todavia se esta cargando."
       ),
-      payload
+      requestMessage
     );
     return;
   }
@@ -434,13 +434,13 @@ async function handleSelection(payload, reply) {
   );
 
   if (!start || !end) {
-    reply(
+    bridge.reply(
       MESSAGE_TYPES.SELECT,
       createResultError(
         "INVALID_SLOT",
         "El intervalo seleccionado no es valido."
       ),
-      payload
+      requestMessage
     );
     return;
   }
@@ -463,37 +463,37 @@ async function handleSelection(payload, reply) {
       "resolveStaffForSlot"
     );
 
-    reply(
+    bridge.reply(
       MESSAGE_TYPES.SELECT,
       result || createResultError(
         "STAFF_RESOLVE_FAILED",
         "No se pudo validar el profesional."
       ),
-      payload
+      requestMessage
     );
   } catch (error) {
-    reply(
+    bridge.reply(
       MESSAGE_TYPES.SELECT,
       createResultError(
         "STAFF_RESOLVE_FAILED",
         "No se pudo validar el profesional."
       ),
-      payload
+      requestMessage
     );
   }
 }
 
-async function handleBooking(message, reply, traceId) {
+async function handleBooking(message, bridge, traceId) {
   const payload = getPayload(message);
 
   if (!currentService) {
-    reply(
+    bridge.reply(
       MESSAGE_TYPES.BOOK,
       createResultError(
         "SERVICE_CONTEXT_NOT_READY",
         "El servicio todavia se esta cargando."
       ),
-      payload
+      message
     );
     return;
   }
@@ -502,16 +502,16 @@ async function handleBooking(message, reply, traceId) {
     payload.bookingData &&
     typeof payload.bookingData === "object"
       ? payload.bookingData
-      : payload;
+      : message;
 
   if (!bookingData || typeof bookingData !== "object") {
-    reply(
+    bridge.reply(
       MESSAGE_TYPES.BOOK,
       createResultError(
         "INVALID_BOOKING_PAYLOAD",
         "Los datos de la reserva no son validos."
       ),
-      payload
+      message
     );
     return;
   }
@@ -524,13 +524,13 @@ async function handleBooking(message, reply, traceId) {
       !_safeTrim(f2.localStartDate) ||
       !_safeTrim(f2.localEndDate)
     ) {
-      reply(
+      bridge.reply(
         MESSAGE_TYPES.BOOK,
         createResultError(
           "INVALID_DUAL_SLOT",
           "Falta el horario de la segunda fase."
         ),
-        payload
+        message
       );
       return;
     }
@@ -566,10 +566,10 @@ async function handleBooking(message, reply, traceId) {
         "No se recibio respuesta de la reserva."
       );
 
-    reply(
+    bridge.reply(
       MESSAGE_TYPES.BOOK,
       bookingResult,
-      payload
+      message
     );
 
     if (
@@ -582,13 +582,13 @@ async function handleBooking(message, reply, traceId) {
       );
     }
   } catch (error) {
-    reply(
+    bridge.reply(
       MESSAGE_TYPES.BOOK,
       createResultError(
         "BOOKING_FAILED",
         "No se pudo completar la reserva."
       ),
-      payload
+      message
     );
   }
 }
@@ -627,7 +627,7 @@ $w.onReady(async () => {
     bridge = createWidgetBridge(widget, {
       onContextReady: () => loadServiceContext(params),
 
-      onWidgetMessage: async (message, reply) => {
+      onWidgetMessage: async (message, widgetBridge) => {
         const type = getMessageType(message);
         const payload = getPayload(message);
 
@@ -637,17 +637,17 @@ $w.onReady(async () => {
         }
 
         if (type === MESSAGE_TYPES.AVAIL) {
-          await handleAvailability(payload, reply);
+          await handleAvailability(payload, widgetBridge, message);
           return;
         }
 
         if (type === MESSAGE_TYPES.SELECT) {
-          await handleSelection(payload, reply);
+          await handleSelection(payload, widgetBridge, message);
           return;
         }
 
         if (type === MESSAGE_TYPES.BOOK) {
-          await handleBooking(message, reply, traceId);
+          await handleBooking(message, widgetBridge, traceId);
           return;
         }
 

@@ -20,7 +20,8 @@ import { COLLECTIONS, SDK_CONFIG, CONCURRENCY } from "backend/internalConfig";
 import { makeTraceId, _safeTrim, _looksLikeGuid, withTimeout } from "public/mmUtils";
 import { logger } from "backend/logger";
 import { verifyFiscalHashChainIntegrity } from "backend/cajas.web";
-import { processBookingsServiceSyncQueue } from "backend/bookingServiceSync";
+// [SSOT-v5010.1 ZOMB-02] backend/bookingServiceSync.js ELIMINADO. La cola BookingsServiceSyncQueue
+// se procesa via el modulo nativo de sincronizacion de servicios; no hay consumidor custom.
 import { cancelBookingElevated } from "backend/booking/bookingCore";
 
 const log = logger;

@@ -14,19 +14,50 @@ FIXES APLICADOS v5009-FISCAL-V20.1:
             antiguos que esperaban (message, reply) deben actualizarse a
             bridge.reply(...) o bridge.send(...).
 
-NOTA DE INTEGRACION: calendario-2.js y servicio-2.js deben actualizarse
-para usar bridge.reply(...) en lugar del parametro reply. Ver checklist.
+FIXES APLICADOS v5010.1-PUBLIC-ALIGN:
+  - FIX-PUB-03: MESSAGETYPES/PROTOCOL_URLS/PROTOCOL_UI exportados como SSOT
+    unico del protocolo; DEFAULT_ALLOWED_TYPES derivado de MESSAGETYPES.
+  - FIX-PUB-09: isAllowedType(): ademas de la whitelist explicita, se
+    aceptan los tipos de respuesta por contrato de pagina (<TYPE>_RES) y
+    MM_ADMIN_RESPONSE. Elimina WB-B01 residual (respuestas reales eran
+    rechazadas por send()).
+  - NOTA CERRADA: calendario-2/servicio-2 ya usan bridge.reply (FASE7).
 =============================================================================
 */
 
-const DEFAULT_ALLOWED_TYPES = new Set([
-  "MM_READY",
-  "MM_CONTEXT",
-  "MM_AVAIL",
-  "MM_SELECT",
-  "MM_BOOK",
-  "MM_NAV",
-]);
+// =============================================================================
+// PROTOCOLO SSOT (FIX-PUB-03): widgetBridge es la unica fuente de verdad.
+// MESSAGETYPES define los tipos canonicos MM_*; DEFAULT_ALLOWED_TYPES se
+// deriva de el (WB-B01: whitelist == tipos reales del protocolo).
+// =============================================================================
+
+export const MESSAGETYPES = Object.freeze({
+  READY: "MM_READY",
+  CONTEXT: "MM_CONTEXT",
+  AVAIL: "MM_AVAIL",
+  SELECT: "MM_SELECT",
+  BOOK: "MM_BOOK",
+  NAV: "MM_NAV",
+});
+
+export const PROTOCOL_URLS = Object.freeze({
+  SERVICIOS: "/reserva-online",
+  CALENDARIO_2: "/booking-calendar/calendario-2",
+  PRIVACY_POLICY: "/politica-de-privacidad",
+});
+
+export const PROTOCOL_UI = Object.freeze({
+  FRONTEND_API_TIMEOUT_MS: 60000,
+  HANDSHAKE_TIMEOUT_MS: 15000,
+  CONTEXT_TIMEOUT_MS: 30000,
+});
+
+const DEFAULT_ALLOWED_TYPES = new Set(Object.values(MESSAGETYPES));
+
+// Respuestas de accion por pagina (suffix _RES): tipos dinamicos derivados
+// del tipo peticion. Se whitelistan automaticamente con el mismo patron que
+// los tipos canonicos, evitando WB-B01 (whitelist != tipos reales).
+const RESPONSE_TYPE_PATTERN = /^[A-Z][A-Z0-9_]{0,38}_RES$/;
 
 const MAX_MESSAGE_BYTES = 100000;
 
@@ -69,6 +100,14 @@ export function createWidgetBridge(widgetElement, options = {}) {
 
   const allowedOrigin = String(options.allowedOrigin || "").trim();
   const allowedTypes = new Set(options.allowedTypes || DEFAULT_ALLOWED_TYPES);
+
+  function isAllowedType(type) {
+    return (
+      allowedTypes.has(type) ||
+      RESPONSE_TYPE_PATTERN.test(type) ||
+      type === "MM_ADMIN_RESPONSE"
+    );
+  }
   const onError =
     typeof options.onError === "function" ? options.onError : () => {};
   const onMessage =
@@ -111,7 +150,7 @@ export function createWidgetBridge(widgetElement, options = {}) {
     const source = safeObject(message);
     const type = safeType(source.type || source.messageType || source.eventType);
 
-    if (!allowedTypes.has(type)) return null;
+    if (!isAllowedType(type)) return null;
 
     const payload = safeObject(source.payload || source.data);
     const messageId = safeMessageId(source.messageId || source.id);
@@ -129,7 +168,7 @@ export function createWidgetBridge(widgetElement, options = {}) {
     if (destroyed) throw new Error("WIDGET_BRIDGE_DESTROYED");
 
     const normalizedType = safeType(type);
-    if (!allowedTypes.has(normalizedType)) {
+    if (!isAllowedType(normalizedType)) {
       throw new Error("WIDGET_MESSAGE_TYPE_NOT_ALLOWED");
     }
 

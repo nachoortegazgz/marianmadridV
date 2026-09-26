@@ -1,10 +1,22 @@
 /*
 =============================================================================
 MODULE: public/qrHelper.js
-VERSION: v5009-FISCAL-V20.1
-BASE: v5007.4-FINAL + Directriz V20 (IDs nativa en ingles)
+VERSION: v5010.1-PUBLIC-QR-B01
+BASE: v5009-FISCAL-V20.1 + SSOT v5010.1 (FASE1-7)
 RESPONSIBILITY: Generacion de datos, URL y HTML de recibos Verifactu.
 STANDARDS: G10 ASCII Strict.
+
+FIXES APLICADOS v5010.1:
+  - QR-B01: endpoint AEAT corregido. La URL oficial de verificacion de
+            facturas simplificadas con QR es la sede electronica TIKE-CONT
+            (www2.agenciatributaria.gob.es/wlpl/TIKE-CONT/ValidarQR), no
+            "sede.agenciatributaria.gob.es/verifactu" (endpoint inexistente).
+            Parametros alineados con cajas.web.js _generateVerificationQR():
+            nif, numserie, fecha (dd/mm/aaaa), importe.
+  - QR-B02: normalizacion de fecha a formato AEAT dd/mm/aaaa mediante
+            _formatDateToAeatDdMmYyyy() cuando llega como Date/ISO.
+  - QR-B12: single source of truth del endpoint compartido via
+            AEAT_VERIFACTU_ENDPOINTS.VERIFICATION_BASE_URL.
 
 FIXES APLICADOS v5009-FISCAL-V20.1:
   - V20-01: lecturas de campos de MovimientosCaja migradas a nomenclatura
@@ -19,7 +31,12 @@ FIXES APLICADOS v5007.4 (heredados):
 */
 
 export const AEAT_VERIFACTU_ENDPOINTS = Object.freeze({
-    VERIFICATION_BASE_URL: "https://sede.agenciatributaria.gob.es/verifactu",
+    // QR-B01: endpoint oficial verificacion AEAT (RD 1007/2023,
+    // orden HFP/1177/2024 annexo - facturas simplificadas con QR).
+    VERIFICATION_BASE_URL:
+        "https://www2.agenciatributaria.gob.es/wlpl/TIKE-CONT/ValidarQR",
+    VERIFICATION_BASE_URL_TEST:
+        "https://prewww2.aeat.es/wlpl/TIKE-CONT/ValidarQR",
     DEV_ENVIRONMENT: false,
 });
 
@@ -73,11 +90,38 @@ function _resolveInvoiceDate(movimiento) {
     );
 
     if (explicitDate) {
-        return explicitDate;
+        return _normalizeAeatDate(explicitDate);
     }
 
     const timestamp = movimiento?.recordTimestamp || movimiento?.registeredAt;
     return _formatDateToAeatDdMmYyyy(timestamp);
+}
+
+/**
+ * QR-B02: normaliza cualquier representacion de fecha (Date, ISO,
+ * dd/mm/aaaa ya formateada) al formato AEAT obligatorio dd/mm/aaaa.
+ */
+function _normalizeAeatDate(value) {
+    const str = _safeString(value);
+
+    if (!str) {
+        return "";
+    }
+
+    // Ya en formato AEAT dd/mm/aaaa -> se preserva
+    if (/^\d{2}\/\d{2}\/\d{4}$/.test(str)) {
+        return str;
+    }
+
+    // Date u otra representacion parseable -> formatear
+    const date = value instanceof Date ? value : new Date(str);
+
+    if (!Number.isNaN(date.getTime())) {
+        return _formatDateToAeatDdMmYyyy(date);
+    }
+
+    // No parseable: devolver el string tal cual (comportamiento legacy)
+    return str;
 }
 
 function _readIssuerTaxId(movimiento, options) {
@@ -128,6 +172,20 @@ function _readDigitalSignature(movimiento) {
 // URL DE VERIFICACION
 // =============================================================================
 
+/**
+ * QR-B01/QR-B02: genera la URL oficial de verificacion AEAT para el QR
+ * de factura simplificada (endpoint TIKE-CONT/ValidarQR, identico al
+ * contrato de cajas.web.js _generateVerificationQR).
+ *
+ * Formato AEAT obligatorio:
+ *   nif      = NIF emisor
+ *   numserie = numero de serie+factura (PFF / numSerieFactura)
+ *   fecha    = dd/mm/aaaa (se normaliza desde Date/ISO si procede)
+ *   importe  = total con IVA (decimal con punto)
+ *
+ * @alias buildVerifactuQrUrl - nombre esperado por consumidores externos
+ *   (p. ej. ConfirmacionReserva.q5vps.js tras reemision v5010.1).
+ */
 export function generateVerifactuQrUrl(params = {}) {
     const issuerTaxId = _safeString(
         params.issuerTaxId ||
@@ -142,12 +200,14 @@ export function generateVerifactuQrUrl(params = {}) {
         params.numTicketFactura
     );
 
-    const invoiceIssueDate = _safeString(
+    // QR-B02: normalizacion de fecha a dd/mm/aaaa (acepta Date, ISO o texto ya formateado)
+    const rawInvoiceDate =
         params.invoiceIssueDate ||
         params.fechaExpedicionFactura ||
         params.fechaEmision ||
-        params.issueDate
-    );
+        params.issueDate;
+
+    const invoiceIssueDate = _normalizeAeatDate(rawInvoiceDate);
 
     const totalAmount =
         _safeString(
@@ -166,16 +226,33 @@ export function generateVerifactuQrUrl(params = {}) {
         return null;
     }
 
-    const query = new URLSearchParams({
-        nif: issuerTaxId,
-        numFactura: invoiceNumber,
-        fecha: invoiceIssueDate,
-        importe: totalAmount,
-        hash: recordHash,
-    });
+    // Contratos de query AEAT TIKE-CONT: nif, numserie, fecha, importe.
+    // Se preserva el orden canonico y se excluye hash vacio.
+    const parts = [
+        `nif=${encodeURIComponent(issuerTaxId)}`,
+        `numserie=${encodeURIComponent(invoiceNumber)}`,
+        `fecha=${encodeURIComponent(invoiceIssueDate)}`,
+        `importe=${encodeURIComponent(String(totalAmount))}`,
+    ];
 
-    return `${AEAT_VERIFACTU_ENDPOINTS.VERIFICATION_BASE_URL}?${query.toString()}`;
+    if (recordHash) {
+        parts.push(`hash=${encodeURIComponent(recordHash)}`);
+    }
+
+    const baseUrl = params.testMode === true ||
+        AEAT_VERIFACTU_ENDPOINTS.DEV_ENVIRONMENT === true ?
+        AEAT_VERIFACTU_ENDPOINTS.VERIFICATION_BASE_URL_TEST :
+        AEAT_VERIFACTU_ENDPOINTS.VERIFICATION_BASE_URL;
+
+    return `${baseUrl}?${parts.join("&")}`;
 }
+
+/**
+ * Alias canonico v5010.1: buildVerifactuQrUrl(params) -> URL QR AEAT.
+ * Exportado porque los modulos de pagina (ConfirmacionReserva.q5vps.js)
+ * lo referencian bajo este nombre tras la reemision FASE7.
+ */
+export const buildVerifactuQrUrl = generateVerifactuQrUrl;
 
 // =============================================================================
 // EXTRACCION DE DATOS
