@@ -1,0 +1,45 @@
+DOCUMENTACION PROYECTO SSOT1.txt
+Version: v5007.0-AEAT-PGC (reincorporado al repo por AUDIT-FIX v5010.3, TAREA 5)
+===============================================================================
+
+1. IDENTIDAD DEL PROYECTO
+   - Solucion: Reservas duales Wix Bookings V2 Custom (NO multiservice).
+   - Stack: Wix Universal JavaScript SDK V2 (@wix/bookings, @wix/ecom, @wix/data).
+   - Sitio: Marian Madrid | Zona horaria operativa: Europe/Madrid.
+
+2. CATALOGO DE SERVICIOS (Wix Bookings)
+   - catalogId unico y estatico: 97f091c5-83e0-40d6-aa49-db3f3b9247f1
+   - appId Bookings canonica: 13d21c63-b5ec-5912-8397-c3a5ddb27a97
+   - locationType Reader/Availability (Time Slots V2): BUSINESS
+   - locationType Writer (createBooking bookedEntity.slot.location): OWNER_BUSINESS
+   - Prohibido: listMultiServiceAvailabilityTimeSlots, wix-bookings V1, wix-pay V1.
+
+3. COLECCIONES CMS (Field Keys internos canonicos)
+   - ServiciosCatalogo: serviceId, slugUrl, title, price, durationMinutes, linkedPhases
+   - CitasF2: dateYmd, status, resourceId, scheduleId, serviceId, startUtc, endUtc
+   - TransaccionesIdempotencia: _id (huella), token, estado, createdAt, expiresAt
+   - LocksSlot: _id (slotClave hash), owner, ttlMs, renovaciones
+   Cabecera completa de ServiciosCatalogo en SERVICIOS_CATALOGO.csv (adjunto
+   reincorporado; la cabecera del CSV prevalece como definicion fisica).
+
+4. FISCALIDAD (AEAT / Verifactu / PGC)
+   - Estados de pago internos EN ENUM WIX NATIVO (CORE-06):
+     IMPAGADO -> UNPAID | NO_PAGADO -> NOT_PAID | PAGADO -> PAID |
+     REEMBOLSADO -> REFUNDED | PARCIALMENTE_PAGADO -> PARTIALLY_PAID
+   - Toda emision fiscal requiere trazabilidad traceId + recordType estable.
+
+5. CONCURRENCIA E IDEMPOTENCIA
+   - Semaforo sincrono en vuelo por huella (pairToken determinista).
+   - Doble clic concurrente: exactamente 1 creacion, el resto TOKEN_BUSY.
+   - Gap maximo entre F1 y F2: MAX_DUAL_GAP_MINUTES (config central).
+
+6. REGLAS DE CODIGO
+   - G10 ASCII Strict: cero caracteres no-ASCII en fuentes JS.
+   - Contratos de respuesta webModule: { status, data, error }.
+   - Llamadas criticas envueltas en elevate() de wix-auth.
+   - Backend server-side usa wix-data clasico SEGUN APENDICE C - EXCEPCION
+     DATA API de BIBLIA.txt; frontend/integraciones externas usan Data API V2.
+
+7. JERARQUIA NORMATIVA
+   - BIBLIA.txt (v5009-V20-FINAL-CONSOLIDATED-v4) PREVALECE sobre este SSOT.
+   - SERVICIOS_CATALOGO.csv define la cabecera fisica de ServiciosCatalogo.

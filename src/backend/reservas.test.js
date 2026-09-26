@@ -14,6 +14,16 @@
  *   RTX-04 Deep-Nesting Guard .. proyeccion segura de respuestas anidadas ?.
  *   RTX-05 Catalogo ECOM ...... catalogId estatico oficial sin duplicar items.
  *   RTX-06 Contrato webModule . respuestas { success, data, error } + try/catch.
+ *
+ * MANIFIESTO DE METRICAS (AUDIT-FIX v5010.3 - rectifica el informe maestro):
+ *   TESTS UNITARIOS: 24 (reservas.test.js, node --test; incluye BLOQUE 6
+ *     de contratos post-auditoria AUDIT-FIX v5010.3)
+ *   TESTS ESTATICOS TST: 9 (tools/run_test_suite.sh, TST-01..TST-09)
+ *   TESTS SSOT: 7 (src/backend/__tests__/ssot.v5010.test.js)
+ *   TOTAL CHECKS: 40
+ *   ELEVACIONES elevate(): 8 call-sites verificados
+ *     reservas.web.js:1687 | bookingCore.js:126,127,128,129,130,150 |
+ *     bookingSaga.js:450
  * ============================================================================
  */
 
@@ -308,7 +318,9 @@ test('RTX-04 Deep-Nesting Guard: proyeccion opcional ?. sin excepciones en respu
 });
 
 test('RTX-05 Catalogo ECOM: lineas de carrito contra el catalogId oficial sin duplicar items', async () => {
-  const BOOKINGS_APP_ID = '13d84cff-c8ea-7ad1-0fcc-4fff8bd87toreplace';
+  // AUDIT-FIX v5010.3: GUID real canonico (APP_IDS.BOOKINGS, BIBLIA R19).
+  // El antiguo placeholder '...toreplace' queda sustituido; ver CONTRACT-BOOKINGS-APP-ID-NOT-PLACEHOLDER.
+  const BOOKINGS_APP_ID = '13d21c63-b5ec-5912-8397-c3a5ddb27a97';
   const ecom = createEcomCheckoutMock();
   const CATALOG_ID_OFFICIAL = '97f091c5-83e0-40d6-aa49-db3f3b9247f1';
 
@@ -402,7 +414,8 @@ test('CONTRACT-ELEVATE: llamadas criticas envueltas con elevate() de wix-auth', 
 
 test('CONTRACT-ECOM-CHECKOUT: pasarela delegada a checkout de ecom, no a cobro manual', () => {
   const core = read(`${SRC}/backend/booking/bookingCore.js`);
-  assert.match(core, /from\s*["']wix-ecom-backend["']/, 'checkout importado de wix-ecom-backend (SDK V2 ecom)');
+  assert.match(core, /from\s*["']@wix\/ecom["']/, 'checkout importado del SDK unificado @wix/ecom (FASE 4)');
+  assert.ok(!/wix-ecom-backend/.test(core), 'namespace legacy wix-ecom-backend prohibido (cero legacy)');
   assert.match(core, /getCheckoutUrl/, 'URL de checkout obtenida via API, no hardcodeada');
   assert.match(core, /paymentStatus/, 'traduccion de estados de pago delegada (CORE-06)');
 });
@@ -446,4 +459,91 @@ test('CONTRACT-ASCII: esta propia suite y el motor son ASCII estrictos', () => {
   const engine = read(`${SRC}/backend/reservas.web.js`);
   const badEngine = [...engine].find((c) => c.codePointAt(0) > 127);
   assert.equal(badEngine, undefined, `reservas.web.js contiene no-ASCII: ${badEngine}`);
+});
+
+
+// ============================================================================
+// BLOQUE 6 - CONTRATOS POST-AUDITORIA (AUDIT-FIX v5010.3, cero legacy/alias)
+// ============================================================================
+
+test('CONTRACT-LOCATION-TYPE-WRITER: enum Writer exige OWNER_BUSINESS con guion bajo', async () => {
+  const { SDK_CONFIG } = await import('./internalConfig.js');
+  assert.strictEqual(
+    SDK_CONFIG.LOCATION_TYPES.BOOKINGS_WRITER,
+    'OWNER_BUSINESS',
+    'BIBLIA 2.2.1 fila 8 exige OWNER_BUSINESS con guion bajo'
+  );
+  assert.strictEqual(SDK_CONFIG.LOCATION_TYPES.TIME_SLOTS, 'BUSINESS', 'Reader/Availability V2: BUSINESS');
+  const cfgRaw = read(`${SRC}/backend/internalConfig.js`);
+  assert.ok(!/OWNERBUSINESS/.test(cfgRaw), 'cero alias sin guion en internalConfig.js');
+});
+
+test('CONTRACT-BOOKINGS-APP-ID-NOT-PLACEHOLDER: APP_IDS.BOOKINGS es GUID real, no placeholder', async () => {
+  const { APP_IDS } = await import('./internalConfig.js');
+  assert.ok(
+    !APP_IDS.BOOKINGS.includes('toreplace'),
+    'BOOKINGS_APP_ID debe ser el GUID real, no un placeholder'
+  );
+  assert.match(APP_IDS.BOOKINGS, /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/, 'formato GUID canonico');
+  assert.equal(APP_IDS.BOOKINGS, '13d21c63-b5ec-5912-8397-c3a5ddb27a97', 'BIBLIA R19: app id canonica preservada');
+});
+
+test('CONTRACT-ELEVATE-COUNT: exactamente 8 call-sites elevate() en backend de produccion', () => {
+  // Rectifica el informe maestro (afirmo 12). Conteo sobre lineas no-comentario:
+  // reservas.web.js x1 + bookingCore.js x6 + bookingSaga.js x1 = 8.
+  const files = [
+    `${SRC}/backend/reservas.web.js`,
+    `${SRC}/backend/booking/bookingCore.js`,
+    `${SRC}/backend/booking/bookingSaga.js`
+  ];
+  let total = 0;
+  for (const f of files) {
+    for (const line of read(f).split('\n')) {
+      const t = line.trim();
+      if (t.startsWith('//') || t.startsWith('*') || t.startsWith('/*')) continue;
+      total += (line.match(/elevate\(/g) || []).length;
+    }
+  }
+  assert.equal(total, 8, 'metrica rectificada: 8 elevaciones (no 12 como afirmaba el informe maestro)');
+});
+
+test('CONTRACT-ZERO-LEGACY: reservas.test.js, motor y booking importan solo superficie V2', () => {
+  const files = [
+    `${SRC}/backend/reservas.web.js`,
+    `${SRC}/backend/booking/bookingCore.js`,
+    `${SRC}/backend/booking/bookingSaga.js`,
+    `${SRC}/backend/internalConfig.js`
+  ];
+  for (const f of files) {
+    const s = read(f);
+    assert.ok(!/wix-ecom-backend/.test(s), `${f}: legacy wix-ecom-backend prohibido`);
+    assert.ok(!/OWNERBUSINESS/.test(s), `${f}: alias OWNERBUSINESS prohibido`);
+    assert.ok(!/listMultiServiceAvailabilityTimeSlots/.test(s), `${f}: API multiservice prohibida (Custom Non-Multiservice)`);
+    assert.ok(!/from\s*['"]wix-(bookings|pay)['"]/.test(s), `${f}: superficie V1 prohibida`);
+  }
+});
+
+test('CONTRACT-ASCII-CONFIG: internalConfig y booking son ASCII estrictos post-audit', () => {
+  for (const f of [`${SRC}/backend/internalConfig.js`, `${SRC}/backend/booking/bookingCore.js`, `${SRC}/backend/booking/bookingSaga.js`, `${SRC}/backend/citasManager.web.js`]) {
+    const bad = [...read(f)].find((c) => c.codePointAt(0) > 127);
+    assert.equal(bad, undefined, `${f} contiene no-ASCII: ${bad}`);
+  }
+});
+
+test('CONTRACT-WRITER-LITERAL-RUNTIME: _forceStaffInPristineSlot proyecta OWNER_BUSINESS', () => {
+  const core = read(`${SRC}/backend/booking/bookingCore.js`);
+  assert.match(core, /BOOKINGS_WRITER\)\s*\|\|\s*"OWNER_BUSINESS"/, 'fallback literal oficial con guion bajo');
+  assert.match(core, /if \(locationType === "BUSINESS"\) locationType = "OWNER_BUSINESS";/, 'coercion BUSINESS -> OWNER_BUSINESS en writer');
+  assert.match(core, /writerLocationType = "OWNER_BUSINESS"/, 'proyeccion availability->writer normaliza el enum');
+});
+
+test('CONTRACT-DATA-API-EXCEPTION: wixData.query server-side documentado via EXCEPCION DATA API (BIBLIA)', () => {
+  const biblia = read('BIBLIA.txt');
+  assert.match(biblia, /APENDICE C - EXCEPCION DATA API/, 'la excepcion debe estar formalizada en la BIBLIA');
+  for (const f of [`${SRC}/backend/reservas.web.js`, `${SRC}/backend/booking/bookingCore.js`, `${SRC}/backend/booking/bookingSaga.js`, `${SRC}/backend/citasManager.web.js`]) {
+    const s = read(f);
+    if (/wixData\.query\(/.test(s)) {
+      assert.match(s, /EXCEPCION DATA API/, `${f}: todo uso de wixData.query debe referenciar la excepcion`);
+    }
+  }
 });

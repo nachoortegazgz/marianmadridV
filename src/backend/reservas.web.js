@@ -15,6 +15,8 @@
 
 
 import { webMethod, Permissions } from "wix-web-module";
+// EXCEPCION DATA API (APENDICE C de la BIBLIA): consultas CMS server-side
+// con suppressAuth/consistentRead; no migrables a queryDataItems (ver apendice).
 import wixData from "wix-data";
 import { bookings } from "@wix/bookings";
 import { elevate } from "wix-auth";

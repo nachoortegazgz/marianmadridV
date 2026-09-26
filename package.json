@@ -10,6 +10,7 @@
     "@wix/bookings": "1.0.1696",
     "@wix/crm": "1.0.1636",
     "@wix/data": "1.0.521",
+    "@wix/ecom": "^1.0.0",
     "@wix/members": "1.0.519",
     "@wix/secrets": "1.0.75",
     "@wix/site-location": "1.34.0",

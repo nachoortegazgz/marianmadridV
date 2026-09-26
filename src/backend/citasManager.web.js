@@ -8,6 +8,8 @@ STANDARDS: G10 ASCII Strict. No Node builtins.
 */
 
 import { webMethod, Permissions } from "wix-web-module";
+// EXCEPCION DATA API (APENDICE C de la BIBLIA): lecturas CMS server-side
+// con suppressAuth; frontend SI debe usar Data API V2 (@wix/data backend).
 import wixData from "wix-data";
 import { COLLECTIONS } from "backend/internalConfig";
 import { _safeTrim } from "public/mmUtils";
@@ -57,6 +59,7 @@ export async function _getCitaByBookingId(bookingId, traceId = null) {
     const bid = _id(bookingId);
     if (!bid) return null;
     try {
+        // EXCEPCION DATA API (APENDICE C BIBLIA): lectura server-side suppressAuth.
         const result = await wixData.query(CITAS_COL)
             .eq("bookingId", bid)
             .limit(1)
@@ -72,6 +75,7 @@ export async function _getCitasByPairToken(pairToken, traceId = null) {
     const token = _id(pairToken);
     if (!token) return [];
     try {
+        // EXCEPCION DATA API (APENDICE C BIBLIA): lectura server-side suppressAuth.
         const result = await wixData.query(CITAS_COL)
             .eq("pairToken", token)
             .limit(MAX_QUERY_LIMIT)

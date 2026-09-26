@@ -44,6 +44,8 @@ NOTA CONTRACTUAL (BIBLIA 2.2.1):
 
 import { bookings } from "@wix/bookings";
 import { elevate } from "wix-auth";
+// EXCEPCION DATA API (APENDICE C de la BIBLIA): persistencia CMS server-side
+// con suppressAuth/suppressHooks; ver apendice antes de proponer migracion.
 import wixData from "wix-data";
 
 import {

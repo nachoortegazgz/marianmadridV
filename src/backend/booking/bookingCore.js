@@ -52,8 +52,14 @@ HISTORIAL (heredado):
 */
 
 import { bookings } from "@wix/bookings";
-import { checkout } from "wix-ecom-backend";
+// AUDIT-FIX v5010.3 (TAREA 4): import ecom migrado al SDK unificado V2
+// "@wix/ecom" (cero legacy). Firmas equivalentes:
+// checkout.createCheckout(request) y checkout.getCheckoutUrl(id, opts).
+import { checkout } from "@wix/ecom";
 import { elevate } from "wix-auth";
+// EXCEPCION DATA API (APENDICE C de la BIBLIA): lectura/escritura CMS
+// server-side via wixData con suppressAuth; ver apendice para el porque
+// no se migra a datasets.query('@wix/data').queryDataItems().
 import wixData from "wix-data";
 import { getStaffScheduleId } from "backend/staff";
 import { logger } from "backend/logger";

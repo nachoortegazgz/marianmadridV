@@ -2457,3 +2457,50 @@ ANEXO ACTUALIZACION DATOS ANTERIORES
 | `movementType` en MovimientosCaja ≠ MovimientosInventario | **CONFIRMADO** — diferentes enums | D7 |
 
 **4 consolidaciones reales aplicadas · 5 denormalizaciones documentadas · 6 falsos positivos descartados · 3 inconsistencias de tipo corregidas · 100% cumplimiento D0–D12 y R19–R21.**
+
+
+================================================================================
+APENDICE C - EXCEPCION DATA API (v5010.3, post-auditoria SDK V2)
+================================================================================
+
+OBJETO: Documentar formalmente la permanencia de `wixData.query()` /
+`wixData.get()` / `wixData.insert/update/remove()` (modulo `wix-data` de Velo)
+en el backend server-side de los modulos criticos de reservas, en lugar de la
+migracion a `datasets.query('@wix/data').queryDataItems()` exigida por el
+roadmap FASE 3 para la capa de presentacion.
+
+ARCHIVOS ACOGIDOS A LA EXCEPCION (marcados con comentario EXCEPCION DATA API):
+  - src/backend/reservas.web.js      (consultas ServiciosCatalogo/CitasF2)
+  - src/backend/booking/bookingCore.js (locks transaccionales, CitasF2, Transacciones)
+  - src/backend/booking/bookingSaga.js (persistencia saga con suppressHooks)
+  - src/backend/citasManager.web.js  (lecturas de agenda server-side)
+
+JUSTIFICACION TECNICA (limitaciones verificadas de @wix/data Data API V2):
+  1. SUPPRESS AUTH: Los flujos de reserva operan con visitantes anonimos y
+     webMethods elevados via `elevate()`. La pila clasica `wix-data` admite
+     `{ suppressAuth: true }` y `{ consistentRead: true }` como opciones
+     por-llamada. `queryDataItems()` de Data API V2 no expone un equivalente
+     directo de `suppressAuth` para lectura con permisos de coleccion
+     restringida desde codigo de servidor sin identidad de miembro; delegar
+     la autorizacion al token del visitante romperia los contratos RTX-06 y
+     los flujos anonimos de disponibilidad.
+  2. SUPPRESS HOOKS: La saga de escritura usa `{ suppressHooks: true }` para
+     evitar reentrancia de hooks CMS durante la compensacion (SAGA). En Data
+     API V2 el control de hooks es declarativo por coleccion (manejadores
+     `wixDataV2`), no invocable por-operacion, lo que obligaria a redisenar
+     los hooks de CitasF2 con riesgo de regresion fiscal (Verifactu/AEAT).
+  3. FIELD KEYS INTERNOS: Las consultas usan Field Keys internos (p. ej.
+     `dateYmd`, `serviceId`, `slugUrl`) alineados con SERVICIOS_CATALOGO.csv.
+     Ambos APIs los respetan, pero la paridad funcional exacta (limit + eq +
+     orderBy + total) ya esta certificada por tests sobre `wixData.query()`;
+     una migracion big-bang violaria la regla de CERO REGRESIONES.
+
+ALCANCE DE LA EXCEPCION:
+  - Valida SOLO para backend server-side (src/backend/**).
+  - El frontend y cualquier integracion externa DEBEN usar Data API V2
+    (`@wix/data.backend.datasets.queryDataItems`) conforme a FASE 3.
+  - Toda nueva consulta server-side debe anadirse a la lista de archivos
+    acogidos y referenciar este apendice en el punto de uso.
+
+REVISION: pendiente de re-evaluar cuando Wix publique soporte de
+`suppressAuth`/por-operacion en queryDataItems (tracker interno AUDIT-03).

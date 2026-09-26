@@ -76,6 +76,8 @@ export const COLLECTIONS = Object.freeze({
 // =============================================================================
 
 export const APP_IDS = Object.freeze({
+    // BIBLIA R19 (linea 190): App ID canonica de Wix Bookings preservada.
+    // No es un placeholder; verificado contra catalogId SSOT y CART-SHAPE.
     BOOKINGS: "13d21c63-b5ec-5912-8397-c3a5ddb27a97",
     STORES: "215238eb-22a5-4c36-9e7b-e7c08025e04e",
     EVENTS: "140603ad-af8d-84fb-9004-ee174e35054d",
@@ -105,7 +107,9 @@ export const SDK_CONFIG = Object.freeze({
     // B3-FIX: TIME_SLOTS debe ser "BUSINESS" per dev.wix.com V2 API
     LOCATION_TYPES: Object.freeze({
         TIME_SLOTS: "BUSINESS",
-        BOOKINGS_WRITER: "OWNERBUSINESS",
+        // AUDIT-FIX v5010.3 (BIBLIA 2.2.1 fila 8): literal oficial del
+        // enum Writer V2 de Wix Bookings, con guion bajo. Regla CERO ALIAS.
+        BOOKINGS_WRITER: "OWNER_BUSINESS",
     }),
 
     TIMEOUTS: Object.freeze({
