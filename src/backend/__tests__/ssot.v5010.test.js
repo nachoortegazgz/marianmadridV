@@ -74,7 +74,7 @@ test('CONTRACT-LEDGER cajas delega secuencia unica en eventLog', () => {
   if (wrap) assert.ok(wrap[0].includes('_getNextSequenceInternal('), 'wrapper local _getNextSequence debe delegar en eventLog (CONSOL-01)');
 });
 
-test('CONTRACT-NOMENCLATURA PROJECTION_STATUS canónico compartido', () => {
+test('CONTRACT-NOMENCLATURA PROJECTION_STATUS canonico compartido', () => {
   const cfg = read(`${SRC}/backend/internalConfig.js`);
   assert.match(cfg, /PROJECTION_STATUS\s*=\s*Object\.freeze/, 'PROJECTION_STATUS congelado en internalConfig');
   assert.match(cfg, /PENDIENTE:\s*"PENDIENTE"/, 'valor PENDIENTE canonico (no PENDING)');
