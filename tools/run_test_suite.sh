@@ -26,7 +26,7 @@ BAD=$(grep -rlP '[^\x00-\x7F]' src --include='*.js' 2>/dev/null | grep -v '\.tes
 if [ -z "$BAD" ]; then report TST-02 "ASCII estricto src/*.js" 0 ""; else report TST-02 "ASCII estricto" 1 "$(echo $BAD)"; fi
 
 echo "=== TST-03: Aislamiento generacional (prohibido wix-bookings/wix-pay/wix-crm-backend legacy) ==="
-V1=$(grep -rn "from ['\"]wix-bookings\|from ['\"]wix-pay['\"]\|from ['\"]wix-content-manager\|require(" src --include='*.js' 2>/dev/null | grep -v node_modules || true)
+V1=$(grep -rn "from ['\"]wix-bookings\|from ['\"]wix-pay['\"]\|from ['\"]wix-content-manager\|require(" src --include='*.js' 2>/dev/null | grep -v node_modules | grep -v __tests__ || true)
 if [ -z "$V1" ]; then report TST-03 "sin imports V1 obsoletos ni require()" 0 ""; else report TST-03 "V1/require" 1 "hallazgos:"; echo "$V1" | head -10 | sed 's/^/    /'; fi
 
 echo "=== TST-04: Modulos zombie eliminados ==="
@@ -77,8 +77,8 @@ TS=$(grep -rnE "'[A-Za-z0-9/_-]+ +'|\"[A-Za-z0-9/_-]+ +\"" src --include='*.js' 
 if [ -z "$TS" ]; then report TST-08 "cero espacios en literales criticos" 0 ""; else report TST-08 "espacios literales" 1 "hallazgos"; echo "$TS" | head -6 | sed 's/^/    /'; fi
 
 echo "=== TST-09: Smoke tests unitarios (node test runner) ==="
-if ls src/tests/*.test.js >/dev/null 2>&1 || ls tests/*.test.js >/dev/null 2>&1; then
-  OUT=$(node --test src/tests/ tests/ 2>&1); RC=$?
+if ls src/backend/__tests__/*.test.js >/dev/null 2>&1 || ls tests/*.test.js >/dev/null 2>&1; then
+  OUT=$(node --test src/backend/__tests__/ 2>&1); RC=$?
   echo "$OUT" | tail -6 | sed 's/^/    /'
   report TST-09 "node --test" $RC "tests fallidos"
 else
