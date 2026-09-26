@@ -291,7 +291,7 @@ function _resolveAddonContextInternal(service, requestedAddonIds) {
 }
 
 // ============================================================================
-// PATCH-08: Validación de recursos en getAvailabilityTimeSlot
+// PATCH-08: Validacion de recursos en getAvailabilityTimeSlot
 // ============================================================================
 async function _verifyRequiredStaffViaGet({
   serviceId,
@@ -1062,30 +1062,35 @@ export async function _getCertifiedDualSlotsInternal(serviceId, resourceId, date
     return payload;
   };
 
-  const f1Res = await _executeWithRetry(
-    () =>
-      withTimeout(
-        () => availabilityTimeSlots.listAvailabilityTimeSlots(buildListPayload(service.serviceId)),
-        WATCHDOG_TIMEOUT_MS,
-        "dual:listF1"
-      ),
-    2,
-    300
-  );
+  // FASE 5 (REFACTORIZACION): los listados F1 y F2 son independientes entre
+  // si (solo dependen del servicio y de la fecha), por lo que se lanzan en
+  // paralelo con Promise.all. La latencia del motor dual pasa de dos
+  // round-trips secuenciales a uno solo, sin alterar las reglas de negocio.
+  const [f1Res, f2Res] = await Promise.all([
+    _executeWithRetry(
+      () =>
+        withTimeout(
+          () => availabilityTimeSlots.listAvailabilityTimeSlots(buildListPayload(service.serviceId)),
+          WATCHDOG_TIMEOUT_MS,
+          "dual:listF1"
+        ),
+      2,
+      300
+    ),
+    _executeWithRetry(
+      () =>
+        withTimeout(
+          () => availabilityTimeSlots.listAvailabilityTimeSlots(buildListPayload(service.linkedPhases)),
+          WATCHDOG_TIMEOUT_MS,
+          "dual:listF2"
+        ),
+      2,
+      300
+    )
+  ]);
 
   const f1Slots = (Array.isArray(f1Res?.timeSlots) ? f1Res.timeSlots : []).filter(
     (s) => s?.bookable === true
-  );
-
-  const f2Res = await _executeWithRetry(
-    () =>
-      withTimeout(
-        () => availabilityTimeSlots.listAvailabilityTimeSlots(buildListPayload(service.linkedPhases)),
-        WATCHDOG_TIMEOUT_MS,
-        "dual:listF2"
-      ),
-    2,
-    300
   );
 
   const f2Slots = (Array.isArray(f2Res?.timeSlots) ? f2Res.timeSlots : []).filter(

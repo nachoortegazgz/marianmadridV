@@ -512,6 +512,10 @@ export const CATALOG_CONFIG = Object.freeze({
         INACTIVO: "INACTIVO",
         BORRADOR: "BORRADOR",
     }),
+    // FASE 3 (SDK V2): catalogId estatico oficial de Wix Bookings.
+    // Referencia unica para estructurar lineas de carrito/checkout nativas
+    // sin duplicar items (ver contract test CONTRACT-ECOM-CATALOG-ID).
+    BOOKINGS_CATALOG_ID: "97f091c5-83e0-40d6-aa49-db3f3b9247f1",
     CURRENCY: "EUR",
     MAX_TITLE_LENGTH: 160,
     MAX_SUMMARY_LENGTH: 120,
