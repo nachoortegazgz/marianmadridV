@@ -83,12 +83,17 @@ function sourceFor(url) {
     `export const availability = chainable;`,
     `export const bookings = chainable;`,
     `export const catalog = chainable;`,
+    `export const checkout = chainable;`,
     `export const orders = chainable;`,
     `export const payments = chainable;`,
     `export const members = chainable;`,
     `export const crm = chainable;`,
     `export const ecommerce = chainable;`,
     `export const locations = chainable;`,
+    `export const availabilityTimeSlots = chainable;`,
+    `export const currentMember = chainable;`,
+    `export const createClient = chainable;`,
+    `export const elevate = (fn) => (typeof fn === 'function' ? fn : chainable);`,
     `export const getSecret = async () => undefined;`,
   ].join('\n');
 }
