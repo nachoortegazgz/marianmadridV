@@ -54,14 +54,25 @@ test('TST-04 cero modulos zombie (archivos y referencias activas)', () => {
 });
 
 test('CONTRACT-TDZ bookingCore: sin alias const/let sobre funciones antes de definicion (C-07)', () => {
-  const s = read(`${SRC}/backend/booking/bookingCore.js`).split('\n').filter((l) => !l.trim().startsWith('//')).join('\n');
-  assert.match(s, /function\s+_safeLockId\s*\(/, '_safeLockId debe estar definida como declaration (hoisting seguro)');
-  assert.ok(!/export\s+(?:const|let)\s+safeLockId\b/.test(s), 'doble export safeLockId (C-07)');
-  assert.ok(!/export\s+(?:const|let)\s+_safeLockId\s*=/.test(s), 'alias const _safeLockId prohibido (TDZ)');
-  // Cualquier `const X = ... safeLockId(...)` debe aparecer despues de la declaracion de _safeLockId
-  const defIdx = s.search(/function\s+_safeLockId\s*\(/);
-  for (const m of s.matchAll(/(?:const|let)\s+\w+\s*=[^\n]*\bsafeLockId\s*\(/g)) {
-    assert.ok(m.index > defIdx, 'alias const que invoca _safeLockId antes de su definicion (TDZ)');
+  // v5010.7 (FASE 3 / CORE-08): _safeLockId se extrae 1:1 a
+  // backend/booking/core/locks.js y bookingCore pasa a REEXPORTARLA desde la
+  // fachada. El contrato TDZ (declaration con hoisting seguro, cero alias
+  // const/let) se verifica ahora en el modulo que la define; ademas se exige
+  // que la fachada siga exponiendola (contrato publico historico intacto).
+  const locks = read(`${SRC}/backend/booking/core/locks.js`).split('\n').filter((l) => !l.trim().startsWith('//')).join('\n');
+  const core = read(`${SRC}/backend/booking/bookingCore.js`).split('\n').filter((l) => !l.trim().startsWith('//')).join('\n');
+  assert.match(locks, /function\s+_safeLockId\s*\(/, '_safeLockId debe estar definida como declaration (hoisting seguro) en core/locks.js');
+  assert.match(core, /export\s*\{[^}]*_safeLockId[^}]*\}/s, 'la fachada bookingCore debe reexportar _safeLockId (contrato historico)');
+  assert.ok(!/function\s+_safeLockId\s*\(/.test(core), 'bookingCore no debe redefinir _safeLockId (cero duplicacion de logica)');
+  // Cero alias const/let sobre la funcion en AMBOS modulos (fachada y origen).
+  for (const [name, src] of [['core', core], ['locks', locks]]) {
+    assert.ok(!new RegExp('export\\s+(?:const|let)\\s+safeLockId\\b').test(src), `doble export safeLockId en ${name} (C-07)`);
+    assert.ok(!new RegExp('export\\s+(?:const|let)\\s+_safeLockId\\s*=').test(src), `alias const _safeLockId prohibido (TDZ) en ${name}`);
+    // Cualquier `const X = ... safeLockId(...)` debe aparecer despues de la declaracion.
+    const defIdx = src.search(/function\s+_safeLockId\s*\(/);
+    for (const m of src.matchAll(/(?:const|let)\s+\w+\s*=[^\n]*\bsafeLockId\s*\(/g)) {
+      assert.ok(defIdx === -1 || m.index > defIdx, `alias const que invoca _safeLockId antes de su definicion (TDZ) en ${name}`);
+    }
   }
 });
 
