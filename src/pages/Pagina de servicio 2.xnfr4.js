@@ -106,7 +106,7 @@ function getServiceId(service) {
     return "";
   }
 
-  // serviceId es el unico identificador valido para reservas.
+  // Identificador canónico Wix.
   return getReferenceId(service.serviceId);
 }
 
@@ -115,7 +115,8 @@ function getServiceSlug(service) {
     return "";
   }
 
-  return _safeSlugOrId(service.slugUrl || "");
+  // Campo canónico de ServiciosCatalogo.
+  return _safeSlugOrId(service.slug || "");
 }
 
 function getServiceImage(service) {
@@ -129,7 +130,6 @@ function getServiceImage(service) {
       ? service.metadata
       : {};
 
-  // mainMedia es el campo IMAGE de ServiciosCatalogo.
   return text(
     service.mainMedia ||
     service.imageUrl ||
@@ -140,18 +140,18 @@ function getServiceImage(service) {
 
 function normalizeService(data) {
   const serviceId = getServiceId(data);
-  const slugUrl = getServiceSlug(data);
+  const slug = getServiceSlug(data);
   const imageUrl = getServiceImage(data);
 
   if (!_looksLikeGuid(serviceId)) {
     throw new Error(
-      "El servicio no tiene un serviceId valido."
+      "El servicio no tiene un serviceId válido."
     );
   }
 
-  if (!slugUrl) {
+  if (!slug) {
     throw new Error(
-      "El servicio no tiene un slugUrl valido."
+      "El servicio no tiene un slug válido."
     );
   }
 
@@ -164,11 +164,9 @@ function normalizeService(data) {
   const metadata = {
     ...sourceMetadata,
 
-    // Campos de ServiciosCatalogo normalizados para el widget.
-    tituloServicio: text(
-      data.tituloServicio ||
+    title: text(
       data.title ||
-      sourceMetadata.tituloServicio
+      sourceMetadata.title
     ),
 
     description: text(
@@ -207,24 +205,23 @@ function normalizeService(data) {
 
   return {
     serviceId,
-    slugUrl,
-
-    // Contrato normalizado para el widget.
-    title: metadata.tituloServicio,
+    slug,
+    title: metadata.title,
     description: metadata.description,
     location: metadata.location,
     totalDuration: metadata.totalDuration,
     price: metadata.price,
     mainMedia: imageUrl,
     imageUrl,
-    addons: Array.isArray(data.addons)
-      ? data.addons
-      : Array.isArray(sourceMetadata.addons)
-        ? sourceMetadata.addons
+
+    addons: Array.isArray(data.addOnOptions)
+      ? data.addOnOptions
+      : Array.isArray(sourceMetadata.addOnOptions)
+        ? sourceMetadata.addOnOptions
         : [],
+
     allowCombine: metadata.allowCombine,
     phase2ServiceId: metadata.phase2ServiceId,
-
     metadata
   };
 }
@@ -233,6 +230,7 @@ async function resolveServiceLookup() {
   const query = wixLocation.query || {};
 
   const candidates = [
+    query.slug,
     query.slugUrl,
     query.serviceId
   ];
@@ -295,10 +293,10 @@ function buildBookingUrl(service, payload) {
   );
 
   const serviceId = getServiceId(service);
-  const slugUrl = getServiceSlug(service);
+  const slug = getServiceSlug(service);
 
   const query = [
-    `slugUrl=${encodeURIComponent(slugUrl)}`,
+    `slug=${encodeURIComponent(slug)}`,
     `serviceId=${encodeURIComponent(serviceId)}`,
     "referral=servicio-2"
   ];
@@ -341,14 +339,13 @@ async function loadService(lookupValue) {
 
 $w.onReady(async () => {
   const traceId = makeTraceId("servicio");
-
   let widget;
 
   try {
     widget = $w("#htmlWidgetCustomService");
   } catch (error) {
     showError(
-      "El widget del servicio no esta disponible."
+      "El widget del servicio no está disponible."
     );
     return;
   }
@@ -359,7 +356,7 @@ $w.onReady(async () => {
     typeof widget.onMessage !== "function"
   ) {
     showError(
-      "El widget del servicio no esta disponible."
+      "El widget del servicio no está disponible."
     );
     return;
   }
@@ -375,7 +372,6 @@ $w.onReady(async () => {
     }
 
     bridge = createWidgetBridge(widget, {
-
       onContextReady: async () => {
         resolvedService = await loadService(lookupValue);
         return resolvedService;
@@ -387,7 +383,7 @@ $w.onReady(async () => {
 
         if (!resolvedService) {
           console.warn(
-            "[servicio-2] Servicio aun no disponible",
+            "[servicio-2] Servicio aún no disponible",
             { traceId, type }
           );
           return;
@@ -408,8 +404,13 @@ $w.onReady(async () => {
             payload.target
           ).toUpperCase();
 
-          if (!target || target === "SERVICIOS") {
-            wixLocation.to(getServicesUrl());
+          if (
+            !target ||
+            target === "SERVICIOS"
+          ) {
+            wixLocation.to(
+              getServicesUrl()
+            );
           }
 
           return;
@@ -445,7 +446,7 @@ $w.onReady(async () => {
     }
   } catch (error) {
     console.error(
-      "[servicio-2] Error de inicializacion",
+      "[servicio-2] Error de inicialización",
       {
         traceId,
         message: error?.message
