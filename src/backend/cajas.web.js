@@ -442,9 +442,9 @@ async function _queueAccountingResync(movement, err, traceId) {
             _id: `REC_ACCT_SYNC_${movement.transactionId || "NA"}_${Date.now()}`,
             kind: "RESYNC_LEDGER_ACCOUNTING",
             transactionId: movement.transactionId || null,
-            amount: Number(movement.totalAmount) || 0,
+            totalAmount: Number(movement.totalAmount) || 0,
             paymentMethod: movement.paymentMethod || null,
-            concept: "Reintento de proyeccion contable tras fallo",
+            operationDescription: "Reintento de sincronizacion ledger tras fallo",
             status: "PENDING_RECOVERY",
             phase: "WAIT_FOR_ACCOUNTING_RESYNC",
             origin: "ACCOUNTING_PROJECTION_FAILED",
@@ -479,7 +479,10 @@ export const registerManualTransaction = webMethod(Permissions.SiteMember, async
         await validateFiscalConfig(traceId);
         const { issuerTaxId } = await _getFiscalKeys();
 
-        const amount = _readPositiveAmount(payload?.amount);
+        // v5010.7 SSOT: payload publico canonic = { totalAmount, operationDescription }.
+        // Alias legacy amount/concept eliminados (cero llamadores verificados;
+        // el contrato frontend usa los nombres canonicos).
+        const amount = _readPositiveAmount(payload?.totalAmount);
         if (!amount) {
             return { status: "ERROR", data: null, error: { code: "INVALID_AMOUNT", message: "Importe positivo requerido" } };
         }
@@ -490,7 +493,7 @@ export const registerManualTransaction = webMethod(Permissions.SiteMember, async
         }
 
         const movementType = _safeTrim(payload?.movementType || payload?.tipoMovimiento || "VENTA").toUpperCase();
-        const operationDescription = _cleanText(payload?.operationDescription || payload?.concept || payload?.description || "Venta mostrador", 500);
+        const operationDescription = _cleanText(payload?.operationDescription || payload?.description || "Venta mostrador", 500);
         const resourceId = _safeTrim(payload?.resourceId || "CAJA_LOCAL");
         const transactionId = payload?.transactionId || null;
 
@@ -666,9 +669,9 @@ export const registerManualTransaction = webMethod(Permissions.SiteMember, async
                 await queueFiscalRecovery({
                     transactionId: baseMovement.transactionId,
                     bookingIds: baseMovement.linkedBookingIds,
-                    amount,
+                    totalAmount: amount,
                     paymentMethod,
-                    concept: operationDescription,
+                    operationDescription,
                     resourceId,
                     movementType,
                     phase: "WAIT_FOR_SIGNER",
@@ -705,7 +708,7 @@ export const registerManualTransaction = webMethod(Permissions.SiteMember, async
                 verificationQR,
                 hashAlgorithm: "SHA-256",
                 signatureAlgorithm: "RSASSA-PKCS1-v1_5-SHA-256",
-                registeredAt: generatedAt,
+                recordTimestamp: generatedAt,
                 traceId,
                 _createdDate: new Date(),
             };
@@ -723,14 +726,14 @@ export const registerManualTransaction = webMethod(Permissions.SiteMember, async
                 log.warn("projectionStatus mark failed (non-blocking)", { traceId, error: pe?.message });
             }
 
-            if (SDK_CONFIG?.M365?.ENABLED) {
-                try {
-                    await _enqueueM365Sync(saved, traceId);
-                } catch (e) {
-                    log.error("M365 sync enqueue failed (non-blocking)", { traceId, error: e?.message });
-                    await logAuditEvent("M365_SYNC_ENQUEUE_FAILED", "ERROR", `Encolado M365 fallido para ${saved.invoiceNumber}`, { invoiceNumber: saved.invoiceNumber, error: e?.message, traceId }, traceId, saved.invoiceNumber, "backend/cajas.web.js");
-                }
-            }
+            // [SSOT-v5010.7 ZOMBIE-CLEAN] Ramal M365 eliminado: la coleccion
+            // M365GraphSyncQueue fue dada de baja en v5010.1 (ver header de
+            // internalConfig BLOQUE 2). COLLECTIONS.M365_GRAPH_SYNC_QUEUE era
+            // undefined -> wixData.insert(undefined, ...) habria FALLADO EN
+            // SILENCIO (catch non-blocking) si SDK_CONFIG.M365.ENABLED se
+            // activara. Cero consumidores del queue (grep src+tools+crons).
+            // Si el sincronismo M365 se reactiva, debe disenarse contra una
+            // coleccion SSOT vigente, no recuperando esta ruta muerta.
 
             return { status: "SUCCESS", data: saved, error: null };
         })();
@@ -779,9 +782,9 @@ async function _updateCajaActual(movement, traceId) {
                 _id: `REC_CAJA_SYNC_${movement.transactionId || "NA"}_${Date.now()}`,
                 kind: "RESYNC_CAJA_BALANCE",
                 transactionId: movement.transactionId || null,
-                amount: Number(movement.accountingAmount) || 0,
+                totalAmount: Number(movement.accountingAmount) || 0,
                 paymentMethod: movement.paymentMethod || null,
-                concept: "Sincronizacion de saldo tras fallo en _updateCajaActual",
+                operationDescription: "Sincronizacion de saldo tras fallo en _updateCajaActual",
                 status: "PENDING_RECOVERY",
                 phase: "WAIT_FOR_CAJA_RESYNC",
                 origin: "UPDATE_CAJA_FAILED",
@@ -798,47 +801,30 @@ async function _updateCajaActual(movement, traceId) {
 }
 
 // ============================================================================
-// ENQUEUE M365 SYNC
+// [SSOT-v5010.7 ZOMBIE-CLEAN] _enqueueM365Sync ELIMINADA.
+// Referenciaba COLLECTIONS.M365_GRAPH_SYNC_QUEUE (undefined: coleccion dada
+// de baja en v5010.1) y su unico call-site fue retirado arriba. No
+// reintroducir: ver bloque ZOMBIE-CLEAN en registerManualTransaction.
 // ============================================================================
-
-async function _enqueueM365Sync(movement, traceId) {
-    const queueCol = COLLECTIONS.M365_GRAPH_SYNC_QUEUE;
-    const payload = {
-        eventType: "LEDGER_MOVEMENT",
-        correlationId: traceId,
-        transactionId: movement.transactionId,
-        bookingReference: _linkedBookingValue(movement.linkedBookingIds ?? movement.reservaIdVinculada) || movement._id,
-        amount: movement.totalAmount,
-        currency: "EUR",
-        occurredAt: movement.registeredAt,
-    };
-    payload.title = `LEDGER_MOVEMENT ${movement.transactionId || movement.invoiceNumber}`;
-    const integrityHash = await hashSHA256(_stableSerialize(payload));
-    payload.integrityHash = integrityHash;
-    const queueId = `m365-graph-${integrityHash.slice(0, 56)}`;
-    await wixData.insert(queueCol, {
-        _id: queueId, payload, payloadHash: integrityHash,
-        status: "PENDING", attempts: 0, nextAttemptAt: new Date(), traceId,
-        _createdDate: new Date(), _updatedDate: new Date(),
-    }, { suppressAuth: true });
-}
 
 // ============================================================================
 // REGISTER BOOKING PAYMENT
 // ============================================================================
 
-export async function registerBookingPayment(bookingIds, amount, method, meta = {}) {
+export async function registerBookingPayment(bookingIds, totalAmount, method, meta = {}) {
     const traceId = meta.traceId || makeTraceId("bkg-pay");
 
     const vatAccrualStatus = meta.linkedAdvanceId
         ? VAT_ACCRUAL_STATUS.APLICACION_ANTICIPO
         : meta.vatAccrualStatus || VAT_ACCRUAL_STATUS.DEVENGADO;
 
+    // v5010.7 SSOT: alias legacy "concept" eliminado del contrato interno.
+    // El unico nombre canonic de descripcion es operationDescription (BIBLIA).
     return await registerManualTransaction({
-        amount,
+        totalAmount,
         paymentMethod: method,
         movementType: meta.movementType || meta.tipoMovimiento || "VENTA_ONLINE",
-        operationDescription: meta.operationDescription || meta.concept || `Cobro reserva ${bookingIds}`,
+        operationDescription: meta.operationDescription || `Cobro reserva ${bookingIds}`,
         resourceId: meta.resourceId || "ONLINE",
         linkedBookingIds: _linkedBookingValue(bookingIds),
         transactionId: meta.transactionId || null,
@@ -873,6 +859,13 @@ export async function registerBookingPayment(bookingIds, amount, method, meta = 
 
 export async function queueFiscalRecovery(recoveryData) {
     const traceId = recoveryData.traceId || makeTraceId("fiscal-rec");
+    // v5010.7 SSOT-CANONICO: campos canonicos internos totalAmount/
+    // operationDescription. Tolerancia legacy ELIMINADA (Bloque 6.3): los 9
+    // call-sites de queueFiscalRecovery envian exclusivamente nombres
+    // canonicos (verificados por grep); no existe lectura historica de
+    // amount/concept en esta frontera.
+    const canonicalAmount = Number(recoveryData.totalAmount) || 0;
+    const canonicalDescription = recoveryData.operationDescription || "Fiscal recovery";
     try {
         await wixData.insert(COLLECTIONS.COMPENSACIONES_PENDIENTES, {
             _id: `REC_${recoveryData.transactionId || Date.now()}_${Date.now()}`,
@@ -881,8 +874,8 @@ export async function queueFiscalRecovery(recoveryData) {
             refundId: recoveryData.refundId || null,
             transactionId: recoveryData.transactionId || null,
             status: "PENDING_RECOVERY",
-            amount: Number(recoveryData.amount) || 0,
-            concept: recoveryData.concept || "Fiscal recovery",
+            totalAmount: canonicalAmount,
+            operationDescription: canonicalDescription,
             paymentMethod: recoveryData.paymentMethod || null,
             movementType: recoveryData.movementType || recoveryData.tipoMovimiento || null,
             kind: "FISCAL_LEDGER",
@@ -1052,8 +1045,8 @@ export const registerZClosing = webMethod(Permissions.SiteMember, async (diaKey,
             });
             await queueFiscalRecovery({
                 transactionId: `Z_${cleanDiaKey}`,
-                amount: consolidatedTotalAmount,
-                concept: `Cierre Z pendiente de firma ${cleanDiaKey}`,
+                totalAmount: consolidatedTotalAmount,
+                operationDescription: `Cierre Z pendiente de firma ${cleanDiaKey}`,
                 phase: "WAIT_FOR_SIGNER_Z_CLOSING",
                 origin: "FISCAL_SIGNER_DOWN",
                 traceId,
@@ -1173,8 +1166,9 @@ export const registerGiftCardSale = webMethod(Permissions.SiteMember, async (pay
             return { status: "ERROR", data: null, error: { code: "INVALID_GIFT_CARD", message: "giftCardId requerido" } };
         }
 
-        const amount = _readPositiveAmount(payload?.amount);
-        if (!amount) {
+        // v5010.7 CANONICO: input interno usa totalAmount (SSOT ledger).
+        const totalAmount = _readPositiveAmount(payload?.totalAmount);
+        if (!totalAmount) {
             return { status: "ERROR", data: null, error: { code: "INVALID_AMOUNT", message: "Importe positivo requerido" } };
         }
 
@@ -1210,12 +1204,12 @@ export const registerGiftCardSale = webMethod(Permissions.SiteMember, async (pay
                 fiscalPeriod: operationDate.slice(0, 7),
                 movementType: MOVEMENT_TYPE.VENTA_TARJETA_REGALO,
                 paymentMethod,
-                totalAmount: amount,
-                taxableBaseOrNonSubjectAmount: amount,
+                totalAmount: totalAmount,
+                taxableBaseOrNonSubjectAmount: totalAmount,
                 taxAmount: 0,
                 taxRate: 0,
                 accountingSign: 1,
-                accountingAmount: amount,
+                accountingAmount: totalAmount,
                 operationDescription: `Venta tarjeta regalo ${giftCardId}`,
                 lineItems: [],
                 issuerTaxId,
@@ -1254,8 +1248,8 @@ export const registerGiftCardSale = webMethod(Permissions.SiteMember, async (pay
                 digitalSignature = await _computeSignature(recordHash, traceId);
             } catch (signErr) {
                 await queueFiscalRecovery({
-                    transactionId: baseMovement.transactionId, amount, paymentMethod,
-                    concept: baseMovement.operationDescription, movementType: baseMovement.movementType,
+                    transactionId: baseMovement.transactionId, totalAmount: totalAmount, paymentMethod,
+                    operationDescription: baseMovement.operationDescription, movementType: baseMovement.movementType,
                     phase: "WAIT_FOR_SIGNER", origin: "FISCAL_SIGNER_DOWN", traceId,
                     lastError: signErr?.message || "FISCAL_SIGN_FAIL",
                 });
@@ -1266,14 +1260,14 @@ export const registerGiftCardSale = webMethod(Permissions.SiteMember, async (pay
                 };
             }
 
-            const verificationQR = _generateVerificationQR(baseMovement.invoiceNumber, issuerTaxId, operationDate, amount);
+            const verificationQR = _generateVerificationQR(baseMovement.invoiceNumber, issuerTaxId, operationDate, totalAmount);
 
             const movement = {
                 ...baseMovement,
                 previousRecordHash, recordHash, digitalSignature, aeatPayload, verificationQR,
                 hashAlgorithm: "SHA-256",
                 signatureAlgorithm: "RSASSA-PKCS1-v1_5-SHA-256",
-                registeredAt: generatedAt,
+                recordTimestamp: generatedAt,
                 traceId,
                 _createdDate: new Date(),
             };
@@ -1283,7 +1277,7 @@ export const registerGiftCardSale = webMethod(Permissions.SiteMember, async (pay
 
             // [SSOT-v5010.1 ZOMB-01] Proyeccion contable en linea eliminada (MovimientosCaja es SSOT).
 
-            await logAuditEvent("GIFT_CARD_SOLD", "INFO", `Tarjeta regalo vendida: ${giftCardId}`, { giftCardId, amount, traceId }, traceId, giftCardId, "backend/cajas.web.js");
+            await logAuditEvent("GIFT_CARD_SOLD", "INFO", `Tarjeta regalo vendida: ${giftCardId}`, { giftCardId, totalAmount, traceId }, traceId, giftCardId, "backend/cajas.web.js");
 
             return { status: "SUCCESS", data: saved, error: null };
         })();
@@ -1306,8 +1300,9 @@ export const registerGiftCardRedemption = webMethod(Permissions.SiteMember, asyn
             return { status: "ERROR", data: null, error: { code: "INVALID_GIFT_CARD", message: "giftCardId requerido" } };
         }
 
-        const amount = _readPositiveAmount(payload?.amount);
-        if (!amount) {
+        // v5010.7 CANONICO: input interno usa totalAmount (SSOT ledger).
+        const totalAmount = _readPositiveAmount(payload?.totalAmount);
+        if (!totalAmount) {
             return { status: "ERROR", data: null, error: { code: "INVALID_AMOUNT", message: "Importe positivo requerido" } };
         }
 
@@ -1317,7 +1312,7 @@ export const registerGiftCardRedemption = webMethod(Permissions.SiteMember, asyn
         const clientRedemptionId = _safeTrim(payload?.redemptionId);
         const clientTransactionId = _safeTrim(payload?.transactionId);
         const redemptionId = clientRedemptionId || clientTransactionId ||
-            `GC_REDEEM-${giftCardId}-${bookingId || "NA"}-${amount}-${Date.now()}`;
+            `GC_REDEEM-${giftCardId}-${bookingId || "NA"}-${totalAmount}-${Date.now()}`;
 
         const existingRedemption = await wixData
             .query(COLLECTIONS.MOVIMIENTOS_CAJA)
@@ -1344,8 +1339,8 @@ export const registerGiftCardRedemption = webMethod(Permissions.SiteMember, asyn
             }
         }
 
-        const taxableBaseOrNonSubjectAmount = _roundMoney(amount / (1 + taxRate));
-        const taxAmount = _roundMoney(amount - taxableBaseOrNonSubjectAmount);
+        const taxableBaseOrNonSubjectAmount = _roundMoney(totalAmount / (1 + taxRate));
+        const taxAmount = _roundMoney(totalAmount - taxableBaseOrNonSubjectAmount);
 
         const operationDate = new Date().toLocaleDateString("sv-SE", { timeZone: SDK_CONFIG?.TZ || "Europe/Madrid" });
         await _assertPeriodNotClosed(operationDate, traceId);
@@ -1364,10 +1359,10 @@ export const registerGiftCardRedemption = webMethod(Permissions.SiteMember, asyn
                 fiscalPeriod: operationDate.slice(0, 7),
                 movementType: MOVEMENT_TYPE.CANJE_TARJETA_REGALO,
                 paymentMethod: PAYMENT_METHOD.TARJETA_REGALO,
-                totalAmount: amount,
+                totalAmount: totalAmount,
                 taxableBaseOrNonSubjectAmount, taxAmount, taxRate,
                 accountingSign: 1,
-                accountingAmount: amount,
+                accountingAmount: totalAmount,
                 operationDescription: `Canje tarjeta regalo ${giftCardId}${serviceId ? ` - servicio ${serviceId}` : ""}`,
                 lineItems: [],
                 issuerTaxId,
@@ -1406,9 +1401,9 @@ export const registerGiftCardRedemption = webMethod(Permissions.SiteMember, asyn
                 digitalSignature = await _computeSignature(recordHash, traceId);
             } catch (signErr) {
                 await queueFiscalRecovery({
-                    transactionId: baseMovement.transactionId, amount,
+                    transactionId: baseMovement.transactionId, totalAmount: totalAmount,
                     paymentMethod: baseMovement.paymentMethod,
-                    concept: baseMovement.operationDescription, movementType: baseMovement.movementType,
+                    operationDescription: baseMovement.operationDescription, movementType: baseMovement.movementType,
                     phase: "WAIT_FOR_SIGNER", origin: "FISCAL_SIGNER_DOWN", traceId,
                     lastError: signErr?.message || "FISCAL_SIGN_FAIL",
                 });
@@ -1419,14 +1414,14 @@ export const registerGiftCardRedemption = webMethod(Permissions.SiteMember, asyn
                 };
             }
 
-            const verificationQR = _generateVerificationQR(baseMovement.invoiceNumber, issuerTaxId, operationDate, amount);
+            const verificationQR = _generateVerificationQR(baseMovement.invoiceNumber, issuerTaxId, operationDate, totalAmount);
 
             const movement = {
                 ...baseMovement,
                 previousRecordHash, recordHash, digitalSignature, aeatPayload, verificationQR,
                 hashAlgorithm: "SHA-256",
                 signatureAlgorithm: "RSASSA-PKCS1-v1_5-SHA-256",
-                registeredAt: generatedAt,
+                recordTimestamp: generatedAt,
                 traceId,
                 _createdDate: new Date(),
             };
@@ -1436,7 +1431,7 @@ export const registerGiftCardRedemption = webMethod(Permissions.SiteMember, asyn
 
             // [SSOT-v5010.1 ZOMB-01] Proyeccion contable en linea eliminada (MovimientosCaja es SSOT).
 
-            await logAuditEvent("GIFT_CARD_REDEEMED", "INFO", `Tarjeta regalo canjeada: ${giftCardId}`, { giftCardId, amount, serviceId, traceId }, traceId, giftCardId, "backend/cajas.web.js");
+            await logAuditEvent("GIFT_CARD_REDEEMED", "INFO", `Tarjeta regalo canjeada: ${giftCardId}`, { giftCardId, totalAmount, serviceId, traceId }, traceId, giftCardId, "backend/cajas.web.js");
 
             return { status: "SUCCESS", data: saved, error: null };
         })();
@@ -1529,7 +1524,7 @@ export const getMovimientoByBooking = webMethod(
                     previousRecordHash: mov.previousRecordHash || null,
                     digitalSignature: mov.digitalSignature || null,
                     verificationQR: mov.verificationQR || null,
-                    recordTimestamp: mov.recordTimestamp || mov.registeredAt || null,
+                    recordTimestamp: mov.recordTimestamp || null,
                     invoiceType: mov.invoiceType || null,
                 },
                 error: null,

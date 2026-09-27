@@ -124,7 +124,8 @@ async function _runOneCompensation(comp, traceId) {
   if (kind === "FISCAL_LEDGER" || kind === "RESYNC_LEDGER_ACCOUNTING") {
     try {
       const { registerBookingPayment } = await import("backend/cajas.web");
-      const amount = Number(comp?.amount);
+      // v5010.7 SSOT: CompensacionesPendientes usa campo canonic totalAmount.
+      const amount = Number(comp?.totalAmount);
       const hasAmount = Number.isFinite(amount) && amount !== 0;
       const transactionId = _safeTrim(comp?.transactionId);
       const bookingIds = comp?.bookingIds || comp?.bookingId || null;
@@ -133,7 +134,7 @@ async function _runOneCompensation(comp, traceId) {
         const result = await withTimeout(
           () =>
             registerBookingPayment(bookingIds, amount, comp?.paymentMethod || "ONLINE", {
-              concept: comp?.concept || "Fiscal recovery retry",
+              operationDescription: comp?.operationDescription || "Fiscal recovery retry",
               transactionId: transactionId,
               orderId: comp?.orderId || null,
               refundId: comp?.refundId || null,
