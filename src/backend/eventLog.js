@@ -13,8 +13,9 @@ espanol porque son obligacion normativa.
 
 FIXES APLICADOS v5009-FISCAL-V20.1:
   - V20-01: renames de campos en inserts y queries (DatosFiscales,
-            MovimientosCaja, LibroAsientosContablesDetalle,
-            FacturasRecibidas, HistoricoCierresZ).
+            MovimientosCaja, HistoricoCierresZ). [v5010.7 ZOMBIE-CLEAN:
+            las proyecciones contables separadas fueron eliminadas; el
+            ledger unico es MovimientosCaja con detailedBreakdown].
   - V20-02: imports de constantes alineados a internalConfig V20.1.
   - V20-03: anadidos campos faltantes en la matriz pero usados por el
             codigo: fiscalRole, linkedAdvanceId, vatAccrualStatus,
@@ -48,7 +49,6 @@ import {
 } from "backend/internalConfig";
 
 import {
-    hashSHA256,
     hashChain,
 } from "backend/securityEngine";
 
@@ -84,8 +84,6 @@ const SEQUENCE_MUTEX_TTL_MS = Number(CONCURRENCY?.MS_TTL_MUTEX_ASIENTO) || 45000
 const PROYECCION_BATCH_LIMIT = 25;
 const PROYECCION_TIMEOUT_MS =
     Number(SDK_CONFIG?.TIMEOUTS?.API_MS) || 15000;
-
-const FACTURA_PAYMENT_STATUSES = Object.freeze(["PENDIENTE", "PAGADO", "PARCIAL"]);
 
 // ============================================================================
 // SECCION 1 - HELPERS DE FECHA / AEAT
@@ -502,47 +500,18 @@ export async function registrarEventoEconomico(input) {
         computerSystem: fiscalPayload.sistemaInformatico,
         fiscalPayload,
         projectionStatus: PROJECTION_STATUS.PENDIENTE,
-        projectionDetailIds: [],
         traceId,
-        registeredAt: ts,
         _createdDate: new Date(),
     };
 
     const cabecera = await wixData.insert(COLLECTIONS.MOVIMIENTOS_CAJA, doc, { suppressAuth: true });
 
-    // 8. Detalle (lineas)
+    // 8. [SSOT-v5010.7 ZOMBIE-CLEAN] Lineas de detalle: la coleccion
+    // El libro auxiliar de detalle fue eliminado por la BIBLIA. El desglose
+    // canonico ya queda persistido en el campo detailedBreakdown de la
+    // cabecera MovimientosCaja (ledger fiscal unico). No se proyecta a libro
+    // contable separado.
     const detailIds = [];
-    const breakdown = Array.isArray(input.breakdown) ? input.breakdown : [];
-    for (let i = 0; i < breakdown.length; i++) {
-        const d = breakdown[i];
-        const lineHash = await hashSHA256(recordHash + JSON.stringify(d));
-        const det = await wixData.insert(COLLECTIONS.LIBRO_ASIENTOS_CONTABLES_DETALLE, {
-            lineHash,
-            taxableBaseOrNonSubjectAmount: Number(d.taxableBaseOrNonSubjectAmount ?? d.base ?? 0),
-            taxRate: Number(d.taxRate ?? d.tipo ?? 0),
-            chargedTaxAmount: Number(d.chargedTaxAmount ?? d.cuota ?? 0),
-            sourceEventId: cabecera._id,
-            lineNumber: i + 1,
-            thirdPartyId: thirdParty?._id || null,
-            catalogId: catalog?._id || null,
-            operationDescription: _cleanText(d.operationDescription || input.operationDescription || "", 500),
-            units: Number(d.units || 1),
-            magnitude: Number(d.magnitude || 1),
-            netUnitAmount: Number(d.netUnitAmount ?? 0),
-            taxCode: _safeTrim(d.taxCode || catalog?.taxCode) || null,
-            regimeKey: _safeTrim(d.regimeKey || fiscalPayload.claveRegimen),
-            operationClassification: _safeTrim(d.operationClassification || fiscalPayload.calificacionOperacion),
-            exemptOperation: _safeTrim(d.exemptOperation) || null,
-            reverseCharge: d.reverseCharge === true || fiscalPayload.inversionSujetoPasivo,
-            accountCode: _safeTrim(d.accountCode || catalog?.incomeAccountCode) || null,
-            surchargeRate: Number(d.surchargeRate ?? 0),
-            surchargeAmount: Number(d.surchargeAmount ?? 0),
-            irpfWithholdingAmount: Number(d.irpfWithholdingAmount || 0),
-            irpfWithholdingRate: Number(d.irpfWithholdingRate || 0),
-            _createdDate: new Date(),
-        }, { suppressAuth: true });
-        detailIds.push(det._id);
-    }
 
     // 9. Proyeccion secundaria - NUNCA propaga errores al caller
     let projectionStatus = PROJECTION_STATUS.OK;
@@ -578,15 +547,16 @@ export async function registrarEventoEconomico(input) {
 
 async function _proyectarSegunTipoEvento(cabecera, detailIds, traceId) {
     switch (cabecera.eventType) {
-        // [SSOT-v5010.1 ZOMB-01] VENTA_LINEA/RECTIFICATIVA/AJUSTE: sin proyeccion a libro contable
-        // (AsientosContables eliminado). MovimientosCaja es SSOT fiscal unico; reconciliarProyecciones
-        // marca OK tras verificacion de hash chain.
+        // [SSOT-v5010.1 ZOMB-01 + v5010.7 ZOMBIE-CLEAN] VENTA_LINEA/RECTIFICATIVA/
+        // AJUSTE/COMPRA_LINEA: sin proyeccion separada. Las colecciones
+        // contables auxiliares fueron eliminadas por la BIBLIA; MovimientosCaja es
+        // SSOT fiscal unico (la compra queda registrada como PAGO_PROVEEDOR con
+        // su detailedBreakdown). reconciliarProyecciones marca OK tras verificacion
+        // de hash chain.
         case EVENT_TYPE.VENTA_LINEA:
         case EVENT_TYPE.RECTIFICATIVA:
         case EVENT_TYPE.AJUSTE:
-            break;
         case EVENT_TYPE.COMPRA_LINEA:
-            await _proyectarFacturaRecibida(cabecera, traceId);
             break;
         case EVENT_TYPE.MOV_STOCK:
             await _proyectarMovimientoInventario(cabecera, traceId);
@@ -596,56 +566,6 @@ async function _proyectarSegunTipoEvento(cabecera, detailIds, traceId) {
             break;
         default:
             log.warn("Tipo evento sin proyeccion", { traceId, eventType: cabecera.eventType });
-    }
-}
-
-async function _proyectarFacturaRecibida(cabecera, traceId) {
-    const receptionDate = new Date();
-    const receptionNumber = `FR-${cabecera.sequenceNumber}`;
-    try {
-        await wixData.insert(COLLECTIONS.FACTURAS_RECIBIDAS, {
-            receptionNumber,
-            invoiceNumber: cabecera.invoiceNumber,
-            invoiceIssueDate: cabecera.invoiceIssueDate,
-            operationDate: cabecera.operationDate,
-            receptionDate,
-            accountingEntryDate: receptionDate,
-            thirdPartyId: cabecera.thirdPartyId,
-            issuerTaxId: cabecera.issuerTaxId,
-            issuerLegalName: cabecera.issuerLegalName,
-            recipientTaxId: cabecera.recipientTaxId,
-            recipientLegalName: cabecera.recipientLegalName,
-            invoiceType: cabecera.invoiceType,
-            operationDescription: cabecera.operationDescription,
-            totalAmount: cabecera.totalAmount,
-            totalTaxableBase: cabecera.taxableBaseOrNonSubjectAmount,
-            totalVatAmount: cabecera.taxAmount,
-            surchargeAmount: cabecera.surchargeAmount,
-            irpfWithholdingAmount: cabecera.irpfWithholdingAmount,
-            irpfWithholdingRate: cabecera.irpfWithholdingRate,
-            detailedBreakdown: cabecera.detailedBreakdown,
-            regimeKey: cabecera.regimeKey,
-            operationClassification: cabecera.operationClassification,
-            exemptOperation: cabecera.exemptOperation,
-            reverseCharge: cabecera.reverseCharge,
-            deductible: true,
-            deductionPercentage: 100,
-            deductibleAmount: Number(cabecera.taxAmount || 0),
-            paymentStatus: "PENDIENTE",
-            sourceEventId: cabecera._id,
-            receptionSource: "API",
-            validationStatus: "PENDIENTE",
-            traceId,
-            _createdDate: new Date(),
-            _updatedDate: new Date(),
-        }, { suppressAuth: true });
-    } catch (err) {
-        const msg = String(err?.message || "");
-        if (msg.includes("WDE0123") || msg.includes("Duplicated") || msg.includes("already exists")) {
-            log.info("FacturaRecibida ya existe (idempotente)", { traceId, receptionNumber });
-            return;
-        }
-        throw err;
     }
 }
 
@@ -717,14 +637,12 @@ export const getEventoPorId = webMethod(
             if (!evento) {
                 return { status: "ERROR", data: null, error: { code: "NOT_FOUND" } };
             }
-            const detail = await wixData
-                .query(COLLECTIONS.LIBRO_ASIENTOS_CONTABLES_DETALLE)
-                .eq("sourceEventId", eventoId)
-                .ascending("lineNumber")
-                .find({ suppressAuth: true });
+            // [SSOT-v5010.7 ZOMBIE-CLEAN] Libro auxiliar de detalle eliminado.
+            // El detalle canonico vive en el campo detailedBreakdown de la
+            // cabecera MovimientosCaja (ledger fiscal unico).
             return {
                 status: "SUCCESS",
-                data: { cabecera: evento, detalle: detail.items || [] },
+                data: { cabecera: evento, detalle: Array.isArray(evento.detailedBreakdown) ? evento.detailedBreakdown : [] },
                 error: null,
             };
         } catch (error) {
@@ -735,189 +653,7 @@ export const getEventoPorId = webMethod(
 );
 
 // ============================================================================
-// SECCION 8 - API DE COMPRAS (absorbe facturasRecibidas.web.js)
-// ============================================================================
-
-export const registrarFacturaRecibida = webMethod(
-    Permissions.SiteMember,
-    async (payload) => {
-        const traceId = payload?.traceId || makeTraceId("fact-rec");
-        try {
-            const issuerTaxId = _safeTrim(payload?.issuerTaxId).toUpperCase();
-            if (!issuerTaxId) {
-                return {
-                    status: "ERROR", data: null,
-                    error: { code: "ISSUER_TAX_ID_REQUIRED", message: "issuerTaxId obligatorio" },
-                };
-            }
-            const invoiceNumber = _safeTrim(payload?.invoiceNumber);
-            if (!invoiceNumber) {
-                return {
-                    status: "ERROR", data: null,
-                    error: { code: "INVOICE_NUMBER_REQUIRED", message: "invoiceNumber obligatorio" },
-                };
-            }
-            const totalAmount = Number(payload?.totalAmount) || 0;
-            if (totalAmount <= 0) {
-                return {
-                    status: "ERROR", data: null,
-                    error: { code: "INVALID_AMOUNT", message: "totalAmount > 0" },
-                };
-            }
-
-            // Idempotencia por invoiceNumber + issuerTaxId
-            const existing = await wixData
-                .query(COLLECTIONS.FACTURAS_RECIBIDAS)
-                .eq("invoiceNumber", invoiceNumber)
-                .eq("issuerTaxId", issuerTaxId)
-                .limit(1)
-                .find({ suppressAuth: true });
-            if (existing?.items?.[0]) {
-                return {
-                    status: "SUCCESS",
-                    data: existing.items[0],
-                    error: null,
-                    idempotent: true,
-                };
-            }
-
-            const eventResult = await registrarEventoEconomico({
-                eventType: EVENT_TYPE.COMPRA_LINEA,
-                movementType: MOVEMENT_TYPE.PAGO_PROVEEDOR,
-                paymentMethod: _safeTrim(payload?.paymentMethod) || PAYMENT_METHOD.EFECTIVO,
-                totalAmount,
-                taxableBaseOrNonSubjectAmount: Number(payload?.totalTaxableBase) || 0,
-                taxAmount: Number(payload?.totalVatAmount) || 0,
-                taxRate: Number(payload?.taxRate) || IVA_RATES.GENERAL,
-                surchargeRate: Number(payload?.surchargeRate) || 0,
-                surchargeAmount: Number(payload?.surchargeAmount) || 0,
-                irpfWithholdingAmount: Number(payload?.irpfWithholdingAmount) || 0,
-                irpfWithholdingRate: Number(payload?.irpfWithholdingRate) || 0,
-                operationDescription: _cleanText(payload?.operationDescription || "", 500),
-                invoiceNumber,
-                invoiceIssueDate: _safeTrim(payload?.invoiceIssueDate),
-                operationDate: _safeTrim(payload?.operationDate) || null,
-                invoiceType: _safeTrim(payload?.invoiceType) || AEAT_INVOICE_TYPE.F1,
-                issuerTaxId,
-                issuerLegalName: _safeTrim(payload?.issuerLegalName),
-                recipientTaxId: _safeTrim(payload?.recipientTaxId),
-                recipientLegalName: _safeTrim(payload?.recipientLegalName),
-                regimeKey: _safeTrim(payload?.regimeKey) || "01",
-                operationClassification: _safeTrim(payload?.operationClassification) || "S1",
-                exemptOperation: _safeTrim(payload?.exemptOperation) || null,
-                reverseCharge: payload?.reverseCharge === true,
-                breakdown: Array.isArray(payload?.detailedBreakdown) ? payload.detailedBreakdown : [],
-                traceId,
-            });
-
-            return eventResult;
-        } catch (err) {
-            log.error("registrarFacturaRecibida fallo", { traceId, message: err?.message });
-            return {
-                status: "ERROR", data: null,
-                error: { code: "FACT_REC_FAIL", message: err?.message },
-            };
-        }
-    }
-);
-
-export const getFacturaRecibida = webMethod(
-    Permissions.Admin,
-    async (facturaId) => {
-        const traceId = makeTraceId("get-fact-rec");
-        try {
-            if (!_looksLikeGuid(facturaId)) {
-                return { status: "ERROR", data: null, error: { code: "INVALID_ID" } };
-            }
-            const factura = await wixData
-                .get(COLLECTIONS.FACTURAS_RECIBIDAS, facturaId, { suppressAuth: true })
-                .catch(() => null);
-            if (!factura) {
-                return { status: "ERROR", data: null, error: { code: "NOT_FOUND" } };
-            }
-            return { status: "SUCCESS", data: factura, error: null };
-        } catch (err) {
-            log.error("getFacturaRecibida fallo", { traceId, message: err?.message });
-            return { status: "ERROR", data: null, error: { code: "LOOKUP_FAILED" } };
-        }
-    }
-);
-
-export const listarFacturasRecibidas = webMethod(
-    Permissions.Admin,
-    async (filters = {}) => {
-        const traceId = makeTraceId("list-fact-rec");
-        try {
-            let q = wixData.query(COLLECTIONS.FACTURAS_RECIBIDAS);
-            if (filters?.paymentStatus) {
-                q = q.eq("paymentStatus", _safeTrim(filters.paymentStatus).toUpperCase());
-            }
-            if (filters?.thirdPartyId && _looksLikeGuid(filters.thirdPartyId)) {
-                q = q.eq("thirdPartyId", filters.thirdPartyId);
-            }
-            if (filters?.desde) {
-                q = q.ge("invoiceIssueDate", filters.desde);
-            }
-            if (filters?.hasta) {
-                q = q.le("invoiceIssueDate", filters.hasta);
-            }
-            const limit = Math.min(Number(filters?.limit) || 50, 200);
-            const res = await q.descending("invoiceIssueDate").limit(limit)
-                .find({ suppressAuth: true });
-            return {
-                status: "SUCCESS",
-                data: { items: res.items || [], total: res.totalCount },
-                error: null,
-            };
-        } catch (err) {
-            log.error("listarFacturasRecibidas fallo", { traceId, message: err?.message });
-            return { status: "ERROR", data: null, error: { code: "QUERY_FAILED" } };
-        }
-    }
-);
-
-export const actualizarEstadoPagoFactura = webMethod(
-    Permissions.SiteMember,
-    async (facturaId, newStatus, meta = {}) => {
-        const traceId = meta?.traceId || makeTraceId("upd-fact-rec");
-        try {
-            if (!_looksLikeGuid(facturaId)) {
-                return { status: "ERROR", data: null, error: { code: "INVALID_ID" } };
-            }
-            const factura = await wixData
-                .get(COLLECTIONS.FACTURAS_RECIBIDAS, facturaId, { suppressAuth: true })
-                .catch(() => null);
-            if (!factura) {
-                return { status: "ERROR", data: null, error: { code: "NOT_FOUND" } };
-            }
-            const status = _safeTrim(newStatus).toUpperCase();
-            if (!FACTURA_PAYMENT_STATUSES.includes(status)) {
-                return {
-                    status: "ERROR", data: null,
-                    error: { code: "INVALID_PAYMENT_STATUS", message: `paymentStatus debe ser ${FACTURA_PAYMENT_STATUSES.join("|")}` },
-                };
-            }
-            await wixData.update(COLLECTIONS.FACTURAS_RECIBIDAS, {
-                _id: facturaId,
-                paymentStatus: status,
-                paymentDate: status === "PAGADO" ? new Date() : factura.paymentDate,
-                paymentMethod: meta?.paymentMethod || factura.paymentMethod,
-                _updatedDate: new Date(),
-            }, { suppressAuth: true });
-            return {
-                status: "SUCCESS",
-                data: { facturaId, paymentStatus: status },
-                error: null,
-            };
-        } catch (err) {
-            log.error("actualizarEstadoPagoFactura fallo", { traceId, message: err?.message });
-            return { status: "ERROR", data: null, error: { code: "UPDATE_FAILED" } };
-        }
-    }
-);
-
-// ============================================================================
-// SECCION 9 - RECONCILIACION (cron)
+// SECCION 8 - RECONCILIACION (cron)
 // ============================================================================
 
 export async function reconciliarProyecciones() {
@@ -935,7 +671,7 @@ export async function reconciliarProyecciones() {
         for (const evento of pending.items || []) {
             try {
                 await withTimeout(
-                    _proyectarSegunTipoEvento(evento, evento.projectionDetailIds || [], traceId),
+                    _proyectarSegunTipoEvento(evento, [], traceId),
                     PROYECCION_TIMEOUT_MS,
                     "reconciliarProyecciones"
                 );
@@ -973,8 +709,8 @@ export default {
     _getNextSequenceInternal,
     getEventoPorId,
     reconciliarProyecciones,
-    registrarFacturaRecibida,
-    getFacturaRecibida,
-    listarFacturasRecibidas,
-    actualizarEstadoPagoFactura,
+    // [SSOT-v5010.7 ZOMBIE-CLEAN] La API de compras sobre facturas recibidas
+    // (registrar/get/listar/actualizarEstadoPago) fue eliminada: coleccion
+    // prohibida por la BIBLIA. Las compras se registran exclusivamente como
+    // eventos PAGO_PROVEEDOR en MovimientosCaja via registrarEventoEconomico.
 };

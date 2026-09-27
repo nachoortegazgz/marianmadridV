@@ -386,13 +386,14 @@ async function _compensateCreatedBookings(createdBookings, traceId) {
                         status: COMPENSATION_STATUS.PENDING,
                         compensationStatus: COMPENSATION_STATUS.PENDING,
                         attempts: 0,
-                        amount: 0,
+                        // v5010.7 SSOT: solo campos canonicos internos.
+                        // Alias legacy amount/concept eliminados (cero
+                        // lectores verificados por grep en src/).
                         totalAmount: 0,
                         paymentMethod: null,
                         transactionId: null,
                         orderId: null,
                         refundId: null,
-                        concept: "Booking compensation after saga failure",
                         operationDescription: "Booking compensation after saga failure",
                         movementType: null,
                         alertRequired: true,
@@ -581,12 +582,9 @@ async function _validateLinkedPhaseService(linkedPhases, parentLocationId, trace
         );
     }
 
-    // BIBLIA 4.3 fila 20: el campo canonico es clientHidden.
-    // Se tolera el legacy hidden durante la transicion V20.
-    const isHidden =
-        service.clientHidden === true ||
-        service.hidden === true ||
-        service.hiddenCliente === true;
+    // BIBLIA 4.3 fila 20 + v5010.7 CERO LEGACY: unico campo canonic del
+    // catalogo V20 es clientHidden. Aliases hidden/hiddenCliente eliminados.
+    const isHidden = service.clientHidden === true;
 
     if (isHidden) {
         throw createBookingError(

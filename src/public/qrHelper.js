@@ -93,7 +93,8 @@ function _resolveInvoiceDate(movimiento) {
         return _normalizeAeatDate(explicitDate);
     }
 
-    const timestamp = movimiento?.recordTimestamp || movimiento?.registeredAt;
+    // v5010.7 SSOT: unico campo canonico de sellado temporal del ledger.
+    const timestamp = movimiento?.recordTimestamp;
     return _formatDateToAeatDdMmYyyy(timestamp);
 }
 
@@ -126,11 +127,10 @@ function _normalizeAeatDate(value) {
 
 function _readIssuerTaxId(movimiento, options) {
     return _safeString(
+        // v5010.7 SSOT: alias businessTaxId retirado del lector de movimiento.
         movimiento?.issuerTaxId ||
         movimiento?.nifEmisor ||
-        movimiento?.businessTaxId ||
-        options?.issuerTaxId ||
-        options?.businessTaxId
+        options?.issuerTaxId
     );
 }
 
@@ -187,10 +187,11 @@ function _readDigitalSignature(movimiento) {
  *   (p. ej. ConfirmacionReserva.q5vps.js tras reemision v5010.1).
  */
 export function generateVerifactuQrUrl(params = {}) {
+    // v5010.7 SSOT: alias legacy "businessTaxId" eliminado (apuntaba al
+    // emisor; los llamadores reales usan issuerTaxId/nifEmisor).
     const issuerTaxId = _safeString(
         params.issuerTaxId ||
-        params.nifEmisor ||
-        params.businessTaxId
+        params.nifEmisor
     );
 
     const invoiceNumber = _safeString(
@@ -201,11 +202,12 @@ export function generateVerifactuQrUrl(params = {}) {
     );
 
     // QR-B02: normalizacion de fecha a dd/mm/aaaa (acepta Date, ISO o texto ya formateado)
+    // v5010.7 SSOT: alias legacy "issueDate" eliminado; canonicos internos
+    // son invoiceIssueDate (CMS) y fechaExpedicionFactura (AEAT snapshot).
     const rawInvoiceDate =
         params.invoiceIssueDate ||
         params.fechaExpedicionFactura ||
-        params.fechaEmision ||
-        params.issueDate;
+        params.fechaEmision;
 
     const invoiceIssueDate = _normalizeAeatDate(rawInvoiceDate);
 

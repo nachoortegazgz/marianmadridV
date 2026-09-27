@@ -55,14 +55,35 @@ export const OPERATIONAL_COLLECTIONS = Object.freeze({
     MAPA_STAFF: "MapaStaff",
     MOVIMIENTOS_CAJA: "MovimientosCaja",
     MOVIMIENTOS_INVENTARIO: "MovimientosInventario",
-    PLAN_CUENTAS_CONTABLES: "PlanCuentasContables",
     PROCESSED_WEBHOOK_EVENTS: "ProcessedWebhookEvents",
     PROVEEDORES_LISTA: "ProveedoresLista",
     RATE_LIMIT_BLOCKS: "RateLimitBlocks",
     REGISTROS_HORARIOS_STAFF: "RegistrosHorariosStaff",
     SERVICIOS_CATALOGO: "ServiciosCatalogo",
     SLOT_LOCKS: "SlotLocks",
-    LIBRO_REGISTRO_FACTURAS_RECIBIDAS: "LibroRegistroFacturasRecibidas",
+    // v5010.7 ZOMBIE-CLEAN: eliminadas PLAN_CUENTAS_CONTABLES y
+    // LIBRO_REGISTRO_FACTURAS_RECIBIDAS (cero consumidores verificados por
+    // grep; FacturasRecibidas/plan contable separados son arquitectura muerta
+    // segun BIBLIA v5009-V20: MovimientosCaja LEDGER_V5_FISCAL es el SSOT).
+});
+
+// v5010.7 GUARD-SSOT: colecciones prohibidas. Ningun modulo de src/ debe
+// leer, escribir, consultar ni referenciar estas IDs. La guarda estatica
+// tools/dead_code_guard.mjs falla (exit 1) ante cualquier referencia funcional.
+export const FORBIDDEN_COLLECTIONS = Object.freeze([
+    "AsientosContables",
+    "LibroAsientosContablesDetalle",
+    "FacturasRecibidas",
+    "ConfiguracionFiscal",
+    "LibroRegistroFacturasRecibidas",
+    "PlanCuentasContables",
+]);
+
+// v5010.7: tipos de registro canonicos de DatosFiscales (fusion BIBLIA R3:
+// ConfiguracionFiscal se integra en DatosFiscales via recordType).
+export const RECORD_TYPE = Object.freeze({
+    TERCERO: "TERCERO",
+    CONFIG_SISTEMA: "CONFIG_SISTEMA",
 });
 
 // Alias de solo lectura para compatibilidad interna estricta (no usar en nuevo codigo)
@@ -713,7 +734,8 @@ export const PROJECTION_STATUS = Object.freeze({
 
 // =============================================================================
 // BLOQUE 10 - SISTEMA INFORMATICO (VERI*FACTU)
-// producerTaxId es null por seguridad. Se rellena desde ConfiguracionFiscal.
+// producerTaxId es null por seguridad. Se rellena desde el singleton fiscal
+// de DatosFiscales (recordType = CONFIG_SISTEMA, BIBLIA R3).
 // =============================================================================
 
 export const COMPUTER_SYSTEM = Object.freeze({
@@ -785,13 +807,13 @@ export function buildComputerSystem(fiscalConfig) {
     
     if (!fiscalConfig || typeof fiscalConfig !== 'object') {
         // En entorno de prueba o fallo de carga, usamos fallback pero alertamos
-        console.warn("ConfiguracionFiscal no disponible, usando fallback COMPUTER_SYSTEM");
+        console.warn("FISCAL_CONFIG (DatosFiscales CONFIG_SISTEMA) no disponible, usando fallback COMPUTER_SYSTEM");
         return Object.freeze(fallback);
     }
     
     // Validacion estricta: Si hay config, debe tener NIF
     if (!fiscalConfig.producerTaxId) {
-        throw new Error("FISCAL_VIOLATION: producerTaxId es obligatorio en ConfiguracionFiscal para operar en modo Veri*factu");
+        throw new Error("FISCAL_VIOLATION: producerTaxId es obligatorio en el singleton fiscal (DatosFiscales CONFIG_SISTEMA) para operar en modo Veri*factu");
     }
 
     return Object.freeze({

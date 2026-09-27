@@ -549,12 +549,12 @@ export async function wixBookingsV2_onBookingCanceled(rawBody) {
                     });
                     await queueFiscalRecovery({
                         bookingIds: bookingId,
-                        amount: -Math.abs(Number(originalMovement.totalAmount || 0)),
+                        totalAmount: -Math.abs(Number(originalMovement.totalAmount || 0)),
                         paymentMethod: originalMovement.paymentMethod || PAYMENT_METHOD.ONLINE,
                         transactionId: `RECT-${bookingId}`,
                         orderId: originalMovement.orderId || null,
                         origin: "WIX_BOOKINGS_CANCEL_WEBHOOK",
-                        concept: `Rectificacion cancelacion booking ${bookingId}`,
+                        operationDescription: `Rectificacion cancelacion booking ${bookingId}`,
                         resourceId: "online",
                         movementType: MOVEMENT_TYPE.REEMBOLSO,
                         traceId,
@@ -754,12 +754,12 @@ export async function wixEcom_onOrderPaymentStatusUpdated(rawBody) {
 
         await queueFiscalRecovery({
             bookingIds: linkedBookingIds,
-            amount: finalLedgerAmount,
+            totalAmount: finalLedgerAmount,
             paymentMethod: PAYMENT_METHOD.ONLINE,
             transactionId,
             orderId,
             origin: "WIX_ECOM_PAYMENT_WEBHOOK",
-            concept: orderConcept,
+            operationDescription: orderConcept,
             resourceId: "online",
             movementType: MOVEMENT_TYPE.VENTA_ONLINE,
             traceId,
@@ -802,9 +802,14 @@ export async function wixEcom_onOrderRefunded(rawBody) {
         const refundObj = event?.refund || event?.data?.refund || null;
         if (!refundObj || orderId === "unknown") return { status: "OK" };
 
-        const rawAmount = typeof refundObj?.amount === "object" && refundObj?.amount !== null
-            ? refundObj.amount.amount
-            : refundObj?.amount ?? 0;
+        // WIX-BOUNDARY (contrato oficial eCom Refund.money = { amount, currency }).
+        // Lectura del payload OFICIAL Wix; NO es campo interno persistido.
+        // Se normaliza inmediatamente a refundAmount (modelo interno).
+        const officialRefundMoney = refundObj?.amount;
+        // WIX-BOUNDARY: acceso a subcampos oficiales Money.amount del contrato eCom.
+        const rawAmount = typeof officialRefundMoney === "object" && officialRefundMoney !== null
+            ? Number(officialRefundMoney.amount ?? 0) // WIX-BOUNDARY Money.amount oficial
+            : officialRefundMoney ?? 0;
         const refundAmount = Number(rawAmount) || 0;
         if (refundAmount <= 0) return { status: "OK" };
 
@@ -836,12 +841,12 @@ export async function wixEcom_onOrderRefunded(rawBody) {
         if (!originalMovement) {
             await queueFiscalRecovery({
                 bookingIds: "",
-                amount: -refundAmount,
+                totalAmount: -refundAmount,
                 paymentMethod: PAYMENT_METHOD.ONLINE,
                 transactionId,
                 orderId, refundId,
                 origin: "WIX_ECOM_REFUND_WEBHOOK",
-                concept: `Refund - Order ${orderId}`,
+                operationDescription: `Refund - Order ${orderId}`,
                 resourceId: "online",
                 movementType: MOVEMENT_TYPE.REEMBOLSO,
                 phase: "WAIT_FOR_ORIGINAL_ORDER_LEDGER",
@@ -976,12 +981,12 @@ export async function wixEcom_onOrderRefunded(rawBody) {
         if (!ledgerOk) {
             await queueFiscalRecovery({
                 bookingIds: linkedBookingIds.join(","),
-                amount: -refundAmount,
+                totalAmount: -refundAmount,
                 paymentMethod: PAYMENT_METHOD.ONLINE,
                 transactionId,
                 orderId, refundId,
                 origin: "WIX_ECOM_REFUND_WEBHOOK",
-                concept: `Refund - Order ${orderId}`,
+                operationDescription: `Refund - Order ${orderId}`,
                 resourceId: "online",
                 movementType: MOVEMENT_TYPE.REEMBOLSO,
                 traceId,

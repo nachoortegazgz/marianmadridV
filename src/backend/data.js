@@ -41,11 +41,6 @@ const log = logger;
 const GUID_PATTERN =
     /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-const IMMUTABLE_ENTRY_STATUSES = new Set([
-    "POSTED",
-    "LOCKED",
-]);
-
 const ALLOWED_Z_UPDATE_FIELDS = new Set([
     "closingSignature",
     "closingSignatureStatus",
@@ -96,10 +91,6 @@ function _isGuid(value) {
 function _isFiniteNonNegative(value) {
     const number = Number(value);
     return Number.isFinite(number) && number >= 0;
-}
-
-function _isImmutableStatus(status) {
-    return IMMUTABLE_ENTRY_STATUSES.has(_safeTrim(status).toUpperCase());
 }
 
 function _schemaError(message) {
@@ -182,7 +173,9 @@ function _readTaxAmount(item) {
 }
 
 function _readTotalAmount(item) {
-    const v = item.totalAmount ?? item.importeTotal ?? item.amount;
+    // v5010.7 CERO LEGACY: alias interno 'amount' eliminado. importeTotal se
+    // conserva solo como clave del payload AEAT camelCase oficial.
+    const v = item.totalAmount ?? item.importeTotal;
     return Number(v) || 0;
 }
 
@@ -207,11 +200,12 @@ function _readBreakdownBaseAndTax(item) {
     let base = 0;
     let tax = 0;
 
+    // v5010.7 CERO LEGACY: item.lineItems eliminado (alias eCom que nunca fue
+    // campo persistido de MovimientosCaja). desglose* son claves AEAT oficiales.
     const breakdown =
         item.detailedBreakdown ||
         item.desgloseDetallado ||
-        item.desgloseImpuestos ||
-        item.lineItems;
+        item.desgloseImpuestos;
 
     if (breakdown) {
         try {
@@ -618,112 +612,12 @@ async function _validateMapaStaffUniqueness(item = {}) {
 }
 
 // =============================================================================
-// BLOQUE 7 - ASIENTOS CONTABLES
+// [SSOT-v5010.7 ZOMBIE-CLEAN] BLOQUES 7 y 8 originales (hooks de validacion
+// sobre las colecciones contables separadas eliminadas por la BIBLIA)
+// ELIMINADOS: esas colecciones fueron suprimidas por la BIBLIA v5009-V20-FINAL.
+// MovimientosCaja es el ledger fiscal unico; sus hooks canonicos viven en el
+// BLOQUE 1 de este modulo. Prohibido re-introducir guards para colecciones muertas.
 // =============================================================================
-
-export function AsientosContables_beforeUpdate(item) {
-    if (_isImmutableStatus(item?.entryStatus)) {
-        _fiscalError("No se puede modificar un asiento POSTED o LOCKED");
-    }
-
-    return item;
-}
-
-export function AsientosContables_beforeRemove(item) {
-    if (_isImmutableStatus(item?.entryStatus)) {
-        _fiscalError("No se puede eliminar un asiento POSTED o LOCKED");
-    }
-
-    return item;
-}
-
-// =============================================================================
-// BLOQUE 8 - LINEAS DE ASIENTO
-// =============================================================================
-
-export function LibroAsientosContablesDetalle_beforeInsert(item) {
-    if (!item || typeof item !== "object") return item;
-
-    // Validar cuenta PGC obligatoria y de 6 digitos (solo si viene)
-    const code = _safeTrim(item.accountCode || item.cuentaContable);
-    if (code) {
-        if (!/^\d{6}$/.test(code)) {
-            _schemaError(`accountCode "${code}" no tiene formato PGC (6 digitos)`);
-        }
-    }
-
-    // Validaciones capa AEAT v5
-    if (_isV5Fiscal(item) || _safeTrim(item.sourceEventId || item.eventoOrigenId)) {
-        const sourceEventId = _safeTrim(item.sourceEventId || item.eventoOrigenId);
-        const thirdPartyId = _safeTrim(item.thirdPartyId || item.terceroId);
-        const catalogId = _safeTrim(item.catalogId || item.catalogoId);
-
-        if (!_isGuid(sourceEventId)) {
-            _schemaError("sourceEventId obligatorio (FK MovimientosCaja)");
-        }
-        if (!_isGuid(thirdPartyId)) {
-            _schemaError("thirdPartyId obligatorio (FK DatosFiscales)");
-        }
-        if (!_isGuid(catalogId)) {
-            _schemaError("catalogId obligatorio (FK ServiciosCatalogo)");
-        }
-
-        const lineNumber = Number(item.lineNumber ?? item.numeroLinea);
-        if (!Number.isFinite(lineNumber) || lineNumber < 1) {
-            _schemaError("lineNumber >= 1");
-        }
-
-        if (!Number.isFinite(Number(item.units)) || Number(item.units) <= 0) {
-            _schemaError("units > 0");
-        }
-
-        const opDesc = _safeTrim(item.operationDescription || item.descripcionOperacion);
-        if (!opDesc) {
-            _schemaError("operationDescription obligatoria en lineas v5");
-        }
-    }
-
-    return item;
-}
-
-export async function LibroAsientosContablesDetalle_beforeUpdate(item) {
-    return _validateAccountingLineParent(item);
-}
-
-export async function LibroAsientosContablesDetalle_beforeRemove(item) {
-    return _validateAccountingLineParent(item);
-}
-
-export async function LineasAsientoContable_beforeUpdate(item) {
-    return _validateAccountingLineParent(item);
-}
-
-export async function LineasAsientoContable_beforeRemove(item) {
-    return _validateAccountingLineParent(item);
-}
-
-async function _validateAccountingLineParent(item = {}) {
-    const journalEntryId = _safeTrim(item.journalEntryId);
-
-    if (!journalEntryId) {
-        return item;
-    }
-
-    const parentEntry = await wixData
-        .get(
-            COLLECTIONS.ASIENTOS_CONTABLES,
-            journalEntryId, { suppressAuth: true }
-        )
-        .catch(() => null);
-
-    if (parentEntry && _isImmutableStatus(parentEntry.entryStatus)) {
-        _fiscalError(
-            "No se puede modificar o eliminar una linea de asiento POSTED o LOCKED"
-        );
-    }
-
-    return item;
-}
 
 // =============================================================================
 // BLOQUE 9 - SECUENCIA DE TICKETS (deprecada)
@@ -770,6 +664,12 @@ export function DatosFiscales_beforeInsert(item) {
         _schemaError("legalName obligatoria");
     }
 
+    // v5010.7 SSOT: la antigua cabecera fiscal separada se fusiono en DatosFiscales via
+    // recordType (BIBLIA R3). El singleton de sistema admite recordType
+    // CONFIG_SISTEMA sin thirdPartyType de tercero.
+    const recordType = _safeTrim(item.recordType).toUpperCase();
+    if (recordType === "CONFIG_SISTEMA") return item;
+
     const type = _safeTrim(item.thirdPartyType || item.tipoTercero).toUpperCase();
     if (!type || !VALID_THIRD_PARTY_TYPES.has(type)) {
         _schemaError("thirdPartyType invalido (CLIENTE, PROVEEDOR, STAFF, AAPP, MIXTO)");
@@ -801,66 +701,8 @@ export function DatosFiscales_beforeUpdate(item) {
 }
 
 // =============================================================================
-// BLOQUE 12 - FACTURAS RECIBIDAS
+// [SSOT-v5010.7 ZOMBIE-CLEAN] BLOQUE 12 original (hooks de facturas recibidas)
+// ELIMINADO: coleccion prohibida por la BIBLIA. Las compras se registran como
+// eventos PAGO_PROVEEDOR en MovimientosCaja (BLOQUE 1). No reintroducir.
 // =============================================================================
 
-export function FacturasRecibidas_beforeInsert(item) {
-    if (!item || typeof item !== "object") return item;
-
-    const issuerTaxId = _safeTrim(item.issuerTaxId || item.nifEmisor);
-    if (!issuerTaxId || !_isValidNifOrEuVat(issuerTaxId)) {
-        _schemaError("FacturasRecibidas requiere issuerTaxId valido (espanol o VAT UE)");
-    }
-
-    if (!_safeTrim(item.issuerLegalName || item.nombreRazonEmisor)) {
-        _schemaError("FacturasRecibidas requiere issuerLegalName");
-    }
-
-    const thirdPartyId = _safeTrim(item.thirdPartyId || item.terceroId);
-    if (!_isGuid(thirdPartyId)) {
-        _schemaError("FacturasRecibidas requiere thirdPartyId (FK DatosFiscales)");
-    }
-
-    const sourceEventId = _safeTrim(item.sourceEventId || item.eventoOrigenId);
-    if (!_isGuid(sourceEventId)) {
-        _schemaError("FacturasRecibidas requiere sourceEventId (FK MovimientosCaja)");
-    }
-
-    const base = Number(item.totalTaxableBase || item.baseImponibleTotal) || 0;
-    const tax = Number(item.totalVatAmount || item.cuotaIvaTotal) || 0;
-    const surcharge = Number(item.surchargeAmount || item.cuotaRecargoEquivalencia) || 0;
-    const withholding = Number(item.irpfWithholdingAmount || item.importeRetencionIRPF) || 0;
-    const total = Number(item.totalAmount || item.importeTotal) || 0;
-
-    if (base || tax || surcharge || withholding || total) {
-        const expected = _roundItem(base + tax + surcharge - withholding);
-        if (Math.abs(expected - total) > 0.02) {
-            _schemaError(
-                `Factura recibida descuadra: base ${base} + IVA ${tax} + RE ${surcharge} - ret ${withholding} = ${expected.toFixed(2)}, total ${total.toFixed(2)}`
-            );
-        }
-    }
-
-    // Cuadre detailedBreakdown si viene
-    if (Array.isArray(item.detailedBreakdown) && item.detailedBreakdown.length > 0) {
-        let sumBase = 0;
-        let sumTax = 0;
-        for (const d of item.detailedBreakdown) {
-            sumBase += Number(d.taxableBaseOrNonSubjectAmount ?? d.base ?? 0);
-            sumTax += Number(d.chargedTaxAmount ?? d.cuota ?? 0);
-        }
-        if (Math.abs(_roundItem(sumBase) - base) > 0.02) {
-            _schemaError("FacturasRecibidas detailedBreakdown.base no cuadra");
-        }
-        if (Math.abs(_roundItem(sumTax) - tax) > 0.02) {
-            _schemaError("FacturasRecibidas detailedBreakdown.cuota no cuadra");
-        }
-    }
-
-    return item;
-}
-
-export function FacturasRecibidas_beforeUpdate(item) {
-    // No se bloquea el update (permite cambios de estado de pago, adjuntos, etc.)
-    return item;
-}
