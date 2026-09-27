@@ -46,6 +46,9 @@ import {
     THIRD_PARTY_TYPE,
     PROJECTION_STATUS,
     COMPUTER_SYSTEM,
+    RECORD_TYPE,
+    LIBRO_ORIGEN_TIPO,
+    LIBRO_ORIGEN_REGISTRO,
 } from "backend/internalConfig";
 
 import {
@@ -59,6 +62,54 @@ import {
     _looksLikeGuid,
     withTimeout,
 } from "public/mmUtils";
+
+// ============================================================================
+// SSOT V2 (v5011): singleton de configuracion fiscal/Veri*factu.
+// Unica fuente de verdad: DatosFiscales con recordType = "CONFIG_SISTEMA".
+// Campos canonicos (matriz de normalizacion): nifProductor,
+// nombreRazonProductor, idSistemaInformatico, numeroInstalacion,
+// tipoUsoPosibleSoloVerifactu, tipoUsoPosibleMultiOT, indicadorMultiplesOT,
+// fechaInicioVerifactu. Prohibido consultar la antigua cabecera fiscal
+// separada o los campos legacy equivalentes.
+// ============================================================================
+
+let _fiscalSystemCache = null;
+let _fiscalSystemCacheAt = 0;
+const FISCAL_SYSTEM_CACHE_TTL_MS = Number(SDK_CONFIG?.SECURITY?.SECRET_CACHE_TTL_MS) || 300000;
+
+async function _getFiscalSystemConfig(traceId) {
+    const now = Date.now();
+    if (_fiscalSystemCache && now - _fiscalSystemCacheAt < FISCAL_SYSTEM_CACHE_TTL_MS) {
+        return _fiscalSystemCache;
+    }
+    let config = null;
+    try {
+        const res = await wixData
+            .query(COLLECTIONS.DATOS_FISCALES)
+            .eq("recordType", RECORD_TYPE.CONFIG_SISTEMA)
+            .limit(1)
+            .find({ suppressAuth: true });
+        config = res?.items?.[0] || null;
+    } catch (err) {
+        log.warn("No se pudo leer el singleton fiscal (DatosFiscales CONFIG_SISTEMA)", {
+            traceId, message: err?.message,
+        });
+    }
+    _fiscalSystemCache = Object.freeze({
+        sistemaInformaticoNombre: _safeTrim(config?.sistemaInformaticoNombre) || COMPUTER_SYSTEM.sistemaInformaticoNombre,
+        idSistemaInformatico: _safeTrim(config?.idSistemaInformatico) || COMPUTER_SYSTEM.idSistemaInformatico,
+        version: _safeTrim(config?.version) || COMPUTER_SYSTEM.version,
+        numeroInstalacion: _safeTrim(config?.numeroInstalacion) || COMPUTER_SYSTEM.numeroInstalacion,
+        tipoUsoPosibleSoloVerifactu: _safeTrim(config?.tipoUsoPosibleSoloVerifactu) || COMPUTER_SYSTEM.tipoUsoPosibleSoloVerifactu,
+        tipoUsoPosibleMultiOT: _safeTrim(config?.tipoUsoPosibleMultiOT) || COMPUTER_SYSTEM.tipoUsoPosibleMultiOT,
+        indicadorMultiplesOT: _safeTrim(config?.indicadorMultiplesOT) || COMPUTER_SYSTEM.indicadorMultiplesOT,
+        nifProductor: _safeTrim(config?.nifProductor),
+        nombreRazonProductor: _safeTrim(config?.nombreRazonProductor) || COMPUTER_SYSTEM.nombreRazonProductor,
+        fechaInicioVerifactu: _safeTrim(config?.fechaInicioVerifactu) || null,
+    });
+    _fiscalSystemCacheAt = now;
+    return _fiscalSystemCache;
+}
 
 import {
     _lockSlotKeyOrFail,

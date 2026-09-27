@@ -10,6 +10,10 @@
 import assert from 'assert';
 import {
   COLLECTIONS,
+  FORBIDDEN_COLLECTIONS,
+  RECORD_TYPE,
+  RECORDTYPECONFIGSISTEMA,
+  LIBRO_ORIGEN_TIPO,
   BOOKING_STATUS,
   PAYMENT_STATUS,
   CONCURRENCY
@@ -222,14 +226,25 @@ export async function testCollectionsDefined() {
     assert.ok(COLLECTIONS[col].length > 0, `Coleccion ${col} vacia`);
   });
   
-  // v5010.5 GUARDAS NEGATIVAS SSOT (BIBLIA R3/R4/R7): colecciones muertas
-  // prohibidas: AsientosContables, LibroAsientosContablesDetalle,
-  // FacturasRecibidas y ConfiguracionFiscal (fusionada en DatosFiscales).
+  // v5011 SSOT V2 GUARDAS: LibroAsientosContablesDetalle es la coleccion
+  // DEFINITIVA de asientos contables + eventos de facturacion/trazabilidad
+  // (sustituye a las obsoletas AsientosContables y EventosSistemaFacturacion,
+  // ya fusionadas). Debe estar definida con nombre EXACTO en singular.
+  assert.strictEqual(COLLECTIONS.LIBRO_ASIENTOS_CONTABLES_DETALLE,
+    'LibroAsientosContablesDetalle',
+    'LIBRO_ASIENTOS_CONTABLES_DETALLE debe estar definida (SSOT V2)');
+  assert.ok(!Object.values(COLLECTIONS).includes('LibroAsientosContablesDetalles'),
+    'Nombre plural prohibido: la coleccion es LibroAsientosContablesDetalle (singular)');
+
+  // v5011 GUARDAS NEGATIVAS SSOT (BIBLIA R3/R4/R7 + SSOT V2): colecciones
+  // muertas prohibidas: AsientosContables y EventosSistemaFacturacion
+  // (sustituidas por LibroAsientosContablesDetalle) y ConfiguracionFiscal
+  // (fusionada en DatosFiscales via recordType=CONFIG_SISTEMA).
   const forbiddenCollectionKeys = [
     'ASIENTOS_CONTABLES',
+    'EVENTOS_SISTEMA_FACTURACION',
     'CONFIGURACION_FISCAL',
-    'FACTURAS_RECIBIDAS',
-    'LIBRO_ASIENTOS_CONTABLES_DETALLE'
+    'FACTURAS_RECIBIDAS'
   ];
   forbiddenCollectionKeys.forEach(col => {
     assert.strictEqual(COLLECTIONS[col], undefined,
@@ -238,7 +253,7 @@ export async function testCollectionsDefined() {
 
   const forbiddenCollectionNames = [
     'AsientosContables',
-    'LibroAsientosContablesDetalle',
+    'EventosSistemaFacturacion',
     'FacturasRecibidas',
     'ConfiguracionFiscal'
   ];
@@ -246,6 +261,25 @@ export async function testCollectionsDefined() {
     assert.ok(!Object.values(COLLECTIONS).includes(name),
       `Valor de coleccion prohibido activo: ${name}`);
   });
+
+  // v5011: FORBIDDEN_COLLECTIONS (guarda estatica) debe listar las tres
+  // colecciones prohibidas y NO puede incluir la coleccion definitiva
+  // LibroAsientosContablesDetalle.
+  assert.ok(Array.isArray(FORBIDDEN_COLLECTIONS), 'FORBIDDEN_COLLECTIONS es array');
+  for (const dead of ['ConfiguracionFiscal', 'AsientosContables', 'EventosSistemaFacturacion']) {
+    assert.ok(FORBIDDEN_COLLECTIONS.includes(dead),
+      `FORBIDDEN_COLLECTIONS debe declarar prohibida: ${dead}`);
+  }
+  assert.ok(!FORBIDDEN_COLLECTIONS.includes('LibroAsientosContablesDetalle'),
+    'La coleccion definitiva no puede estar en FORBIDDEN_COLLECTIONS');
+
+  // v5011: singleton de configuracion fiscal = DatosFiscales recordType CONFIG_SISTEMA.
+  assert.strictEqual(RECORD_TYPE.CONFIG_SISTEMA, 'CONFIG_SISTEMA');
+  assert.strictEqual(RECORDTYPECONFIGSISTEMA, 'CONFIG_SISTEMA',
+    'RECORDTYPECONFIGSISTEMA canonica definida (FASE A)');
+  // Discriminadores obligatorios al escribir en el libro definitivo.
+  assert.strictEqual(LIBRO_ORIGEN_TIPO.ASIENTOCONTABLE, 'ASIENTOCONTABLE');
+  assert.strictEqual(LIBRO_ORIGEN_TIPO.EVENTOSISTEMAFACTURACION, 'EVENTOSISTEMAFACTURACION');
 
   // Verificar que no hay duplicados en valores
   const values = Object.values(COLLECTIONS);

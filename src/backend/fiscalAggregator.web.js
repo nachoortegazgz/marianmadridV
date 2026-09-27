@@ -13,10 +13,17 @@ FIXES APLICADOS v5009-FISCAL-V20.1:
   - V20-02: lectura de campos de MovimientosCaja con nomenclatura V20.1
             (taxableBaseOrNonSubjectAmount, recordHash, linkedBookingIds,
             operationDescription, previousInvoiceId) + fallback legacy.
-  - V20-03: [v5010.7 SSOT-MIGRATION] la antigua configuracion fiscal
-            separada fue FUSIONADA en DatosFiscales (recordType=
-            CONFIG_SISTEMA). La lectura usa nomenclatura V20.1
-            (producerTaxId); fallbacks legacy eliminados (cero tolerancia).
+  - V20-03: [v5011 SSOT-MIGRATION] la antigua configuracion fiscal separada
+            fue FUSIONADA en DatosFiscales (recordType=CONFIG_SISTEMA). La
+            lectura usa la nomenclatura canonica V2 (nifProductor, ver
+            matriz de normalizacion); fallbacks legacy eliminados (cero
+            tolerancia).
+  SSOT-V2: [v5011] los asientos contables y eventos de facturacion/traza-
+            bilidad (antiguos AsientosContables y EventosSistemaFacturacion)
+            se consolidan en LibroAsientosContablesDetalle. Este modulo no
+            consultaba esas colecciones obsoletas; sus extractos se leen
+            del diario operativo MovimientosCaja y se proyectan al libro
+            definitivo via eventLog/registrarEventoEconomico.
 =============================================================================
 */
 
@@ -403,13 +410,12 @@ export async function getLibroRegistroFacturasExpedidasInternal(year, quarter, o
 }
 
 /**
- * v5010.7 SSOT-MIGRATION (BIBLIA R3): la antigua coleccion de cabecera
- * fiscal separada fue fusionada en DatosFiscales via recordType =
- * CONFIG_SISTEMA. Esta funcion ya NO consulta la coleccion eliminada
- * (que ademas estaba undefined -> query silencioso al catch con fallback
- * inventado). Nuevo contrato: lee el singleton fiscal y exige producerTaxId.
- * Si falta, lanza error controlado (prohibido silenciar / inventar NIF -
- * regla dura #8).
+ * v5011 SSOT-MIGRATION (BIBLIA R3 + matriz de normalizacion V2): la antigua
+ * cabecera fiscal separada (ConfiguracionFiscal) fue fusionada en
+ * DatosFiscales via recordType = CONFIG_SISTEMA. El acceso al singleton es
+ * OBLIGATORIAMENTE filtrando por recordType. Campo canonico: nifProductor
+ * (legacy producerTaxId eliminado; cero tolerancia, prohibido inventar NIF).
+ * Si falta, lanza error controlado (regla dura #8).
  */
 async function _getBusinessTaxId(traceId) {
   const config = await withTimeout(
@@ -421,10 +427,10 @@ async function _getBusinessTaxId(traceId) {
     "getBusinessTaxId"
   );
   const item = config?.items?.[0];
-  const taxId = _safeTrim(item?.producerTaxId);
+  const taxId = _safeTrim(item?.nifProductor);
   if (!taxId) {
     throw new Error(
-      "FISCAL_CONFIG_MISSING: no existe singleton DatosFiscales recordType=CONFIG_SISTEMA con producerTaxId"
+      "FISCAL_CONFIG_MISSING: no existe singleton DatosFiscales recordType=CONFIG_SISTEMA con nifProductor"
     );
   }
   return taxId.toUpperCase();
