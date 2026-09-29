@@ -15,6 +15,19 @@ FIXES APLICADOS v5009-FISCAL-V20.1:
             el CSV en base64. Buffer NO esta disponible en Velo. Este codigo
             nunca se ejecuta en produccion porque el frontend no invoca el
             flujo email con confirmed === true. Se preserva tal cual.
+
+FIXES APLICADOS v5011 (SSOT V2 - Migracion a Datos Fiscales):
+  - SSOT-V2: este modulo NO accede directamente a la coleccion de cabecera
+            fiscal obsoleta (fusionada en DatosFiscales). Toda consulta de
+            configuracion fiscal/Veri*factu debe ir SIEMPRE contra
+            DatosFiscales filtrando recordType = "CONFIG_SISTEMA" y usando
+            los campos canonicos de la matriz de normalizacion (nifProductor,
+            nombreRazonProductor, idSistemaInformatico, numeroInstalacion,
+            tipoUsoPosibleSoloVerifactu, tipoUsoPosibleMultiOT,
+            indicadorMultiplesOT, fechaInicioVerifactu). Los paquetes
+            trimestrales se alimentan via fiscalAggregator (que ya cumple
+            ese contrato) y LibroAsientosContablesDetalle (asientos y
+            eventos de facturacion/trazabilidad).
 =============================================================================
 */
 

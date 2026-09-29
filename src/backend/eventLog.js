@@ -15,7 +15,7 @@ FIXES APLICADOS v5009-FISCAL-V20.1:
   - V20-01: renames de campos en inserts y queries (DatosFiscales,
             MovimientosCaja, HistoricoCierresZ). [v5010.7 ZOMBIE-CLEAN:
             las proyecciones contables separadas fueron eliminadas; el
-            ledger unico es MovimientosCaja con detailedBreakdown].
+            ledger unico es MovimientosCaja con desgloseDetallado].
   - V20-02: imports de constantes alineados a internalConfig V20.1.
   - V20-03: anadidos campos faltantes en la matriz pero usados por el
             codigo: fiscalRole, linkedAdvanceId, vatAccrualStatus,
@@ -46,6 +46,9 @@ import {
     THIRD_PARTY_TYPE,
     PROJECTION_STATUS,
     COMPUTER_SYSTEM,
+    RECORD_TYPE,
+    LIBRO_ORIGEN_TIPO,
+    LIBRO_ORIGEN_REGISTRO,
 } from "backend/internalConfig";
 
 import {
@@ -59,6 +62,54 @@ import {
     _looksLikeGuid,
     withTimeout,
 } from "public/mmUtils";
+
+// ============================================================================
+// SSOT V2 (v5011): singleton de configuracion fiscal/Veri*factu.
+// Unica fuente de verdad: DatosFiscales con recordType = "CONFIG_SISTEMA".
+// Campos canonicos (matriz de normalizacion): nifProductor,
+// nombreRazonProductor, idSistemaInformatico, numeroInstalacion,
+// tipoUsoPosibleSoloVerifactu, tipoUsoPosibleMultiOT, indicadorMultiplesOT,
+// fechaInicioVerifactu. Prohibido consultar la antigua cabecera fiscal
+// separada o los campos legacy equivalentes.
+// ============================================================================
+
+let _fiscalSystemCache = null;
+let _fiscalSystemCacheAt = 0;
+const FISCAL_SYSTEM_CACHE_TTL_MS = Number(SDK_CONFIG?.SECURITY?.SECRET_CACHE_TTL_MS) || 300000;
+
+async function _getFiscalSystemConfig(traceId) {
+    const now = Date.now();
+    if (_fiscalSystemCache && now - _fiscalSystemCacheAt < FISCAL_SYSTEM_CACHE_TTL_MS) {
+        return _fiscalSystemCache;
+    }
+    let config = null;
+    try {
+        const res = await wixData
+            .query(COLLECTIONS.DATOS_FISCALES)
+            .eq("recordType", RECORD_TYPE.CONFIG_SISTEMA)
+            .limit(1)
+            .find({ suppressAuth: true });
+        config = res?.items?.[0] || null;
+    } catch (err) {
+        log.warn("No se pudo leer el singleton fiscal (DatosFiscales CONFIG_SISTEMA)", {
+            traceId, message: err?.message,
+        });
+    }
+    _fiscalSystemCache = Object.freeze({
+        sistemaInformaticoNombre: _safeTrim(config?.sistemaInformaticoNombre) || COMPUTER_SYSTEM.sistemaInformaticoNombre,
+        idSistemaInformatico: _safeTrim(config?.idSistemaInformatico) || COMPUTER_SYSTEM.idSistemaInformatico,
+        version: _safeTrim(config?.version) || COMPUTER_SYSTEM.version,
+        numeroInstalacion: _safeTrim(config?.numeroInstalacion) || COMPUTER_SYSTEM.numeroInstalacion,
+        tipoUsoPosibleSoloVerifactu: _safeTrim(config?.tipoUsoPosibleSoloVerifactu) || COMPUTER_SYSTEM.tipoUsoPosibleSoloVerifactu,
+        tipoUsoPosibleMultiOT: _safeTrim(config?.tipoUsoPosibleMultiOT) || COMPUTER_SYSTEM.tipoUsoPosibleMultiOT,
+        indicadorMultiplesOT: _safeTrim(config?.indicadorMultiplesOT) || COMPUTER_SYSTEM.indicadorMultiplesOT,
+        nifProductor: _safeTrim(config?.nifProductor),
+        nombreRazonProductor: _safeTrim(config?.nombreRazonProductor) || COMPUTER_SYSTEM.nombreRazonProductor,
+        fechaInicioVerifactu: _safeTrim(config?.fechaInicioVerifactu) || null,
+    });
+    _fiscalSystemCacheAt = now;
+    return _fiscalSystemCache;
+}
 
 import {
     _lockSlotKeyOrFail,
@@ -403,6 +454,13 @@ export async function registrarEventoEconomico(input) {
     const recordTimestamp = _formatAEATDateTimeMadrid(ts);
 
     // 4. Construir movimiento base (aun sin huella)
+    const movementTypeRaw = _safeTrim(input.movementType);
+    const accountingAmount = Number(input.accountingAmount ??
+        (movementTypeRaw === MOVEMENT_TYPE.REEMBOLSO ||
+         movementTypeRaw === MOVEMENT_TYPE.DEVOLUCION_SERVICIO ||
+         movementTypeRaw === MOVEMENT_TYPE.DEVOLUCION_PRODUCTO
+            ? -Number(input.totalAmount ?? 0)
+            : Number(input.totalAmount ?? 0)));
     const baseMovement = {
         sequenceNumber: seq.sequenceNumber,
         invoiceNumber: _safeTrim(input.invoiceNumber) || seq.invoiceNumber,
@@ -418,6 +476,9 @@ export async function registrarEventoEconomico(input) {
         channelType: _safeTrim(input.channelType) || "POS",
 
         totalAmount: Number(input.totalAmount ?? 0),
+        // accountingAmount: importe contable con signo (criterio de cierre Z y
+        // agregador fiscal); derivado de totalAmount + movementType si no viene.
+        accountingAmount,
         taxableBaseOrNonSubjectAmount: Number(input.taxableBaseOrNonSubjectAmount ?? 0),
         taxAmount: Number(input.taxAmount ?? 0),
         taxRate: Number(input.taxRate ?? IVA_RATES.GENERAL),
@@ -489,14 +550,16 @@ export async function registrarEventoEconomico(input) {
         recordTimestamp,
     });
 
-    // 7. Doc cabecera
+    // 7. Doc cabecera [SSOT-V2 v5011 CERO LEGACY: campo canonico de desglose
+    // en escrituras nuevas = desgloseDetallado (legacy detailedBreakdown solo
+    // se tolera en LECTURA de registros historicos, nunca en escritura)].
     const doc = {
         ...baseMovement,
         recordHash,
         previousRecordHash,
         recordTimestamp,
         generationTimestamp: _buildGenerationTimestamp(ts),
-        detailedBreakdown: fiscalPayload.desgloseDetallado,
+        desgloseDetallado: fiscalPayload.desgloseDetallado,
         computerSystem: fiscalPayload.sistemaInformatico,
         fiscalPayload,
         projectionStatus: PROJECTION_STATUS.PENDIENTE,
@@ -504,11 +567,31 @@ export async function registrarEventoEconomico(input) {
         _createdDate: new Date(),
     };
 
-    const cabecera = await wixData.insert(COLLECTIONS.MOVIMIENTOS_CAJA, doc, { suppressAuth: true });
+    let cabecera;
+    try {
+        cabecera = await wixData.insert(COLLECTIONS.MOVIMIENTOS_CAJA, doc, { suppressAuth: true });
+    } catch (err) {
+        // Error controlado: el motor NUNCA lanza crudo al caller (mismo
+        // contrato {status,data,error} que el resto del modulo).
+        log.error("registrarEventoEconomico: insercion de cabecera fallo", {
+            traceId,
+            message: err?.message,
+            code: err?.code || null,
+        });
+        return {
+            status: "ERROR",
+            data: null,
+            error: {
+                code: "LEDGER_INSERT_FAIL",
+                message: err?.message || "No se pudo registrar el evento economico.",
+                traceId,
+            },
+        };
+    }
 
     // 8. [SSOT-v5010.7 ZOMBIE-CLEAN] Lineas de detalle: la coleccion
     // El libro auxiliar de detalle fue eliminado por la BIBLIA. El desglose
-    // canonico ya queda persistido en el campo detailedBreakdown de la
+    // canonico ya queda persistido en el campo desgloseDetallado de la
     // cabecera MovimientosCaja (ledger fiscal unico). No se proyecta a libro
     // contable separado.
     const detailIds = [];
@@ -551,7 +634,7 @@ async function _proyectarSegunTipoEvento(cabecera, detailIds, traceId) {
         // AJUSTE/COMPRA_LINEA: sin proyeccion separada. Las colecciones
         // contables auxiliares fueron eliminadas por la BIBLIA; MovimientosCaja es
         // SSOT fiscal unico (la compra queda registrada como PAGO_PROVEEDOR con
-        // su detailedBreakdown). reconciliarProyecciones marca OK tras verificacion
+        // su desgloseDetallado). reconciliarProyecciones marca OK tras verificacion
         // de hash chain.
         case EVENT_TYPE.VENTA_LINEA:
         case EVENT_TYPE.RECTIFICATIVA:
@@ -638,11 +721,12 @@ export const getEventoPorId = webMethod(
                 return { status: "ERROR", data: null, error: { code: "NOT_FOUND" } };
             }
             // [SSOT-v5010.7 ZOMBIE-CLEAN] Libro auxiliar de detalle eliminado.
-            // El detalle canonico vive en el campo detailedBreakdown de la
-            // cabecera MovimientosCaja (ledger fiscal unico).
+            // El detalle canonico vive en el campo desgloseDetallado de la
+            // cabecera MovimientosCaja (ledger fiscal unico); se tolera en
+            // lectura el legacy detailedBreakdown de registros historicos.
             return {
                 status: "SUCCESS",
-                data: { cabecera: evento, detalle: Array.isArray(evento.detailedBreakdown) ? evento.detailedBreakdown : [] },
+                data: { cabecera: evento, detalle: Array.isArray(evento.desgloseDetallado) ? evento.desgloseDetallado : (Array.isArray(evento.detailedBreakdown) ? evento.detailedBreakdown : []) },
                 error: null,
             };
         } catch (error) {

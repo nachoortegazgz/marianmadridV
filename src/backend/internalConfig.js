@@ -31,9 +31,14 @@ export const STAFF = Object.freeze({
 // CFG-10: Separacion estricta Business vs Operacional
 // =============================================================================
 
-// SSOT v5010.1: 20 colecciones canonicas activas.
-// ELIMINADAS (no reintroducir): AsientosContables, LibroAsientosContablesDetalle,
-// FacturasRecibidas, ConfiguracionFiscal (fusionada en DatosFiscales),
+// SSOT V2 (v5011): unicas fuentes de verdad fiscales/contables:
+//   - DatosFiscales (config fiscal / Veri*factu; singleton recordType=CONFIG_SISTEMA)
+//   - LibroAsientosContablesDetalle (asientos + eventos de facturacion / trazabilidad;
+//     discriminacion por origenTipo / origenRegistro)
+// MovimientosCaja queda como diario operativo de caja (no libro contable).
+// ELIMINADAS definitivas (no reintroducir): ConfiguracionFiscal (fusionada en
+// DatosFiscales via recordType), AsientosContables y EventosSistemaFacturacion
+// (ambas sustituidas por LibroAsientosContablesDetalle), FacturasRecibidas,
 // BookingsServiceSyncQueue, M365GraphSyncQueue.
 export const BUSINESS_COLLECTIONS = Object.freeze({
     ALERTAS_OPERATIVAS: "AlertasOperativas",
@@ -45,6 +50,9 @@ export const BUSINESS_COLLECTIONS = Object.freeze({
     COMPLEMENTOS_CATALOGO: "ComplementosCatalogo",
     DATOS_FISCALES: "DatosFiscales",
     HISTORICO_CIERRES_Z: "HistoricoCierresZ",
+    // SSOT V2: libro de asientos contables (nombre EXACTO en singular; nunca
+    // plural). Sustituye a AsientosContables y EventosSistemaFacturacion.
+    LIBRO_ASIENTOS_CONTABLES_DETALLE: "LibroAsientosContablesDetalle",
     INVENTARIO_STOCK_VENTA: "InventarioStockVenta",
     LIBRO_REGISTRO_FACTURAS_EXPEDIDAS: "LibroRegistroFacturasExpedidas",
 });
@@ -67,12 +75,15 @@ export const OPERATIONAL_COLLECTIONS = Object.freeze({
     // segun BIBLIA v5009-V20: MovimientosCaja LEDGER_V5_FISCAL es el SSOT).
 });
 
-// v5010.7 GUARD-SSOT: colecciones prohibidas. Ningun modulo de src/ debe
-// leer, escribir, consultar ni referenciar estas IDs. La guarda estatica
-// tools/dead_code_guard.mjs falla (exit 1) ante cualquier referencia funcional.
+// v5011 GUARD-SSOT: colecciones prohibidas. Ningun modulo de src/ debe
+// leer, escribir, consultar ni referenciar estas IDs (ni como coleccion CMS
+// ni como valor de origenRegistro). La guarda estatica tools/dead_code_guard.mjs
+// falla (exit 1) ante cualquier referencia funcional.
+// NOTA SSOT V2: LibroAsientosContablesDetalle ya NO esta prohibida: es la
+// coleccion definitiva de asientos y eventos de facturacion/trazabilidad.
 export const FORBIDDEN_COLLECTIONS = Object.freeze([
     "AsientosContables",
-    "LibroAsientosContablesDetalle",
+    "EventosSistemaFacturacion",
     "FacturasRecibidas",
     "ConfiguracionFiscal",
     "LibroRegistroFacturasRecibidas",
@@ -84,6 +95,25 @@ export const FORBIDDEN_COLLECTIONS = Object.freeze([
 export const RECORD_TYPE = Object.freeze({
     TERCERO: "TERCERO",
     CONFIG_SISTEMA: "CONFIG_SISTEMA",
+});
+
+// Constante canonica del singleton de configuracion fiscal/Veri*factu.
+export const RECORDTYPECONFIGSISTEMA = RECORD_TYPE.CONFIG_SISTEMA;
+
+// SSOT V2: campos discriminadores obligatorios al escribir en
+// LibroAsientosContablesDetalle (asientos + eventos de facturacion).
+export const LIBRO_ORIGEN_TIPO = Object.freeze({
+    ASIENTOCONTABLE: "ASIENTOCONTABLE",
+    EVENTOSISTEMAFACTURACION: "EVENTOSISTEMAFACTURACION",
+    MOVIMIENTOCAJA: "MOVIMIENTOCAJA",
+    CIERREZ: "CIERREZ",
+    RECTIFICATIVA: "RECTIFICATIVA",
+});
+
+export const LIBRO_ORIGEN_REGISTRO = Object.freeze({
+    LIBROASIENTOSCONTABLESDETALLE: "LIBROASIENTOSCONTABLESDETALLE",
+    MOVIMIENTOSCAJA: "MOVIMIENTOSCAJA",
+    DATOSFISCALES: "DATOSFISCALES",
 });
 
 // Alias de solo lectura para compatibilidad interna estricta (no usar en nuevo codigo)
@@ -734,21 +764,64 @@ export const PROJECTION_STATUS = Object.freeze({
 
 // =============================================================================
 // BLOQUE 10 - SISTEMA INFORMATICO (VERI*FACTU)
-// producerTaxId es null por seguridad. Se rellena desde el singleton fiscal
-// de DatosFiscales (recordType = CONFIG_SISTEMA, BIBLIA R3).
+// SSOT V2: los campos canonicos del singleton de DatosFiscales
+// (recordType = CONFIG_SISTEMA, BIBLIA R3) son nomenclatura AEAT espanola
+// en camelCase: nifProductor, nombreRazonProductor, idSistemaInformatico,
+// numeroInstalacion, tipoUsoPosibleSoloVerifactu, tipoUsoPosibleMultiOT,
+// indicadorMultiplesOT, fechaInicioVerifactu. El acceso al singleton es
+// OBLIGATORIAMENTE filtrando por recordType = "CONFIG_SISTEMA".
 // =============================================================================
 
 export const COMPUTER_SYSTEM = Object.freeze({
-    computerSystemName: "Marian Madrid Velo",
-    computerSystemId: "MM-VELO-001",
-    version: "v5010",
-    installationNumber: "1",
-    possibleUseOnlyVerifactu: "S",
-    possibleUseMultiOT: "N",
-    multipleOTIndicator: "N",
-    producerTaxId: null, // Null seguro
-    producerLegalName: null,
+    sistemaInformaticoNombre: "Marian Madrid Velo",
+    idSistemaInformatico: "MM-VELO-001",
+    version: "v5011",
+    numeroInstalacion: "1",
+    tipoUsoPosibleSoloVerifactu: "S",
+    tipoUsoPosibleMultiOT: "N",
+    indicadorMultiplesOT: "N",
+    nifProductor: null, // Null seguro: se rellena desde DatosFiscales CONFIG_SISTEMA
+    nombreRazonProductor: null,
 });
+
+/**
+ * Construye el objeto COMPUTER_SYSTEM fusionando el fallback con la config real.
+ * Lee exclusivamente la nomenclatura canonica V2 del singleton fiscal
+ * (DatosFiscales recordType=CONFIG_SISTEMA). Lanza error si falta el NIF del
+ * productor (nifProductor) en tiempo de ejecucion.
+ */
+export function buildComputerSystem(fiscalConfig) {
+    const fallback = { ...COMPUTER_SYSTEM };
+
+    if (!fiscalConfig || typeof fiscalConfig !== 'object') {
+        // En entorno de prueba o fallo de carga, usamos fallback pero alertamos
+        console.warn("FISCAL_CONFIG (DatosFiscales CONFIG_SISTEMA) no disponible, usando fallback COMPUTER_SYSTEM");
+        return Object.freeze(fallback);
+    }
+
+    // Validacion estricta: Si hay config, debe tener NIF canonico
+    const nifProductor = _safeTrimConfigValue(fiscalConfig.nifProductor);
+    if (!nifProductor) {
+        throw new Error("FISCAL_VIOLATION: nifProductor es obligatorio en el singleton fiscal (DatosFiscales recordType=CONFIG_SISTEMA) para operar en modo Veri*factu");
+    }
+
+    return Object.freeze({
+        sistemaInformaticoNombre: fiscalConfig.sistemaInformaticoNombre || fallback.sistemaInformaticoNombre,
+        idSistemaInformatico: fiscalConfig.idSistemaInformatico || fallback.idSistemaInformatico,
+        version: fiscalConfig.version || fallback.version,
+        numeroInstalacion: fiscalConfig.numeroInstalacion || fallback.numeroInstalacion,
+        tipoUsoPosibleSoloVerifactu: fiscalConfig.tipoUsoPosibleSoloVerifactu || fallback.tipoUsoPosibleSoloVerifactu,
+        tipoUsoPosibleMultiOT: fiscalConfig.tipoUsoPosibleMultiOT || fallback.tipoUsoPosibleMultiOT,
+        indicadorMultiplesOT: fiscalConfig.indicadorMultiplesOT || fallback.indicadorMultiplesOT,
+        nifProductor, // Obligatorio
+        nombreRazonProductor: fiscalConfig.nombreRazonProductor || fallback.nombreRazonProductor,
+        fechaInicioVerifactu: fiscalConfig.fechaInicioVerifactu || null,
+    });
+}
+
+function _safeTrimConfigValue(value) {
+    return value === null || value === undefined ? "" : String(value).trim();
+}
 
 // =============================================================================
 // BLOQUE 11 - INTEGRIDAD Y LIMITES FISCALES (SSOT)
@@ -799,39 +872,9 @@ export const NEGATIVE_SIGN_MOVEMENT_TYPES = Object.freeze([
 // =============================================================================
 
 /**
- * Construye el objeto COMPUTER_SYSTEM fusionando el fallback con la config real.
- * Lanza error si falta el NIF del emisor en tiempo de ejecucion.
+ * (buildComputerSystem se define en el BLOQUE 10 junto a COMPUTER_SYSTEM.)
  */
-export function buildComputerSystem(fiscalConfig) {
-    const fallback = { ...COMPUTER_SYSTEM };
-    
-    if (!fiscalConfig || typeof fiscalConfig !== 'object') {
-        // En entorno de prueba o fallo de carga, usamos fallback pero alertamos
-        console.warn("FISCAL_CONFIG (DatosFiscales CONFIG_SISTEMA) no disponible, usando fallback COMPUTER_SYSTEM");
-        return Object.freeze(fallback);
-    }
-    
-    // Validacion estricta: Si hay config, debe tener NIF
-    if (!fiscalConfig.producerTaxId) {
-        throw new Error("FISCAL_VIOLATION: producerTaxId es obligatorio en el singleton fiscal (DatosFiscales CONFIG_SISTEMA) para operar en modo Veri*factu");
-    }
 
-    return Object.freeze({
-        computerSystemName: fiscalConfig.computerSystemName || fallback.computerSystemName,
-        computerSystemId: fiscalConfig.computerSystemId || fallback.computerSystemId,
-        version: fiscalConfig.version || fallback.version,
-        installationNumber: fiscalConfig.installationNumber || fallback.installationNumber,
-        possibleUseOnlyVerifactu: fiscalConfig.possibleUseOnlyVerifactu || fallback.possibleUseOnlyVerifactu,
-        possibleUseMultiOT: fiscalConfig.possibleUseMultiOT || fallback.possibleUseMultiOT,
-        multipleOTIndicator: fiscalConfig.multipleOTIndicator || fallback.multipleOTIndicator,
-        producerTaxId: fiscalConfig.producerTaxId, // Obligatorio
-        producerLegalName: fiscalConfig.producerLegalName || fallback.producerLegalName,
-    });
-}
-
-/**
- * Resuelve la cuenta contable de retencion IRPF segun el rol fiscal.
- */
 export function resolveWithholdingAccount(fiscalRole) {
     switch (fiscalRole) {
         case FISCAL_ROLE.EMISOR:

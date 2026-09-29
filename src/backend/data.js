@@ -654,6 +654,14 @@ export function InventarioStockVentaCierre_beforeRemove(item) {
 export function DatosFiscales_beforeInsert(item) {
     if (!item || typeof item !== "object") return item;
 
+    // v5011 SSOT V2: singleton de configuracion fiscal/Veri*factu
+    // (recordType=CONFIG_SISTEMA). No es un tercero: exige la nomenclatura
+    // canonica de la matriz de normalizacion y rechaza campos legacy.
+    const recordTypeEarly = _safeTrim(item.recordType).toUpperCase();
+    if (recordTypeEarly === "CONFIG_SISTEMA") {
+        return _applyConfigSistemaRules(item);
+    }
+
     const taxId = _safeTrim(item.taxId || item.nifCif);
     if (!taxId || !_isValidNifOrEuVat(taxId)) {
         _schemaError("taxId obligatorio y valido (espanol o VAT UE)");
@@ -692,6 +700,13 @@ export function DatosFiscales_beforeInsert(item) {
 export function DatosFiscales_beforeUpdate(item) {
     if (!item || typeof item !== "object") return item;
 
+    // v5011 SSOT V2: el singleton CONFIG_SISTEMA se actualiza SOLO con la
+    // nomenclatura canonica (cero escrituras legacy).
+    const recordType = _safeTrim(item.recordType).toUpperCase();
+    if (recordType === "CONFIG_SISTEMA") {
+        return _applyConfigSistemaRules(item);
+    }
+
     const taxId = _safeTrim(item.taxId || item.nifCif);
     if (taxId && !_isValidNifOrEuVat(taxId)) {
         _schemaError("taxId invalido en update");
@@ -705,4 +720,153 @@ export function DatosFiscales_beforeUpdate(item) {
 // ELIMINADO: coleccion prohibida por la BIBLIA. Las compras se registran como
 // eventos PAGO_PROVEEDOR en MovimientosCaja (BLOQUE 1). No reintroducir.
 // =============================================================================
+
+// =============================================================================
+// BLOQUE 13 - LIBRO ASIENTOS CONTABLES DETALLE (SSOT V2, v5011)
+// Coleccion definitiva de asientos contables + eventos de facturacion /
+// trazabilidad (sustituye a las obsoletas AsientosContables y
+// EventosSistemaFacturacion). Append-only por normativa; discriminacion
+// obligatoria por origenTipo / origenRegistro; cadena de huella inmutable
+// (previousRecordHash -> recordHash); snapshot AEAT en payloadFiscal con
+// nombres oficiales en espanol DENTRO del objeto. Prohibido escribir los
+// campos legacy entryHash / fiscalPayloadSnapshot / detailedBreakdown /
+// computerSystemId: usar recordHash / payloadFiscal / desgloseDetallado /
+// idSistemaInformatico.
+// =============================================================================
+
+const VALID_LIBRO_ORIGEN_TIPOS = new Set([
+    "ASIENTOCONTABLE", "EVENTOSISTEMAFACTURACION",
+    "MOVIMIENTOCAJA", "CIERREZ", "RECTIFICATIVA",
+]);
+
+const LIBRO_LEGACY_WRITE_FIELDS = [
+    "entryHash", "fiscalPayloadSnapshot", "computerSystemId",
+];
+
+export function LibroAsientosContablesDetalle_beforeInsert(item) {
+    if (!item || typeof item !== "object") return item;
+
+    // CERO ESCRITURAS LEGACY: rechazo de campos heredados en registros nuevos.
+    for (const legacyField of LIBRO_LEGACY_WRITE_FIELDS) {
+        if (item[legacyField] !== undefined && item[legacyField] !== null) {
+            _schemaError(
+                `Campo legacy "${legacyField}" prohibido en escrituras nuevas; use su equivalente canonico SSOT V2`
+            );
+        }
+    }
+
+    // Discriminadores obligatorios (regla SSOT V2).
+    const origenTipo = _safeTrim(item.origenTipo);
+    if (!origenTipo || !VALID_LIBRO_ORIGEN_TIPOS.has(origenTipo)) {
+        _schemaError("origenTipo obligatorio y valido (ASIENTOCONTABLE, EVENTOSISTEMAFACTURACION, MOVIMIENTOCAJA, CIERREZ, RECTIFICATIVA)");
+    }
+    if (!_safeTrim(item.origenRegistro)) {
+        _schemaError("origenRegistro obligatorio (coleccion/coleccion origen del evento o asiento)");
+    }
+    if (!_safeTrim(item.traceId)) {
+        _schemaError("traceId obligatorio en el libro definitivo (trazabilidad)");
+    }
+
+    // Cadena de huella canonica (entryHash -> recordHash ya rechazado arriba).
+    if (!_safeTrim(item.recordHash)) {
+        _schemaError("recordHash obligatorio (cadena SHA-256)");
+    }
+
+    // Snapshot AEAT canonico (fiscalPayloadSnapshot -> payloadFiscal).
+    const pf = item.payloadFiscal;
+    if (!pf || typeof pf !== "object") {
+        _schemaError("payloadFiscal obligatorio (snapshot AEAT; legacy fiscalPayloadSnapshot prohibido)");
+    } else {
+        if (_safeTrim(pf.numSerieFactura) === "" && _safeTrim(pf.descripcionOperacion) === "") {
+            _schemaError("payloadFiscal exige al menos numSerieFactura o descripcionOperacion (literales AEAT en espanol)");
+        }
+    }
+
+    // Desglose detallado canonico (detailedBreakdown -> desgloseDetallado).
+    const breakdown = item.desgloseDetallado ?? pf?.desgloseDetallado;
+    if (breakdown !== undefined && breakdown !== null && !Array.isArray(breakdown)) {
+        _schemaError("desgloseDetallado debe ser un array (claves AEAT en espanol)");
+    }
+
+    // Sistema informatico canonico (computerSystemId -> idSistemaInformatico).
+    if (_safeTrim(item.idSistemaInformatico) === "" && _safeTrim(pf?.sistemaInformatico?.idSistemaInformatico) === "") {
+        _schemaError("idSistemaInformatico obligatorio (cabecera o payloadFiscal.sistemaInformatico)");
+    }
+
+    // IDs Wix preservados: si vienen, deben ser GUID validos.
+    if (item.bookingId !== undefined && item.bookingId !== null && !_isGuid(item.bookingId)) {
+        _schemaError("bookingId debe ser un GUID valido (ID Wix preservado)");
+    }
+    if (item.orderId !== undefined && item.orderId !== null && !_isGuid(item.orderId)) {
+        _schemaError("orderId debe ser un GUID valido (ID Wix preservado)");
+    }
+    if (item.resourceId !== undefined && item.resourceId !== null && !_isGuid(item.resourceId)) {
+        _schemaError("resourceId debe ser un GUID valido (ID Wix preservado)");
+    }
+
+    return item;
+}
+
+export function LibroAsientosContablesDetalle_beforeUpdate() {
+    _fiscalError(
+        "Modificacion de LibroAsientosContablesDetalle prohibida (append-only). Use una linea RECTIFICATIVA con origenTipo=RECTIFICATIVA."
+    );
+}
+
+export function LibroAsientosContablesDetalle_beforeRemove() {
+    _fiscalError(
+        "Borrado de LibroAsientosContablesDetalle prohibido por normativa fiscal"
+    );
+}
+
+// =============================================================================
+// BLOQUE 14 - DATOS FISCALES: singleton CONFIG_SISTEMA (SSOT V2, v5011)
+// La antigua cabecera fiscal separada quedo fusionada aqui via
+// recordType="CONFIG_SISTEMA". El singleton exige la nomenclatura canonica
+// de la matriz de normalizacion; los campos legacy equivalentes quedan
+// prohibidos en escrituras nuevas.
+// =============================================================================
+
+const CONFIG_SISTEMA_CANONIC_FIELDS = [
+    "nifProductor",          // legacy: producerTaxId
+    "nombreRazonProductor",  // legacy: producerLegalName
+    "idSistemaInformatico",  // legacy: computerSystemId
+    "numeroInstalacion",     // legacy: installationNumber
+    "tipoUsoPosibleMultiOT",           // legacy: possibleUseMultiOT
+    "tipoUsoPosibleSoloVerifactu",     // legacy: possibleUseOnlyVerifactu
+    "indicadorMultiplesOT",            // legacy: multipleOTIndicator
+    "fechaInicioVerifactu",            // legacy: verifactuStartDate
+];
+
+const DATOS_FISCALES_LEGACY_WRITE_FIELDS = [
+    "producerTaxId", "producerLegalName", "computerSystemId",
+    "installationNumber", "possibleUseMultiOT", "possibleUseOnlyVerifactu",
+    "multipleOTIndicator", "verifactuStartDate",
+];
+
+function _applyConfigSistemaRules(item) {
+    for (const legacyField of DATOS_FISCALES_LEGACY_WRITE_FIELDS) {
+        if (item[legacyField] !== undefined && item[legacyField] !== null) {
+            _schemaError(
+                `Campo legacy "${legacyField}" prohibido en DatosFiscales CONFIG_SISTEMA; use la nomenclatura canonica SSOT V2`
+            );
+        }
+    }
+    // Obligatorios minimos del singleton fiscal/Veri*factu.
+    for (const required of ["nifProductor", "nombreRazonProductor", "idSistemaInformatico"]) {
+        if (!_isValidNifOrEuVat(item[required]) && _safeTrim(item[required]) === "") {
+            _schemaError(`${required} obligatorio en el singleton CONFIG_SISTEMA`);
+        }
+    }
+    if (_safeTrim(item.nifProductor) === "" || !_isValidNifOrEuVat(item.nifProductor)) {
+        _schemaError("nifProductor obligatorio y valido (espanol o VAT UE) en CONFIG_SISTEMA");
+    }
+    if (!_safeTrim(item.nombreRazonProductor)) {
+        _schemaError("nombreRazonProductor obligatorio en CONFIG_SISTEMA");
+    }
+    if (!_safeTrim(item.idSistemaInformatico)) {
+        _schemaError("idSistemaInformatico obligatorio en CONFIG_SISTEMA");
+    }
+    return item;
+}
 
