@@ -1,14 +1,10 @@
-/* ============================================================================
+/**
+ * ============================================================================
  * FILE: backend/reservas.web.js
- * VERSION: v5009-FISCAL-V20.9-PROD
- * BASE: v5009-FISCAL-V20.8-PROD + Ajuste fino de nombres, contrato y robustez
+ * VERSION: v5009-FISCAL-V20.8-PROD
+ * BASE: v5009-FISCAL-V20.7-PROD + Auditoria de alineacion SSOT ServiciosCatalogo
  * RESPONSABILITY: Availability engine, dual slots, staff pairing and caching.
  * STANDARDS: G10 ASCII Strict.
- *
- * CONVENCION DE NOMBRES (ajuste fino v5009-FISCAL-V20.9):
- *  -  (doble guion bajo): helpers privados NO exportados.
- *  - _  (simple guion bajo): funciones internas EXPORTADAS.
- *  - MAYUSCULASCONGUION_BAJO: constantes de modulo.
  *
  * ALINEACION SSOT (BIBLIA v5009-V20-FINAL-CONSOLIDATED-v4, apartado 4.3):
  *  - FIX-01 Identidad publica unica: slug. Se retira slugUrl del contrato.
@@ -39,22 +35,6 @@
  *  - H-10 linkedPhases es Text (GUID unico) segun 4.3; el DTO lo expone tal cual.
  *  - B-01 Frontera Wix: bookingStatus de CitasF2 y el estado oficial de
  *         Bookings se normalizan con un adaptador unico.
- *
- * AJUSTE FINO v5009-FISCAL-V20.9:
- *  - AF-01 Convencion  para privados, _ para internos exportados.
- *  - AF-02 Constantes unificadas (SLOTSEARCH, STAFFRESOURCETYPEID, etc.).
- *  - AF-03 ERROR_CODES con claves estables y coherentes.
- *  - AF-04 Plantillas literales con backticks en todos los mensajes.
- *  - AF-05 Comparadores completos (m  12).
- *  - AF-06 Cache con expulsion real (while size > maxSize).
- *  - AF-07 Invalidacion de cache por slug y por serviceId.
- *  - AF-08 Deteccion de ciclos en resolucion de fases duales.
- *  - AF-09 _readBooleanField tolerante a "si", "si", 1, "true".
- *  - AF-10 _normalizeImport2Addon rechaza complementos sin id.
- *  - AF-11 _toPublicService elimina realmente internalNotes del metadata.
- *  - AF-12 Validacion de rango de anio (2020-2100).
- *  - AF-13 Limpieza de entradas caducadas en cache.
- *  - AF-14 _parseImport2Addons maneja objetos y strings JSON.
  * ============================================================================
  */
 
@@ -71,7 +51,7 @@ import {
   SDK_CONFIG,
   SLOT_SEARCH,
   API,
-  STAFFDEFAULTNAME,
+  STAFF_DEFAULT_NAME,
   BOOKING_STATUS
 } from "backend/internalConfig";
 
@@ -122,7 +102,6 @@ const ERROR_CODES = Object.freeze({
   SERVICELOCATIONMISMATCH: "SERVICELOCATIONMISMATCH",
   ERRDUAL01: "ERRDUAL01",
   ERRDUALMATH: "ERRDUALMATH",
-  ERRDUALCYCLE: "ERRDUALCYCLE",
   ERRTAX01: "ERRTAX01",
   SERVICEISDUAL: "SERVICEISDUAL",
   SERVICENOTDUAL: "SERVICENOTDUAL",
@@ -151,31 +130,28 @@ const ERROR_CODES = Object.freeze({
 // CONSTANTES DE MODULO
 // ============================================================================
 
-const SERVICIOSCOL = COLLECTIONS.SERVICIOSCATALOGO;
-const WATCHDOGTIMEOUTMS = SDKCONFIG.TIMEOUTS.WATCHDOGMS;
-const SERVICECACHETTLMS = SDKCONFIG.CACHE.SERVICESTTLMS;
+const SERVICIOS_COL = COLLECTIONS.SERVICIOSCATALOGO;
+const WATCHDOG_TIMEOUT_MS = SDK_CONFIG.TIMEOUTS.WATCHDOGMS;
+const SERVICE_CACHE_TTL_MS = SDK_CONFIG.CACHE.SERVICESTTLMS;
 // v5010.4 (FASE 2): clave V20 segun BIBLIA 3.2.1 fila 13.
-const MINUTOSMAXHUECO_DUAL = Math.max(
+const MINUTOS_MAX_HUECO_DUAL = Math.max(
   0,
   Number(SLOTSEARCH?.MINUTOSMAXHUECODUAL) || 120
 );
-const CACHEMAXSIZE = SDKCONFIG.CACHE.MAXENTRIES;
-const STAFFRESOURCETYPEID = API.STAFFRESOURCETYPEID;
-const STAFFLOADQUERY_LIMIT = Math.max(
+const CACHE_MAX_SIZE = SDK_CONFIG.CACHE.MAXENTRIES;
+const STAFF_RESOURCE_TYPE_ID = API.STAFF_RESOURCE_TYPE_ID;
+const STAFF_LOAD_QUERY_LIMIT = Math.max(
   100,
-  Number(SDKCONFIG?.JOBS?.HEALTHCHECKQUERYLIMIT) || 1000
+  Number(SDK_CONFIG?.JOBS?.HEALTHCHECKQUERYLIMIT) || 1000
 );
 
 // Naturaleza reservable segun 4.3 fila 26.
-const ITEMNATURESERVICE = "SERVICIO_PROPIO";
+const ITEM_NATURE_SERVICE = "SERVICIO_PROPIO";
 // Estado reservable segun 4.3 fila 39 y 3.2 CATALOG_CONFIG.STATES.
-const CATALOGSTATUSACTIVE = "ACTIVO";
-// Rango razonable de anio para validacion de disponibilidad.
-const MIN_YEAR = 2020;
-const MAX_YEAR = 2100;
+const CATALOG_STATUS_ACTIVE = "ACTIVO";
 
-const LOCATIONID = safeTrim(SDKCONFIG?.LOCATIONID);
-if (!LOCATIONID || !looksLikeGuid(LOCATION_ID)) {
+const LOCATION_ID = _safeTrim(SDK_CONFIG?.LOCATION_ID);
+if (!LOCATION_ID || !_looksLikeGuid(LOCATION_ID)) {
   throw new Error("Configured booking location is invalid.");
 }
 
@@ -192,45 +168,30 @@ const LOCATION_BOOKING = Object.freeze({
 const serviceCatalogRAM = new Map();
 
 // ============================================================================
-// HELPERS PRIVADOS (convencion )
+// HELPERS INTERNOS GENERICOS
 // ============================================================================
 
-/
- * AF-05: lectura tolerante de campos CMS.
- * Admite item[field], item.data[field], item.fields[field].
- */
-function readImport2Field(item, field) {
+function _readImport2Field(item, field) {
   if (!item || typeof item !== "object") return null;
   return item[field] ?? item.data?.[field] ?? item.fields?.[field] ?? null;
 }
 
-/
- * AF-09: lectura tolerante de booleanos.
- * Acepta true, false, "true"/"false", "1"/"0", "si"/"si", 1/0.
- */
-function readBooleanField(item, field) {
-  const value = readImport2Field(item, field);
+function _readBooleanField(item, field) {
+  const value = _readImport2Field(item, field);
   if (value === true) return true;
-  if (value === false) return false;
-  if (typeof value === "number") return value === 1;
   if (typeof value === "string") {
     const normalized = value.trim().toLowerCase();
-    return (
-      normalized === "true" ||
-      normalized === "1" ||
-      normalized === "si" ||
-      normalized === "si"
-    );
+    return normalized === "true" || normalized === "1";
   }
   return false;
 }
 
-function readNumberField(item, field) {
-  const value = Number(readImport2Field(item, field));
+function _readNumberField(item, field) {
+  const value = Number(_readImport2Field(item, field));
   return Number.isFinite(value) ? value : 0;
 }
 
-function toError(code, message, extra) {
+function _toError(code, message, extra) {
   const error = new Error(String(message || code));
   error.code = String(code);
   if (extra && typeof extra === "object") {
@@ -239,10 +200,10 @@ function toError(code, message, extra) {
   return error;
 }
 
-/
+/**
  * Constructor canonico de respuesta de error estructurada.
  */
-function structuredError(code, message, traceId, extra) {
+function _structuredError(code, message, traceId, extra) {
   return {
     status: "ERROR",
     data: null,
@@ -255,12 +216,12 @@ function structuredError(code, message, traceId, extra) {
   };
 }
 
-/
+/**
  * FIX-01 / FIX-02: identidad publica unica slug.
  * Normalizacion segura: sin query, sin hash, sin barras, ultimo segmento,
  * en minusculas. Los GUID no se transforman.
  */
-function normalizeSlugInput(raw) {
+function _normalizeSlugInput(raw) {
   const value = _safeTrim(raw);
   if (!value) return "";
 
@@ -268,122 +229,37 @@ function normalizeSlugInput(raw) {
   const withoutSlashes = withoutQuery.replace(/^\/+/, "").replace(/\/+$/, "");
   if (!withoutSlashes) return "";
 
-  const segments = withoutSlashes.split("/").filter(Boolean);
-  const lastSegment = segments.at(-1) || withoutSlashes;
+  const lastSegment = withoutSlashes.includes("/")
+    ? withoutSlashes.split("/").filter(Boolean).pop()
+    : withoutSlashes;
 
   return String(lastSegment || "").trim().toLowerCase();
 }
 
-/
- * AF-06: cache con expulsion real (LRU basico).
- * AF-13: elimina entradas caducadas antes de insertar.
- */
-function cacheSetBounded(map, key, value, maxSize) {
+function _cacheSetBounded(map, key, value, maxSize) {
   const safeKey = _safeTrim(key);
   if (!safeKey) return;
-
-  // Limpieza de entradas caducadas.
-  const now = Date.now();
-  for (const [existingKey, existingEntry] of map.entries()) {
-    if (
-      existingEntry &&
-      typeof existingEntry.timestamp === "number" &&
-      now - existingEntry.timestamp >= SERVICECACHETTL_MS
-    ) {
-      map.delete(existingKey);
-    }
-  }
-
   if (map.has(safeKey)) map.delete(safeKey);
   map.set(safeKey, value);
-
-  while (map.size > maxSize) {
-    const oldestKey = map.keys().next().value;
-    if (oldestKey === undefined) break;
-    map.delete(oldestKey);
-  }
+  if (map.size  startUtc.getTime());
 }
 
-function toPublicError(err, fallbackCode, fallbackMessage) {
-  return {
-    code: String(err?.code || fallbackCode || ERRORCODES.INTERNALERROR),
-    message: String(err?.message || fallbackMessage || "Internal Error")
-  };
-}
-
-function attachServiceId(slot, forcedServiceId, traceId, ctx) {
-  const normalizedSlot = _normalizeSlotShape(slot);
-  if (!normalizedSlot) return null;
-
-  const serviceId = _safeTrim(forcedServiceId);
-  if (!serviceId || !_looksLikeGuid(serviceId)) {
-    log.error("attachServiceId: invalid serviceId", { traceId, ctx, serviceId });
-    return null;
-  }
-
-  return {
-    ...normalizedSlot,
-    serviceId,
-    ...(normalizedSlot.slot && typeof normalizedSlot.slot === "object"
-      ? { slot: { ...normalizedSlot.slot, serviceId } }
-      : {})
-  };
-}
-
-function isValidMadridYmd(value) {
-  const ymd = _safeTrim(value);
-  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(ymd);
-  if (!match) return false;
-
-  const year = Number(match[1]);
-  const month = Number(match[2]);
-  const day = Number(match[3]);
-  const date = new Date(Date.UTC(year, month - 1, day, 12, 0, 0));
-
-  return (
-    date.getUTCFullYear() === year &&
-    date.getUTCMonth() === month - 1 &&
-    date.getUTCDate() === day
-  );
-}
-
-function normalizeResourceIds(resourceId, traceId) {
-  if (!resourceId) return [];
-
-  const normalized = _safeTrim(resourceId);
-  if (!normalized || ["all", "any"].includes(normalized.toLowerCase())) return [];
-
-  if (_looksLikeGuid(normalized)) return [normalized];
-
-  log.warn("normalizeResourceIds: invalid resource identifier", {
-    resourceId: normalized,
-    traceId
-  });
-  return [];
-}
-
-function minutesBetweenUtcDates(a, b) {
-  if (!(a instanceof Date) || !(b instanceof Date)) return 0;
-  const milliseconds = b.getTime() - a.getTime();
-  if (!Number.isFinite(milliseconds) || milliseconds  startUtc.getTime());
-}
-
-async function getStaffDisplayNamePublic(resourceId) {
+async function _getStaffDisplayNamePublic(resourceId) {
   const id = _safeTrim(resourceId);
-  if (!id || !looksLikeGuid(id)) return STAFFDEFAULT_NAME;
+  if (!id || !_looksLikeGuid(id)) return STAFFDEFAULT_NAME;
   try {
     const name = await getStaffDisplayName(id);
-    return safeTrim(name) || STAFFDEFAULT_NAME;
+    return _safeTrim(name) || STAFFDEFAULT_NAME;
   } catch (_) {
-    return STAFFDEFAULTNAME;
+    return STAFF_DEFAULT_NAME;
   }
 }
 
-/
+/**
  * B-01 FRONTERA WIX: adaptador unico de estado oficial Bookings -> enum interno.
  * Los enums internos se persisten en espanol MAYUSCULAS (BIBLIA 3.2 / D10).
  */
-function mapWixBookingStatusToInternal(status) {
+function _mapWixBookingStatusToInternal(status) {
   const normalized = String(status || "").trim().toUpperCase();
 
   switch (normalized) {
@@ -394,7 +270,7 @@ function mapWixBookingStatusToInternal(status) {
     case "PENDING_APPROVAL":
     case "PENDING_PAYMENT":
     case "PENDIENTE_PAGO":
-      return String(BOOKINGSTATUS?.PENDIENTEPAGO || "PENDIENTE_PAGO");
+      return String(BOOKING_STATUS?.PENDIENTEPAGO || "PENDIENTE_PAGO");
     case "CANCELED":
     case "CANCELLED":
     case "CANCELADO":
@@ -409,10 +285,11 @@ function mapWixBookingStatusToInternal(status) {
 
 // ============================================================================
 // HELPERS DE COMPLEMENTOS (addOnOptions, campo canonico 4.3 fila 19)
-// AF-14: _parseImport2Addons maneja objetos y strings JSON.
+// La coleccion declara addOnOptions como Array. Cada elemento puede ser un
+// objeto o un string JSON serializado; se normaliza de forma segura.
 // ============================================================================
 
-function parseImport2Addons(value) {
+function _parseImport2Addons(value) {
   if (!Array.isArray(value)) return [];
 
   return value.flatMap((item) => {
@@ -420,56 +297,45 @@ function parseImport2Addons(value) {
       return [item];
     }
 
-    if (typeof item !== "string") {
-      return [];
+    if (typeof item === "string") {
+      const trimmed = item.trim();
+      if (!trimmed) return [];
+      try {
+        const parsed = JSON.parse(trimmed);
+        return parsed && typeof parsed === "object" ? [parsed] : [];
+      } catch (_) {
+        return [];
+      }
     }
 
-    const trimmed = item.trim();
-    if (!trimmed) return [];
-
-    try {
-      const parsed = JSON.parse(trimmed);
-      return parsed && typeof parsed === "object" ? [parsed] : [];
-    } catch (_) {
-      return [];
-    }
+    return [];
   });
 }
 
-/
- * AF-10: rechaza complementos sin identificador valido.
- */
-function normalizeImport2Addon(addon) {
+function _normalizeImport2Addon(addon) {
   if (!addon || typeof addon !== "object") return null;
-
-  const id = _safeTrim(
-    addon.id || addon._id || addon.addonId || addon.nativeId
-  );
-
-  if (!id) return null;
-
   return {
     ...addon,
-    id,
+    id: _safeTrim(addon.id || addon.id || addon.addonId),
     nombre: _safeTrim(addon.nombre || addon.name || addon.title),
     precio: Number(addon.precio ?? addon.price ?? 0) || 0
   };
 }
 
-function readCanonicalAddons(service) {
+function _readCanonicalAddons(service) {
   return parseImport2Addons(readImport2Field(service, "addOnOptions"))
-    .map(normalizeImport2Addon)
+    .map(_normalizeImport2Addon)
     .filter(Boolean);
 }
 
-function getRequestedAddonContext(service, requestedAddonIds) {
+function _getRequestedAddonContext(service, requestedAddonIds) {
   const requested = new Set(
     (Array.isArray(requestedAddonIds) ? requestedAddonIds : [])
       .map((id) => _safeTrim(id))
       .filter(Boolean)
   );
 
-  const addons = Array.isArray(service?.addOnOptions) ? service.addOnOptions : [];
+  const addons = readCanonicalAddons(service);
 
   const selected = addons.filter((addon) => {
     const id = _safeTrim(addon?.id);
@@ -489,8 +355,8 @@ function getRequestedAddonContext(service, requestedAddonIds) {
   };
 }
 
-function resolveAddonContextInternal(service, requestedAddonIds) {
-  return getRequestedAddonContext(service, requestedAddonIds);
+function _resolveAddonContextInternal(service, requestedAddonIds) {
+  return _getRequestedAddonContext(service, requestedAddonIds);
 }
 
 // ============================================================================
@@ -501,9 +367,9 @@ function resolveAddonContextInternal(service, requestedAddonIds) {
 // El DTO de salida expone exclusivamente clientHidden.
 // ============================================================================
 
-function readClientHidden(service) {
-  if (readBooleanField(service, "clientHidden")) return true;
-  if (readBooleanField(service, "hiddenClient")) return true;
+function _readClientHidden(service) {
+  if (_readBooleanField(service, "clientHidden")) return true;
+  if (_readBooleanField(service, "hiddenClient")) return true;
   return false;
 }
 
@@ -511,7 +377,7 @@ function readClientHidden(service) {
 // PATCH-08: Validacion de recursos en getAvailabilityTimeSlot
 // ============================================================================
 
-async function verifyRequiredStaffViaGet({
+async function _verifyRequiredStaffViaGet({
   serviceId,
   start,
   end,
@@ -539,7 +405,7 @@ async function verifyRequiredStaffViaGet({
       () =>
         withTimeout(
           () => availabilityTimeSlots.getAvailabilityTimeSlot(getPayload),
-          WATCHDOGTIMEOUTMS,
+          WATCHDOG_TIMEOUT_MS,
           "exactSlot:verifyStaffGet"
         ),
       2,
@@ -548,16 +414,16 @@ async function verifyRequiredStaffViaGet({
 
     if (result?.timeSlot) {
       const slot = result.timeSlot;
-      const resourceIds = getResourceIdsFromSlot(slot, STAFFRESOURCETYPEID);
+      const resourceIds = getResourceIdsFromSlot(slot, STAFF_RESOURCE_TYPE_ID);
 
       if (slot?.bookable === true && resourceIds.includes(requiredResourceId)) {
         return { ok: true, slot: slot, errorCode: null };
       }
 
-      return { ok: false, slot: null, errorCode: "STAFF_UNAVAILABLE" };
+      return { ok: false, slot: null, errorCode: "STAFFUNAVAILABLE" };
     }
 
-    return { ok: false, slot: null, errorCode: "STAFF_UNAVAILABLE" };
+    return { ok: false, slot: null, errorCode: "STAFFUNAVAILABLE" };
   } catch (error) {
     log.warn("getAvailabilityTimeSlot verification failed", {
       traceId,
@@ -565,68 +431,9 @@ async function verifyRequiredStaffViaGet({
       requiredResourceId,
       message: error?.message
     });
-    return { ok: false, slot: null, errorCode: "STAFF_UNAVAILABLE" };
+    return { ok: false, slot: null, errorCode: "STAFFUNAVAILABLE" };
   }
 }
-
-// ============================================================================
-// STAFF LOAD COUNTS FOR DAY (CITAS_F2)
-// B-01: campo canonico bookingStatus (4.6 fila 15) y enum interno CANCELADO.
-// ============================================================================
-
-async function countStaffLoadForDay(dateYMD, resourceIds, traceId) {
-  const ymd = _safeTrim(dateYMD);
-  const ids = cleanGuidList(resourceIds);
-  const loadByResource = {};
-
-  for (const id of ids) {
-    loadByResource[id] = 0;
-  }
-
-  if (!ymd || ids.length === 0) {
-    return loadByResource;
-  }
-
-  const cancelledStatus = String(BOOKING_STATUS?.CANCELADO || "CANCELADO");
-  const idSet = new Set(ids);
-
-  try {
-    const result = await withTimeout(
-      () =>
-        wixData
-          .query(COLLECTIONS.CITAS_F2)
-          .eq("dateYmd", ymd)
-          .limit(STAFFLOADQUERY_LIMIT)
-          .find({ suppressAuth: true, consistentRead: true }),
-      WATCHDOGTIMEOUTMS,
-      "staffLoad:countDay"
-    );
-
-    for (const item of result?.items || []) {
-      const rawStatus = String(item?.bookingStatus || "").trim();
-      const status = mapWixBookingStatusToInternal(rawStatus) || rawStatus.toUpperCase();
-
-      if (status === cancelledStatus) continue;
-
-      const resourceId = _safeTrim(item?.resourceId);
-      if (!resourceId || !idSet.has(resourceId)) continue;
-
-      loadByResource[resourceId] = (loadByResource[resourceId] || 0) + 1;
-    }
-  } catch (error) {
-    log.warn("countStaffLoadForDay failed; using zero loads", {
-      traceId,
-      dateYMD: ymd,
-      message: error?.message
-    });
-  }
-
-  return loadByResource;
-}
-
-// ============================================================================
-// FUNCIONES INTERNAS EXPORTADAS (convencion _)
-// ============================================================================
 
 // ============================================================================
 // SERVICE CATALOG — MAPPER CANONICO ALINEADO CON ServiciosCatalogo (4.3)
@@ -634,17 +441,17 @@ async function countStaffLoadForDay(dateYMD, resourceIds, traceId) {
 
 export async function _mapServiceImport2ToUX(service, traceId) {
   // --- Identidades Wix (R19: se preservan) ---------------------------------
-  const serviceId = safeTrim(_readImport2Field(service, "serviceId"));
-  const slug = safeTrim(_readImport2Field(service, "slug")) || null;
-  const title = safeTrim(_readImport2Field(service, "title")) || "Service";
-  const serviceType = safeTrim(_readImport2Field(service, "serviceType")) || null;
-  const allowCombineRaw = readBooleanField(service, "allowCombine");
-  const locationId = safeTrim(_readImport2Field(service, "locationId")) || null;
+  const serviceId = _safeTrim(readImport2Field(service, "serviceId"));
+  const slug = _safeTrim(readImport2Field(service, "slug")) || null;
+  const title = _safeTrim(readImport2Field(service, "title")) || "Service";
+  const serviceType = _safeTrim(readImport2Field(service, "serviceType")) || null;
+  const allowCombineRaw = _readBooleanField(service, "allowCombine");
+  const locationId = _safeTrim(readImport2Field(service, "locationId")) || null;
 
   // --- Validaciones de contrato --------------------------------------------
   if (!_looksLikeGuid(serviceId)) {
-    throw toError(
-      ERRORCODES.INTERNALERROR,
+    throw _toError(
+      ERROR_CODES.INTERNALERROR,
       "Catalog serviceId is missing or invalid."
     );
   }
@@ -655,45 +462,38 @@ export async function _mapServiceImport2ToUX(service, traceId) {
     locationId !== LOCATION_ID
   ) {
     // FIX-13: se captura arriba y se devuelve como SERVICELOCATIONMISMATCH.
-    throw toError(
-      ERRORCODES.SERVICELOCATION_MISMATCH,
+    throw _toError(
+      ERROR_CODES.SERVICELOCATIONMISMATCH,
       "Service location does not match configured location."
     );
   }
 
   // --- Visibilidad y dualidad (H-03, H-10, FIX-12) -------------------------
-  const clientHidden = readClientHidden(service);
-  const linkedPhases = safeTrim(_readImport2Field(service, "linkedPhases")) || null;
-  const allowCombine = !clientHidden && allowCombineRaw === true;
+  const clientHidden = _readClientHidden(service);
+  const linkedPhases = _safeTrim(readImport2Field(service, "linkedPhases")) || null;
+  const allowCombine = allowCombineRaw === true;
 
   if (allowCombine && !_looksLikeGuid(linkedPhases)) {
-    throw toError(
-      ERRORCODES.ERRDUAL_01,
+    throw _toError(
+      ERROR_CODES.ERRDUAL01,
       "Dual service linkedPhases is missing or invalid."
     );
   }
 
   if (allowCombine && linkedPhases === serviceId) {
-    throw toError(
-      ERRORCODES.ERRDUAL_01,
+    throw _toError(
+      ERROR_CODES.ERRDUAL01,
       "A service cannot link to itself (linkedPhases === serviceId)."
     );
   }
 
   // --- Duraciones (4.3 filas 13-17) ----------------------------------------
-  const phase1Duration = readNumberField(service, "phase1Duration");
-  const exposureDuration = readNumberField(service, "exposureDuration");
-  let phase2Duration = readNumberField(service, "phase2Duration");
+  const phase1Duration = _readNumberField(service, "phase1Duration");
+  const exposureDuration = _readNumberField(service, "exposureDuration");
+  let phase2Duration = _readNumberField(service, "phase2Duration");
 
   if (allowCombine && _looksLikeGuid(linkedPhases)) {
-    // AF-08: deteccion de ciclos en resolucion de fases duales.
     const visited = new Set([serviceId]);
-    if (visited.has(linkedPhases)) {
-      throw toError(
-        ERRORCODES.ERRDUAL_CYCLE,
-        "Circular linked phase detected."
-      );
-    }
     const resolved = await resolveLinkedPhase2Duration(
       linkedPhases,
       traceId,
@@ -703,7 +503,7 @@ export async function _mapServiceImport2ToUX(service, traceId) {
     if (resolved > 0) phase2Duration = resolved;
   }
 
-  const totalDurationRaw = readNumberField(service, "totalDuration");
+  const totalDurationRaw = _readNumberField(service, "totalDuration");
   const durationRange = readDurationRange(service);
   const sumaFases = phase1Duration + exposureDuration + phase2Duration;
 
@@ -719,9 +519,9 @@ export async function _mapServiceImport2ToUX(service, traceId) {
       sumaFases,
       totalDurationRaw
     });
-    throw toError(
-      ERRORCODES.ERRDUAL_MATH,
-      Phase sum (${sumaFases}) does not match totalDuration (${totalDurationRaw}).
+    throw _toError(
+      ERROR_CODES.ERRDUALMATH,
+      ERRDUALMATH: phase sum (${sumaFases}) does not match totalDuration (${totalDurationRaw})
     );
   }
 
@@ -737,30 +537,28 @@ export async function _mapServiceImport2ToUX(service, traceId) {
   }
 
   // --- Naturaleza y estado (H-09, H-02) ------------------------------------
-  const itemNature = safeTrim(_readImport2Field(service, "itemNature")) || null;
-  const status = String(
-    safeTrim(_readImport2Field(service, "status")) || ""
-  ).toUpperCase() || null;
+  const itemNature = _safeTrim(readImport2Field(service, "itemNature")) || null;
+  const status = String(_safeTrim(readImport2Field(service, "status")) || "").toUpperCase() || null;
   const active = readBooleanField(service, "active");
 
-  if (itemNature && itemNature !== ITEMNATURESERVICE) {
-    throw toError(
-      ERRORCODES.SERVICEITEMNATUREINVALID,
-      Catalog item is not a bookable service (itemNature=${itemNature}).
+  if (itemNature && itemNature !== ITEM_NATURE_SERVICE) {
+    throw _toError(
+      ERROR_CODES.SERVICEITEMNATUREINVALID,
+      `Catalog item is not a bookable service (itemNature=${itemNature}).`
     );
   }
 
   // --- Fiscal (H-04) --------------------------------------------------------
-  const taxIncluded = readBooleanField(service, "taxIncluded");
-  const tipoImpositivo = readNumberField(service, "tipoImpositivo");
-  const codigoImpuesto = safeTrim(_readImport2Field(service, "codigoImpuesto")) || null;
-  const claveRegimen = safeTrim(_readImport2Field(service, "claveRegimen")) || null;
+  const taxIncluded = _readBooleanField(service, "taxIncluded");
+  const tipoImpositivo = _readNumberField(service, "tipoImpositivo");
+  const codigoImpuesto = _safeTrim(readImport2Field(service, "codigoImpuesto")) || null;
+  const claveRegimen = _safeTrim(readImport2Field(service, "claveRegimen")) || null;
   const calificacionOperacion =
-    safeTrim(_readImport2Field(service, "calificacionOperacion")) || null;
-  const operacionExenta = safeTrim(_readImport2Field(service, "operacionExenta")) || null;
-  const inversionSujetoPasivo = readBooleanField(service, "inversionSujetoPasivo");
+    _safeTrim(readImport2Field(service, "calificacionOperacion")) || null;
+  const operacionExenta = _safeTrim(readImport2Field(service, "operacionExenta")) || null;
+  const inversionSujetoPasivo = _readBooleanField(service, "inversionSujetoPasivo");
   const cuentaContableIngreso =
-    safeTrim(_readImport2Field(service, "cuentaContableIngreso")) || null;
+    _safeTrim(readImport2Field(service, "cuentaContableIngreso")) || null;
 
   if (tipoImpositivo > 0 && !codigoImpuesto) {
     log.warn("ERRTAX01: tipoImpositivo without codigoImpuesto", {
@@ -772,29 +570,29 @@ export async function _mapServiceImport2ToUX(service, traceId) {
   }
 
   // --- Comerciales y de presentacion ---------------------------------------
-  const price = readNumberField(service, "price");
-  const currency = safeTrim(_readImport2Field(service, "currency")) || "EUR";
-  const sku = safeTrim(_readImport2Field(service, "sku")) || null;
-  const pricingModel = safeTrim(_readImport2Field(service, "pricingModel")) || null;
-  const depositAmount = readNumberField(service, "depositAmount");
-  const depositType = safeTrim(_readImport2Field(service, "depositType")) || null;
-  const onlinePayment = readBooleanField(service, "onlinePayment");
-  const inPersonPayment = readBooleanField(service, "inPersonPayment");
-  const margin = readNumberField(service, "margin");
-  const location = safeTrim(_readImport2Field(service, "location")) || null;
-  const description = safeTrim(_readImport2Field(service, "description")) || null;
-  const tagLine = safeTrim(_readImport2Field(service, "tagLine")) || null;
-  const categoryId = safeTrim(_readImport2Field(service, "categoryId")) || null;
-  const category = safeTrim(_readImport2Field(service, "category")) || null;
-  const mainMedia = safeTrim(_readImport2Field(service, "mainMedia")) || "";
-  const internalNotes = safeTrim(_readImport2Field(service, "internalNotes")) || null;
+  const price = _readNumberField(service, "price");
+  const currency = _safeTrim(readImport2Field(service, "currency")) || "EUR";
+  const sku = _safeTrim(readImport2Field(service, "sku")) || null;
+  const pricingModel = _safeTrim(readImport2Field(service, "pricingModel")) || null;
+  const depositAmount = _readNumberField(service, "depositAmount");
+  const depositType = _safeTrim(readImport2Field(service, "depositType")) || null;
+  const onlinePayment = _readBooleanField(service, "onlinePayment");
+  const inPersonPayment = _readBooleanField(service, "inPersonPayment");
+  const margin = _readNumberField(service, "margin");
+  const location = _safeTrim(readImport2Field(service, "location")) || null;
+  const description = _safeTrim(readImport2Field(service, "description")) || null;
+  const tagLine = _safeTrim(readImport2Field(service, "tagLine")) || null;
+  const categoryId = _safeTrim(readImport2Field(service, "categoryId")) || null;
+  const category = _safeTrim(readImport2Field(service, "category")) || null;
+  const mainMedia = _safeTrim(readImport2Field(service, "mainMedia")) || "";
+  const internalNotes = _safeTrim(readImport2Field(service, "internalNotes")) || null;
 
   // --- Staff disponible (4.3 fila 18) --------------------------------------
-  const availableStaff = cleanGuidList(readImport2Field(service, "availableStaff"));
+  const availableStaff = cleanGuidList(_readImport2Field(service, "availableStaff"));
 
   const staffOptions = await Promise.all(
     availableStaff.map(async (resourceId) => {
-      const displayName = await getStaffDisplayNamePublic(resourceId);
+      const displayName = await _getStaffDisplayNamePublic(resourceId);
       return {
         id: resourceId,
         value: resourceId,
@@ -805,7 +603,7 @@ export async function _mapServiceImport2ToUX(service, traceId) {
   );
 
   // --- Complementos (FIX-11) ------------------------------------------------
-  const addOnOptions = readCanonicalAddons(service);
+  const addOnOptions = _readCanonicalAddons(service);
 
   // --- DTO canonico ---------------------------------------------------------
   return {
@@ -887,6 +685,7 @@ export async function _mapServiceImport2ToUX(service, traceId) {
       tiempoFase1: phase1Duration,
       tiempoExposicion: exposureDuration,
       tiempoFase2: phase2Duration,
+      disponibleStaff: availableStaff,
       ocultoCliente: clientHidden,
       impuestoIncluido: taxIncluded,
       tipoImpositivo,
@@ -917,29 +716,26 @@ export async function _getServiceBySlugOrIdInternal(slugOrId, externalTraceId) {
   const isGuid = _looksLikeGuid(raw);
 
   // FIX-02: normalizacion segura del slug (los GUID no se transforman).
-  const clean = isGuid ? raw : normalizeSlugInput(raw);
+  const clean = isGuid ? raw : _normalizeSlugInput(raw);
 
   if (!clean) {
-    return structuredError(
-      ERRORCODES.SERVICENOT_FOUND,
+    return _structuredError(
+      ERROR_CODES.SERVICENOTFOUND,
       "Service identifier is required.",
       traceId
     );
   }
 
-  // AF-13: limpieza de entradas caducadas antes de consultar cache.
   const cached = serviceCatalogRAM.get(clean);
-  if (cached) {
-    const age = Date.now() - cached.timestamp;
-    if (age 
+  if (cached && Date.now() - cached.timestamp 
         wixData
           .query(SERVICIOS_COL)
           .eq(lookupField, clean)
           .limit(1)
           // FIX-14: lectura consistente del CMS.
           .find({ suppressAuth: true, consistentRead: true }),
-      WATCHDOGTIMEOUTMS,
-      getServiceBySlugOrId:${lookupField}
+      WATCHDOG_TIMEOUT_MS,
+      `getServiceBySlugOrId:${lookupField}`
     );
 
     const service = result?.items?.[0] || null;
@@ -947,8 +743,8 @@ export async function _getServiceBySlugOrIdInternal(slugOrId, externalTraceId) {
     if (!service) {
       // FIX-15: trazabilidad mejorada con lookupField.
       log.error("Service not found in catalog", { key: clean, lookupField, traceId });
-      return structuredError(
-        ERRORCODES.SERVICENOT_FOUND,
+      return _structuredError(
+        ERROR_CODES.SERVICENOTFOUND,
         "Service not found.",
         traceId
       );
@@ -958,25 +754,25 @@ export async function _getServiceBySlugOrIdInternal(slugOrId, externalTraceId) {
     const active = readBooleanField(service, "active");
     if (!active) {
       log.warn("Service inactive", { key: clean, lookupField, traceId });
-      return structuredError(
-        ERRORCODES.SERVICENOT_ACTIVE,
+      return _structuredError(
+        ERROR_CODES.SERVICENOTACTIVE,
         "Service is not bookable.",
         traceId
       );
     }
 
     const catalogStatus = String(
-      safeTrim(_readImport2Field(service, "status")) || ""
+      _safeTrim(readImport2Field(service, "status")) || ""
     ).toUpperCase();
-    if (catalogStatus && catalogStatus !== CATALOGSTATUSACTIVE) {
+    if (catalogStatus && catalogStatus !== CATALOG_STATUS_ACTIVE) {
       log.warn("Service not active by status", {
         key: clean,
         lookupField,
         catalogStatus,
         traceId
       });
-      return structuredError(
-        ERRORCODES.SERVICENOT_ACTIVE,
+      return _structuredError(
+        ERROR_CODES.SERVICENOTACTIVE,
         "Service is not bookable.",
         traceId
       );
@@ -990,48 +786,32 @@ export async function _getServiceBySlugOrIdInternal(slugOrId, externalTraceId) {
       const code = String(mapError?.code || "");
       const msg = String(mapError?.message || "");
 
-      if (
-        code === ERRORCODES.SERVICELOCATION_MISMATCH ||
-        msg.includes("location does not match")
-      ) {
-        return structuredError(
-          ERRORCODES.SERVICELOCATION_MISMATCH,
-          msg,
-          traceId
-        );
+      if (code === ERROR_CODES.SERVICELOCATIONMISMATCH || msg.includes("location does not match")) {
+        return structuredError(ERROR_CODES.SERVICELOCATIONMISMATCH, msg, traceId);
       }
-      if (code === ERRORCODES.ERRDUAL_MATH) {
-        return structuredError(ERRORCODES.ERRDUAL_MATH, msg, traceId);
+      if (code === ERROR_CODES.ERRDUALMATH) {
+        return structuredError(ERROR_CODES.ERRDUALMATH, msg, traceId);
       }
-      if (code === ERRORCODES.ERRDUAL_01) {
-        return structuredError(ERRORCODES.ERRDUAL_01, msg, traceId);
+      if (code === ERROR_CODES.ERRDUAL01) {
+        return structuredError(ERROR_CODES.ERRDUAL01, msg, traceId);
       }
-      if (code === ERRORCODES.ERRDUAL_CYCLE) {
-        return structuredError(ERRORCODES.ERRDUAL_CYCLE, msg, traceId);
-      }
-      if (code === ERRORCODES.SERVICEITEMNATUREINVALID) {
-        return structuredError(
-          ERRORCODES.SERVICEITEMNATUREINVALID,
-          msg,
-          traceId
-        );
+      if (code === ERROR_CODES.SERVICEITEMNATUREINVALID) {
+        return structuredError(ERROR_CODES.SERVICEITEMNATUREINVALID, msg, traceId);
       }
       throw mapError;
     }
 
-    // FIX-06: cache con claves canonicas (clean, serviceId y slug).
+    // FIX-06: cache con claves canonicas (slug y serviceId).
     const cacheEntry = { data: mapped, timestamp: Date.now() };
-    cacheSetBounded(serviceCatalogRAM, clean, cacheEntry, CACHEMAXSIZE);
-    cacheSetBounded(serviceCatalogRAM, mapped.serviceId, cacheEntry, CACHEMAXSIZE);
-    if (mapped.slug) {
-      cacheSetBounded(serviceCatalogRAM, mapped.slug, cacheEntry, CACHEMAXSIZE);
-    }
+    cacheSetBounded(serviceCatalogRAM, clean, cacheEntry, CACHEMAX_SIZE);
+    cacheSetBounded(serviceCatalogRAM, mapped.serviceId, cacheEntry, CACHEMAX_SIZE);
+    cacheSetBounded(serviceCatalogRAM, mapped.slug, cacheEntry, CACHEMAX_SIZE);
 
     return { status: "SUCCESS", data: mapped, error: null };
   } catch (error) {
     log.error("Error loading service", { traceId, message: error?.message });
-    return structuredError(
-      ERRORCODES.DATABASEERROR,
+    return _structuredError(
+      ERROR_CODES.DATABASEERROR,
       error?.message || "Error loading service.",
       traceId
     );
@@ -1042,7 +822,7 @@ export async function _resolveServiceIdInternal(serviceIdReq) {
   const raw = _safeTrim(serviceIdReq);
   if (!raw) return null;
 
-  const key = looksLikeGuid(raw) ? raw : _normalizeSlugInput(raw);
+  const key = _looksLikeGuid(raw) ? raw : normalizeSlugInput(raw);
   if (!key) return null;
 
   const result = await _getServiceBySlugOrIdInternal(key);
@@ -1060,8 +840,57 @@ export async function getServiceForBookingInternal(serviceId, traceId) {
   );
 }
 
-/
- * AF-11: _toPublicService elimina realmente internalNotes del metadata.
+// ============================================================================
+// WEB METHODS - SERVICE
+// ============================================================================
+
+export const getServiceBySlugOrId = webMethod(
+  Permissions.Anyone,
+  async (slugOrId) => {
+    const traceId = makeTraceId("wm-service");
+    try {
+      const result = await _getServiceBySlugOrIdInternal(slugOrId, traceId);
+      if (result?.status !== "SUCCESS") return result;
+
+      return {
+        status: "SUCCESS",
+        data: _toPublicService(result.data),
+        error: null
+      };
+    } catch (error) {
+      return {
+        status: "ERROR",
+        data: null,
+        error: toPublicError(error, ERROR_CODES.SERVICELOOKUPFAILED)
+      };
+    }
+  }
+);
+
+export const resolveServiceId = webMethod(
+  Permissions.Anyone,
+  async (serviceIdRequest) => {
+    try {
+      const resolved = await _resolveServiceIdInternal(serviceIdRequest);
+      if (!resolved) {
+        return _structuredError(
+          ERROR_CODES.SERVICENOTFOUND,
+          "Service identifier not found."
+        );
+      }
+      return { status: "SUCCESS", data: String(resolved), error: null };
+    } catch (error) {
+      return {
+        status: "ERROR",
+        data: null,
+        error: toPublicError(error, ERROR_CODES.SERVICERESOLVEFAILED)
+      };
+    }
+  }
+);
+
+/**
+ * Superficie publica: sin notas internas, sin campos de uso exclusivo backend.
  */
 export function _toPublicService(service) {
   if (!service || typeof service !== "object") return null;
@@ -1073,11 +902,9 @@ export function _toPublicService(service) {
     ...publicService
   } = service;
 
-  let publicMetadata;
-  if (metadata && typeof metadata === "object") {
-    const { internalNotes: _ignored, ...safeMetadata } = metadata;
-    publicMetadata = safeMetadata;
-  }
+  const publicMetadata = metadata
+    ? { ...metadata, internalNotes: undefined }
+    : undefined;
 
   return {
     ...publicService,
@@ -1101,19 +928,15 @@ export const getAvailableSlots = webMethod(
       if (serviceResult?.status !== "SUCCESS" || !serviceResult.data?.serviceId) {
         return serviceResult?.status === "ERROR"
           ? serviceResult
-          : structuredError(
-              ERRORCODES.SERVICENOT_FOUND,
-              "Service not found.",
-              traceId
-            );
+          : structuredError(ERROR_CODES.SERVICENOTFOUND, "Service not found.", traceId);
       }
 
       const service = serviceResult.data;
       const serviceId = service.serviceId;
 
       if (service.clientHidden === true) {
-        return structuredError(
-          ERRORCODES.SERVICEHIDDEN,
+        return _structuredError(
+          ERROR_CODES.SERVICEHIDDEN,
           "Service is not publicly bookable.",
           traceId
         );
@@ -1124,28 +947,28 @@ export const getAvailableSlots = webMethod(
           traceId,
           serviceId: String(serviceId)
         });
-        return structuredError(
-          ERRORCODES.SERVICEIS_DUAL,
+        return _structuredError(
+          ERROR_CODES.SERVICEISDUAL,
           "Use getCertifiedDualSlots for dual services.",
           traceId
         );
       }
 
-      const requestedResourceId = normalizeResourceIds(resourceId, traceId);
-      const addonContext = resolveAddonContextInternal(service, safeAddonIds);
+      const requestedResourceId = _normalizeResourceIds(resourceId, traceId);
+      const addonContext = _resolveAddonContextInternal(service, safeAddonIds);
 
       if (addonContext.nativeAddonIds.length > 0 && service.durationRange) {
-        return structuredError(
-          ERRORCODES.DURATIONRANGEWITHADDONSNOTSUPPORTED,
+        return _structuredError(
+          ERROR_CODES.DURATIONRANGEWITHADDONSNOTSUPPORTED,
           "Services with a duration range cannot be combined with addons.",
           traceId
         );
       }
 
       const ymd = _safeTrim(dateYMD);
-      if (!isValidMadridYmd(ymd)) {
-        return structuredError(
-          ERRORCODES.INVALIDDATE,
+      if (!_isValidMadridYmd(ymd)) {
+        return _structuredError(
+          ERROR_CODES.INVALIDDATE,
           "Invalid booking date.",
           traceId
         );
@@ -1153,8 +976,8 @@ export const getAvailableSlots = webMethod(
 
       const payload = {
         serviceId: String(serviceId),
-        fromLocalDate: ${ymd}T00:00:00,
-        toLocalDate: ${ymd}T23:59:59,
+        fromLocalDate: `${ymd}T00:00:00`,
+        toLocalDate: `${ymd}T23:59:59`,
         timeZone: SDK_CONFIG.TZ,
         bookable: true,
         locations: [LOCATION_TS],
@@ -1175,7 +998,7 @@ export const getAvailableSlots = webMethod(
         () =>
           withTimeout(
             () => availabilityTimeSlots.listAvailabilityTimeSlots(payload),
-            WATCHDOGTIMEOUTMS,
+            WATCHDOG_TIMEOUT_MS,
             "getAvailableSlots"
           ),
         2,
@@ -1185,7 +1008,7 @@ export const getAvailableSlots = webMethod(
       const timeSlots = Array.isArray(result?.timeSlots) ? result.timeSlots : [];
       const slots = timeSlots
         .filter((slot) => slot?.bookable === true)
-        .map((slot) => attachServiceId(slot, serviceId, traceId, "getAvailableSlots"))
+        .map((slot) => _attachServiceId(slot, serviceId, traceId, "getAvailableSlots"))
         .filter(Boolean);
 
       return {
@@ -1205,8 +1028,8 @@ export const getAvailableSlots = webMethod(
         dateYMD: _safeTrim(dateYMD),
         message: error?.message
       });
-      return structuredError(
-        ERRORCODES.AVAILABLESLOTS_FAILED,
+      return _structuredError(
+        ERROR_CODES.AVAILABLESLOTSFAILED,
         "Could not load available slots.",
         traceId
       );
@@ -1229,36 +1052,26 @@ export const getAvailableDays = webMethod(
       if (serviceResult?.status !== "SUCCESS" || !serviceResult.data?.serviceId) {
         return serviceResult?.status === "ERROR"
           ? serviceResult
-          : structuredError(
-              ERRORCODES.SERVICENOT_FOUND,
-              "Service not found.",
-              traceId
-            );
+          : structuredError(ERROR_CODES.SERVICENOTFOUND, "Service not found.", traceId);
       }
 
       const service = serviceResult.data;
       const serviceId = service.serviceId;
 
       if (service.clientHidden === true) {
-        return structuredError(
-          ERRORCODES.SERVICEHIDDEN,
+        return _structuredError(
+          ERROR_CODES.SERVICEHIDDEN,
           "Service is not publicly bookable.",
           traceId
         );
       }
 
-      // AF-12: validacion estricta de anio y mes.
       const y = Number(year);
       const m = Number(month);
 
-      if (
-        !Number.isInteger(y) ||
-        !Number.isInteger(m) ||
-        y  MAX_YEAR ||
-        m  12
-      ) {
-        return structuredError(
-          ERRORCODES.INVALIDDATE,
+      if (!Number.isFinite(y) || !Number.isFinite(m) || m > 12) {
+        return _structuredError(
+          ERROR_CODES.INVALIDDATE,
           "Invalid year/month.",
           traceId
         );
@@ -1269,8 +1082,8 @@ export const getAvailableDays = webMethod(
       const fromDate = ${y}-${monthStr}-01T00:00:00;
       const toDate = ${y}-${monthStr}-${String(lastDay).padStart(2, "0")}T23:59:59;
 
-      const requestedResourceId = normalizeResourceIds(resourceId, traceId);
-      const addonContext = resolveAddonContextInternal(service, safeAddonIds);
+      const requestedResourceId = _normalizeResourceIds(resourceId, traceId);
+      const addonContext = _resolveAddonContextInternal(service, safeAddonIds);
 
       const payload = {
         serviceId: String(serviceId),
@@ -1296,7 +1109,7 @@ export const getAvailableDays = webMethod(
         () =>
           withTimeout(
             () => availabilityTimeSlots.listAvailabilityTimeSlots(payload),
-            WATCHDOGTIMEOUTMS,
+            WATCHDOG_TIMEOUT_MS,
             "getAvailableDays"
           ),
         2,
@@ -1326,14 +1139,69 @@ export const getAvailableDays = webMethod(
       };
     } catch (error) {
       log.warn("getAvailableDays failed", { traceId, message: error?.message });
-      return structuredError(
-        ERRORCODES.AVAILABLEDAYS_FAILED,
+      return _structuredError(
+        ERROR_CODES.AVAILABLEDAYSFAILED,
         "Could not load available days.",
         traceId
       );
     }
   }
 );
+
+// ============================================================================
+// STAFF LOAD COUNTS FOR DAY (CITAS_F2)
+// B-01: campo canonico bookingStatus (4.6 fila 15) y enum interno CANCELADO.
+// ============================================================================
+
+async function _countStaffLoadForDay(dateYMD, resourceIds, traceId) {
+  const ymd = _safeTrim(dateYMD);
+  const ids = cleanGuidList(resourceIds);
+  const loadByResource = {};
+
+  for (const id of ids) {
+    loadByResource[id] = 0;
+  }
+
+  if (!ymd || ids.length === 0) {
+    return loadByResource;
+  }
+
+  const cancelledStatus = String(BOOKING_STATUS?.CANCELADO || "CANCELADO");
+  const idSet = new Set(ids);
+
+  try {
+    const result = await withTimeout(
+      () =>
+        wixData
+          .query(COLLECTIONS.CITAS_F2)
+          .eq("dateYmd", ymd)
+          .limit(STAFF_LOAD_QUERY_LIMIT)
+          .find({ suppressAuth: true, consistentRead: true }),
+      WATCHDOG_TIMEOUT_MS,
+      "staffLoad:countDay"
+    );
+
+    for (const item of result?.items || []) {
+      const rawStatus = String(item?.bookingStatus || "").trim();
+      const status = _mapWixBookingStatusToInternal(rawStatus) || rawStatus.toUpperCase();
+
+      if (status === cancelledStatus) continue;
+
+      const resourceId = _safeTrim(item?.resourceId);
+      if (!resourceId || !idSet.has(resourceId)) continue;
+
+      loadByResource[resourceId] = (loadByResource[resourceId] || 0) + 1;
+    }
+  } catch (error) {
+    log.warn("_countStaffLoadForDay failed; using zero loads", {
+      traceId,
+      dateYMD: ymd,
+      message: error?.message
+    });
+  }
+
+  return loadByResource;
+}
 
 // ============================================================================
 // DISPONIBILIDAD DUAL (PATCH-02: pairToken determinista via huella canonica)
@@ -1347,46 +1215,42 @@ export async function _getCertifiedDualSlotsInternal(serviceId, resourceId, date
   if (serviceRes?.status !== "SUCCESS" || !serviceRes?.data) {
     return serviceRes?.status === "ERROR"
       ? serviceRes
-      : structuredError(
-          ERRORCODES.SERVICENOT_FOUND,
-          "Service not found.",
-          traceId
-        );
+      : structuredError(ERROR_CODES.SERVICENOTFOUND, "Service not found.", traceId);
   }
 
   const service = serviceRes.data;
 
   if (service.clientHidden === true) {
-    return structuredError(
-      ERRORCODES.SERVICEHIDDEN,
+    return _structuredError(
+      ERROR_CODES.SERVICEHIDDEN,
       "Service is not publicly bookable.",
       traceId
     );
   }
 
   if (service.allowCombine !== true || !_looksLikeGuid(service.linkedPhases)) {
-    return structuredError(
-      ERRORCODES.SERVICENOT_DUAL,
+    return _structuredError(
+      ERROR_CODES.SERVICENOT_DUAL,
       "Service is not configured as dual.",
       traceId
     );
   }
 
   const ymd = _safeTrim(dateYMD);
-  if (!isValidMadridYmd(ymd)) {
-    return structuredError(
-      ERRORCODES.INVALIDDATE,
+  if (!_isValidMadridYmd(ymd)) {
+    return _structuredError(
+      ERROR_CODES.INVALIDDATE,
       "Invalid booking date.",
       traceId
     );
   }
 
-  const requestedResourceId = normalizeResourceIds(resourceId, traceId);
-  const addonContext = resolveAddonContextInternal(service, safeAddonIds);
+  const requestedResourceId = _normalizeResourceIds(resourceId, traceId);
+  const addonContext = _resolveAddonContextInternal(service, safeAddonIds);
 
   if (addonContext.nativeAddonIds.length > 0 && service.durationRange) {
-    return structuredError(
-      ERRORCODES.DURATIONRANGEWITHADDONSNOTSUPPORTED,
+    return _structuredError(
+      ERROR_CODES.DURATIONRANGEWITHADDONSNOTSUPPORTED,
       "Services with a duration range cannot be combined with addons.",
       traceId
     );
@@ -1395,8 +1259,8 @@ export async function _getCertifiedDualSlotsInternal(serviceId, resourceId, date
   const buildListPayload = (svcId) => {
     const payload = {
       serviceId: String(svcId),
-      fromLocalDate: ${ymd}T00:00:00,
-      toLocalDate: ${ymd}T23:59:59,
+      fromLocalDate: `${ymd}T00:00:00`,
+      toLocalDate: `${ymd}T23:59:59`,
       timeZone: SDK_CONFIG.TZ,
       bookable: true,
       locations: [LOCATION_TS],
@@ -1425,7 +1289,7 @@ export async function _getCertifiedDualSlotsInternal(serviceId, resourceId, date
       () =>
         withTimeout(
           () => availabilityTimeSlots.listAvailabilityTimeSlots(buildListPayload(service.serviceId)),
-          WATCHDOGTIMEOUTMS,
+          WATCHDOG_TIMEOUT_MS,
           "dual:listF1"
         ),
       2,
@@ -1435,7 +1299,7 @@ export async function _getCertifiedDualSlotsInternal(serviceId, resourceId, date
       () =>
         withTimeout(
           () => availabilityTimeSlots.listAvailabilityTimeSlots(buildListPayload(service.linkedPhases)),
-          WATCHDOGTIMEOUTMS,
+          WATCHDOG_TIMEOUT_MS,
           "dual:listF2"
         ),
       2,
@@ -1453,7 +1317,7 @@ export async function _getCertifiedDualSlotsInternal(serviceId, resourceId, date
 
   // H-07: fuente unica availableStaff (4.3 fila 18).
   const staffPool = cleanGuidList(service.availableStaff || []);
-  const loadByResource = await countStaffLoadForDay(ymd, staffPool, traceId);
+  const loadByResource = await _countStaffLoadForDay(ymd, staffPool, traceId);
 
   const pairs = [];
 
@@ -1465,7 +1329,7 @@ export async function _getCertifiedDualSlotsInternal(serviceId, resourceId, date
     const range = toUtcRange(f1Start, f1End);
     if (!range) continue;
 
-    const f1Resources = getResourceIdsFromSlot(f1, STAFFRESOURCETYPEID);
+    const f1Resources = getResourceIdsFromSlot(f1, STAFF_RESOURCE_TYPE_ID);
 
     for (const f2 of f2Slots) {
       const f2Start = _normalizeLocalIsoStr(f2?.localStartDate || f2?.startDate);
@@ -1479,22 +1343,20 @@ export async function _getCertifiedDualSlotsInternal(serviceId, resourceId, date
         (f2StartUtc.getTime() - range.endUtc.getTime()) / 60000
       );
 
-      // AF-39: validacion estricta del hueco.
-      if (rawGapMinutes  MINUTOSMAXHUECO_DUAL) {
+      if (rawGapMinutes > MINUTOS_MAX_HUECO_DUAL) {
         continue;
       }
 
       const gapMinutes = rawGapMinutes;
 
-      const f2Resources = getResourceIdsFromSlot(f2, STAFFRESOURCETYPEID);
-      // AF-40: solo se empareja si hay staff compartido.
+      const f2Resources = getResourceIdsFromSlot(f2, STAFF_RESOURCE_TYPE_ID);
       const shared = f1Resources.filter((id) => f2Resources.includes(id));
       if (shared.length === 0) continue;
 
       const pairResourceId =
         requestedResourceId[0] && shared.includes(requestedResourceId[0])
           ? requestedResourceId[0]
-          : pickStaffByLowestLoad(shared, loadByResource) || shared.slice().sort()[0];
+          : pickStaffByLowestLoad(shared, loadByResource) || shared[0];
 
       // PATCH-02 -> v5010.4: pairToken determinista via helper canonico
       // bookingCore._buildPairTokenDeterministic (huella unica en
@@ -1539,8 +1401,8 @@ export const getCertifiedDualSlots = webMethod(
     try {
       const resolved = await _resolveServiceIdInternal(serviceIdOrSlug);
       if (!resolved) {
-        return structuredError(
-          ERRORCODES.SERVICENOT_FOUND,
+        return _structuredError(
+          ERROR_CODES.SERVICENOTFOUND,
           "Service identifier not found."
         );
       }
@@ -1549,7 +1411,7 @@ export const getCertifiedDualSlots = webMethod(
       return {
         status: "ERROR",
         data: null,
-        error: toPublicError(error, ERRORCODES.DUALSLOTS_FAILED)
+        error: toPublicError(error, ERROR_CODES.DUALSLOTSFAILED)
       };
     }
   }
@@ -1574,8 +1436,8 @@ export async function _resolveStaffForSlotInternal({
   const resolved = await _resolveServiceIdInternal(serviceId);
 
   if (!resolved) {
-    return structuredError(
-      ERRORCODES.SERVICENOT_FOUND,
+    return _structuredError(
+      ERROR_CODES.SERVICENOTFOUND,
       "Service identifier not found.",
       activeTraceId
     );
@@ -1611,8 +1473,8 @@ export async function _resolveStaffForSlotInternal({
     const linkedPhases = _safeTrim(serviceConfig?.data?.linkedPhases);
 
     if (!_looksLikeGuid(linkedPhases)) {
-      return structuredError(
-        ERRORCODES.INVALIDPAYLOAD,
+      return _structuredError(
+        ERROR_CODES.INVALIDPAYLOAD,
         "Dual requested but service has no linkedPhases.",
         activeTraceId
       );
@@ -1647,8 +1509,8 @@ export const resolveStaffForSlot = webMethod(
     try {
       const resolved = await _resolveServiceIdInternal(serviceIdOrSlug);
       if (!resolved) {
-        return structuredError(
-          ERRORCODES.SERVICENOT_FOUND,
+        return _structuredError(
+          ERROR_CODES.SERVICENOTFOUND,
           "Service identifier not found."
         );
       }
@@ -1667,7 +1529,7 @@ export const resolveStaffForSlot = webMethod(
       return {
         status: "ERROR",
         data: null,
-        error: toPublicError(error, ERRORCODES.STAFFRESOLVE_FAILED)
+        error: toPublicError(error, ERROR_CODES.STAFFRESOLVEFAILED)
       };
     }
   }
@@ -1675,27 +1537,17 @@ export const resolveStaffForSlot = webMethod(
 
 // ============================================================================
 // INVALIDACION DE CACHES
-// AF-07: invalidacion por slug y por serviceId.
 // ============================================================================
 
 export async function _invalidateCachesInternal(serviceId, dateYMD, resourceId, traceId) {
   try {
     const sid = _safeTrim(serviceId);
 
-    if (sid) {
-      // Borrado directo por clave.
+    if (sid && _looksLikeGuid(sid)) {
       serviceCatalogRAM.delete(sid);
-
-      // Borrado por coincidencia en entradas cacheadas.
-      for (const [cacheKey, entry] of serviceCatalogRAM.entries()) {
-        const data = entry?.data;
-        if (!data) continue;
-        if (
-          data.serviceId === sid ||
-          data.slug === sid ||
-          (_looksLikeGuid(sid) && data.serviceId === sid)
-        ) {
-          serviceCatalogRAM.delete(cacheKey);
+      for (const [key, entry] of serviceCatalogRAM.entries()) {
+        if (entry?.data?.serviceId === sid) {
+          serviceCatalogRAM.delete(key);
         }
       }
     }
@@ -1738,9 +1590,9 @@ export async function revalidateExactAvailabilitySlot({
   const rawResourceId = _safeTrim(resourceId);
   const requiredResourceId = _looksLikeGuid(rawResourceId) ? rawResourceId : "";
 
-  if (!resolvedServiceId || !start || !end || !isValidSlotRange(start, end)) {
-    return structuredError(
-      ERRORCODES.INVALIDSLOT_RECHECK,
+  if (!resolvedServiceId || !start || !end || !_isValidSlotRange(start, end)) {
+    return _structuredError(
+      ERROR_CODES.INVALIDSLOTRECHECK,
       "Selected slot data is invalid.",
       activeTraceId
     );
@@ -1760,40 +1612,14 @@ export async function revalidateExactAvailabilitySlot({
       activeTraceId
     );
 
-    // Gate de vigencia antes de revalidar slot.
-    if (earlyServiceConfig?.status === "SUCCESS" && earlyServiceConfig?.data) {
-      const cfg = earlyServiceConfig.data;
-      if (cfg.clientHidden === true) {
-        return structuredError(
-          ERRORCODES.SERVICEHIDDEN,
-          "Service is not publicly bookable.",
-          activeTraceId
-        );
-      }
-      if (cfg.active === false) {
-        return structuredError(
-          ERRORCODES.SERVICENOT_ACTIVE,
-          "Service is not bookable.",
-          activeTraceId
-        );
-      }
-      if (cfg.status && cfg.status !== CATALOGSTATUSACTIVE) {
-        return structuredError(
-          ERRORCODES.SERVICENOT_ACTIVE,
-          "Service is not bookable.",
-          activeTraceId
-        );
-      }
-    }
-
     const serviceDurationRange =
       earlyServiceConfig?.status === "SUCCESS" && earlyServiceConfig?.data?.durationRange
         ? earlyServiceConfig.data.durationRange
         : null;
 
     if (normalizedAddonIds.length > 0 && serviceDurationRange) {
-      return structuredError(
-        ERRORCODES.DURATIONRANGEWITHADDONSNOTSUPPORTED,
+      return _structuredError(
+        ERROR_CODES.DURATIONRANGEWITHADDONSNOTSUPPORTED,
         "Services with a duration range cannot be combined with addons.",
         activeTraceId
       );
@@ -1823,7 +1649,7 @@ export async function revalidateExactAvailabilitySlot({
         () =>
           withTimeout(
             () => availabilityTimeSlots.listAvailabilityTimeSlots(listPayload),
-            WATCHDOGTIMEOUTMS,
+            WATCHDOG_TIMEOUT_MS,
             "exactSlot:list"
           ),
         2,
@@ -1855,7 +1681,7 @@ export async function revalidateExactAvailabilitySlot({
         () =>
           withTimeout(
             () => availabilityTimeSlots.getAvailabilityTimeSlot(getPayload),
-            WATCHDOGTIMEOUTMS,
+            WATCHDOG_TIMEOUT_MS,
             "exactSlot:get"
           ),
         2,
@@ -1866,7 +1692,7 @@ export async function revalidateExactAvailabilitySlot({
     }
 
     if (requiredResourceId) {
-      const verification = await verifyRequiredStaffViaGet({
+      const verification = await _verifyRequiredStaffViaGet({
         serviceId: resolvedServiceId,
         start,
         end,
@@ -1876,8 +1702,8 @@ export async function revalidateExactAvailabilitySlot({
       });
 
       if (!verification.ok) {
-        return structuredError(
-          ERRORCODES.STAFFUNAVAILABLE,
+        return _structuredError(
+          ERROR_CODES.STAFFUNAVAILABLE,
           "Selected staff is no longer available.",
           activeTraceId
         );
@@ -1885,8 +1711,8 @@ export async function revalidateExactAvailabilitySlot({
 
       rawSlot = verification.slot;
     } else if (!rawSlot) {
-      return structuredError(
-        ERRORCODES.SLOTUNAVAILABLE,
+      return _structuredError(
+        ERROR_CODES.SLOTUNAVAILABLE,
         "Selected slot is no longer available.",
         activeTraceId
       );
@@ -1897,37 +1723,37 @@ export async function revalidateExactAvailabilitySlot({
     );
 
     if (returnedLocationId && returnedLocationId !== LOCATION_ID) {
-      return structuredError(
-        ERRORCODES.LOCATIONMISMATCH,
+      return _structuredError(
+        ERROR_CODES.LOCATIONMISMATCH,
         "Availability location does not match configured location.",
         activeTraceId
       );
     }
 
-    const normalizedSlot = attachServiceId(
+    const normalizedSlot = _attachServiceId(
       rawSlot,
       resolvedServiceId,
       activeTraceId,
       "revalidateExactAvailabilitySlot"
     );
 
-    const availableResourceIds = getResourceIdsFromSlot(normalizedSlot, STAFFRESOURCETYPEID);
+    const availableResourceIds = getResourceIdsFromSlot(normalizedSlot, STAFF_RESOURCE_TYPE_ID);
 
     if (
       !normalizedSlot ||
       normalizedSlot.bookable !== true ||
       availableResourceIds.length === 0
     ) {
-      return structuredError(
-        ERRORCODES.SLOTUNAVAILABLE,
+      return _structuredError(
+        ERROR_CODES.SLOTUNAVAILABLE,
         "Selected slot is no longer available.",
         activeTraceId
       );
     }
 
     if (requiredResourceId && !availableResourceIds.includes(requiredResourceId)) {
-      return structuredError(
-        ERRORCODES.STAFFUNAVAILABLE,
+      return _structuredError(
+        ERROR_CODES.STAFFUNAVAILABLE,
         "Selected staff is no longer available.",
         activeTraceId
       );
@@ -1937,17 +1763,17 @@ export async function revalidateExactAvailabilitySlot({
       const config = earlyServiceConfig.data;
       const startUtc = getUtcDateFromMadridLocal(start);
       const endUtc = getUtcDateFromMadridLocal(end);
-      const actualMinutes = minutesBetweenUtcDates(startUtc, endUtc);
+      const actualMinutes = _minutesBetweenUtcDates(startUtc, endUtc);
       const durationRange = config.durationRange;
 
       if (durationRange && actualMinutes > 0) {
-        const min = Number(durationRange.min);
-        const max = Number(durationRange.max);
-        const belowMin = Number.isFinite(min) && min > 0 && actualMinutes  max;
+        const min = durationRange.min;
+        const max = durationRange.max;
+        const belowMin = min > 0 && actualMinutes > max;
 
         if (belowMin || aboveMax) {
-          return structuredError(
-            ERRORCODES.SLOTDURATIONOUTOF_RANGE,
+          return _structuredError(
+            ERROR_CODES.SLOTDURATIONOUTOFRANGE,
             "Selected slot duration is out of the allowed range.",
             activeTraceId
           );
@@ -1957,8 +1783,8 @@ export async function revalidateExactAvailabilitySlot({
 
         if (expectedMinutes > 0 && actualMinutes > 0) {
           if (Math.abs(actualMinutes - expectedMinutes) > 1) {
-            return structuredError(
-              ERRORCODES.SLOTDURATION_MISMATCH,
+            return _structuredError(
+              ERROR_CODES.SLOTDURATIONMISMATCH,
               "Selected slot duration does not match service configuration.",
               activeTraceId
             );
@@ -1973,7 +1799,7 @@ export async function revalidateExactAvailabilitySlot({
       balancedResourceId = availableResourceIds[0];
     } else if (!balancedResourceId && availableResourceIds.length > 1) {
       const dayKey = _safeTrim(start).slice(0, 10);
-      const loadMap = await countStaffLoadForDay(
+      const loadMap = await _countStaffLoadForDay(
         dayKey,
         availableResourceIds,
         activeTraceId
@@ -2005,15 +1831,15 @@ export async function revalidateExactAvailabilitySlot({
       end,
       message: error?.message
     });
-    return structuredError(
-      ERRORCODES.SLOTUNAVAILABLE,
+    return _structuredError(
+      ERROR_CODES.SLOTUNAVAILABLE,
       "Selected slot could not be revalidated.",
       activeTraceId
     );
   }
 }
 
-/
+/**
  * ============================================================================
  * FASE7 v5010.1 - getConfirmedBookingForDisplay
  * B-01: el estado oficial de Bookings se normaliza en la frontera y se
@@ -2023,11 +1849,11 @@ export async function revalidateExactAvailabilitySlot({
 
 const DISPLAY_STATUSES = new Set([
   String(BOOKING_STATUS?.CONFIRMADO || "CONFIRMADO").toUpperCase(),
-  String(BOOKINGSTATUS?.PENDIENTEPAGO || "PENDIENTE_PAGO").toUpperCase()
+  String(BOOKING_STATUS?.PENDIENTEPAGO || "PENDIENTE_PAGO").toUpperCase()
 ]);
 
 export const getConfirmedBookingForDisplay = webMethod(
-  Permissions.Member,
+  Permissions.MEMBER,
   async ({ bookingId } = {}) => {
     const activeTraceId = makeTraceId("conf-display");
     const cleanId = _safeTrim(bookingId);
@@ -2037,7 +1863,7 @@ export const getConfirmedBookingForDisplay = webMethod(
         status: "ERROR",
         meta: { traceId: activeTraceId },
         data: null,
-        error: { code: ERRORCODES.INVALIDPAYLOAD, message: "bookingId is required" }
+        error: { code: ERROR_CODES.INVALIDPAYLOAD, message: "bookingId is required" }
       };
     }
 
@@ -2054,7 +1880,7 @@ export const getConfirmedBookingForDisplay = webMethod(
       });
 
       const info = raw?.booking?.info || {};
-      const status = mapWixBookingStatusToInternal(info.status);
+      const status = _mapWixBookingStatusToInternal(info.status);
 
       if (!status || !DISPLAY_STATUSES.has(status.toUpperCase())) {
         return {
@@ -2062,7 +1888,7 @@ export const getConfirmedBookingForDisplay = webMethod(
           meta: { traceId: activeTraceId },
           data: null,
           error: {
-            code: ERRORCODES.BOOKINGNOT_DISPLAYABLE,
+            code: ERROR_CODES.BOOKINGNOTDISPLAYABLE,
             message: "Booking is not in a displayable confirmed state."
           }
         };
@@ -2073,12 +1899,10 @@ export const getConfirmedBookingForDisplay = webMethod(
       const firstEntity = entities[0] || {};
       const firstSlot = firstEntity.slot || slot.schedule || {};
 
-      // AF-45: lectura centralizada de pairToken.
-      const formInfo = raw?.booking?.formInfo || {};
       const pairToken =
         info?.form?.fields?.pairToken ||
-        formInfo?.fields?.pairToken ||
-        formInfo?.pairToken ||
+        raw?.booking?.formInfo?.fields?.pairToken ||
+        raw?.booking?.formInfo?.pairToken ||
         null;
 
       return {
@@ -2094,7 +1918,7 @@ export const getConfirmedBookingForDisplay = webMethod(
             endDate: firstSlot.endDate || null,
             timezone:
               firstSlot.timezone?.id ||
-              SDKCONFIG.TIMEZONEID ||
+              SDK_CONFIG.TIMEZONEID ||
               "Europe/Madrid"
           },
           resource: firstEntity.resource ? { id: firstEntity.resource.id } : null,
@@ -2117,7 +1941,7 @@ export const getConfirmedBookingForDisplay = webMethod(
         meta: { traceId: activeTraceId },
         data: null,
         error: {
-          code: ERRORCODES.BOOKINGLOOKUP_FAILED,
+          code: ERROR_CODES.BOOKINGLOOKUPFAILED,
           message: "Booking could not be loaded for confirmation display.",
           traceId: activeTraceId
         }
@@ -2125,4 +1949,4 @@ export const getConfirmedBookingForDisplay = webMethod(
     }
   }
 );
-export { ERRORCODES as RESERVASERROR_CODES };
+export { ERROR_CODES as RESERVASERROR_CODES };
