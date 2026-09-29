@@ -1,1 +1,69 @@
-PLACEHOLDER
+diff --git a/src/backend/booking/bookingSaga.js b/src/backend/booking/bookingSaga.js
+index 8ba423a..00e7b34 100644
+--- a/src/backend/booking/bookingSaga.js
++++ b/src/backend/booking/bookingSaga.js
+@@ -156,42 +156,21 @@ const MAX_ADDONS_PER_BOOKING = 5;
+ // SAGA-01: BIBLIA 2.2 regla 7 -> no desactivar la validacion nativa de Wix.
+ const SKIP_AVAILABILITY_VALIDATION = false;
+ 
+-// SAGA-05: valores SSOT con fallback defensivo si la clave no existe.
+-const PAYMENT_STATUS_UNPAID =
+-    _safeTrim(PAYMENT_STATUS?.UNPAID) ||
+-    _safeTrim(PAYMENT_STATUS?.IMPAGADO) ||
+-    "IMPAGADO";
+-
+-const PAYMENT_STATUS_PENDING =
+-    _safeTrim(PAYMENT_STATUS?.PENDING_PAYMENT) ||
+-    _safeTrim(PAYMENT_STATUS?.PENDIENTE_PAGO) ||
+-    "PENDIENTE_PAGO";
+-
+-const BOOKING_STATUS_CONFIRMED =
+-    _safeTrim(BOOKING_STATUS?.CONFIRMED) ||
+-    _safeTrim(BOOKING_STATUS?.CONFIRMADO) ||
+-    "CONFIRMADO";
+-
+-const BOOKING_STATUS_PENDING_PAYMENT =
+-    _safeTrim(BOOKING_STATUS?.PENDING_PAYMENT) ||
+-    _safeTrim(BOOKING_STATUS?.PENDIENTE_PAGO) ||
+-    "PENDIENTE_PAGO";
+-
+-// SAGA-06: estados NO cancelables. Cubre enum nativo Wix (ingles) y valor
+-// SSOT V20 (espanol), porque booking.status viene DE Wix y CitasF2 almacena
+-// el valor traducido. BIBLIA 3.2.1 documenta ambas grafias.
++// SAGA-05: SSOT = Wix native EN enums only (no ES cascade).
++const PAYMENT_STATUS_UNPAID = _safeTrim(PAYMENT_STATUS.NOT_PAID || PAYMENT_STATUS.UNPAID);
++const PAYMENT_STATUS_PENDING = _safeTrim(PAYMENT_STATUS.PENDING_PAYMENT);
++const BOOKING_STATUS_CONFIRMED = _safeTrim(BOOKING_STATUS.CONFIRMED);
++const BOOKING_STATUS_PENDING_PAYMENT = _safeTrim(
++    BOOKING_STATUS.PENDING || BOOKING_STATUS.PENDING_PAYMENT
++);
++
++// SAGA-06: non-cancelable = Wix native booking statuses only.
+ const NON_CANCELABLE_STATUSES = new Set(
+     [
+-        String(BOOKING_STATUS?.CONFIRMED || "").toUpperCase(),
+-        String(BOOKING_STATUS?.CANCELLED || "").toUpperCase(),
+-        String(BOOKING_STATUS?.REFUNDED || "").toUpperCase(),
+-        "CONFIRMED",
+-        "CONFIRMADO",
+-        "CANCELLED",
+-        "CANCELED",
+-        "CANCELADO",
+-        "REFUNDED",
+-        "REEMBOLSADO",
++        BOOKING_STATUS.CONFIRMED,
++        BOOKING_STATUS.CANCELED,
++        BOOKING_STATUS.REFUNDED,
++        BOOKING_STATUS.DECLINED,
+         "DONE",
+         "COMPLETE",
+     ]
+@@ -1541,7 +1520,7 @@ export async function executeBookingSaga(unsafePayload) {
+                     booking.status =
+                         _safeTrim(confirmResult?.booking?.status) ||
+                         _safeTrim(confirmResult?.status) ||
+-                        "CONFIRMED";
++                        BOOKING_STATUS_CONFIRMED;
+                 }
+ 
+                 return {
