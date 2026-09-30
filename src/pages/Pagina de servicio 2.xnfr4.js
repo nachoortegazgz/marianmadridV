@@ -1,4 +1,3 @@
-// FILE: src/pages/servicio-2.js
 /*
 =============================================================================
 MODULE: pages/servicio-2.js
@@ -707,7 +706,9 @@ $w.onReady(async () => {
 
     showError(getSafeMessage(error, "No se pudo cargar el servicio."));
   }
-});iciosCatalogo rev.88, 44 claves tecnicas)
+});
+
+/*ServiciosCatalogo rev.88, 44 claves tecnicas)
 
 ALINEACION DE IDs TECNICAS APLICADA (Fase 1):
   Coleccion origen            : ServiciosCatalogo   (visible: SERVICIOS_CATALOGO)
@@ -842,8 +843,7 @@ function bool(value, fallback = false) {
   return fallback;
 }
 
-/
- * Lectura canonica con tolerancia de alias legacy (solo transicion V5010).
+/* Lectura canonica con tolerancia de alias legacy (solo transicion V5010).
  * ESCRITURA: siempre la clave canonica. LECTURA: canonical ?? alias.
  */
 function pick(source, canonicalKey, legacyKeys) {
@@ -935,8 +935,7 @@ function resolveTotalDuration(data, metadata) {
   return declared > 0 ? declared : computed;
 }
 
-/
- * Complementos: la fuente canonica es ComplementosCatalogo (addOnId).
+/* Complementos: la fuente canonica es ComplementosCatalogo (addOnId).
  * addOnOptions NO existe como clave tecnica en ServiciosCatalogo vivo;
  * se tolera su lectura durante V5010 y se normaliza a addOnId.
  */
@@ -1101,8 +1100,7 @@ function normalizeService(data) {
   return projectPublicService(dto);
 }
 
-/
- * Lista blanca de salida: garantiza que ningun campo fiscal, de coste o de
+/* Lista blanca de salida: garantiza que ningun campo fiscal, de coste o de
  * notas internas (tipoImpositivo, codigoImpuesto, claveRegimen,
  * cuentaContableIngreso/Gasto, costPrice, margin, internalNotes) llegue al
  * widget HTML embebido.
