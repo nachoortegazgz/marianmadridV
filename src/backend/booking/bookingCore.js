@@ -25,7 +25,7 @@ FIXES APLICADOS v5009-FISCAL-V20.2:
              _buildPairFingerprint + _buildPairTokenDeterministic son la
              UNICA fuente de verdad. reservas.web.js y bookingSaga.js deben
              importarlas (ver parches de consumo mas abajo). Incluye los 8
-             campos exigidos: serviceId, linkedPhases, dateYMD, f1Start,
+             campos exigidos: serviceId, linkedPhases, dateYmd, f1Start,
              f1End, f2Start, f2End, resourceId.
              _generatePairToken(traceId) queda SOLO como legacy no
              determinista (no usar para correlacion dual).
@@ -1072,15 +1072,15 @@ const CANCELLED_PAYMENT_ALIASES = Object.freeze([
     "CANCELADO", "CANCELED",
 ]);
 
-export async function _rankResourcesByLoad(resourceIds, dateYMD, traceId) {
+export async function _rankResourcesByLoad(resourceIds, dateYmd, traceId) {
     const input = Array.isArray(resourceIds) ?
         Array.from(new Set(resourceIds.map((id) => _safeTrim(id)).filter(_looksLikeGuid))) : [];
 
     if (input.length < 2) return input;
 
-    const day = _safeTrim(dateYMD);
+    const day = _safeTrim(dateYmd);
     if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) {
-        log.warn("_rankResourcesByLoad: invalid dateYMD", { dateYMD: day, traceId });
+        log.warn("_rankResourcesByLoad: invalid dateYmd", { dateYmd: day, traceId });
         return input;
     }
 
@@ -1138,7 +1138,7 @@ export async function _rankResourcesByLoad(resourceIds, dateYMD, traceId) {
     } catch (error) {
         log.warn("_rankResourcesByLoad failed; preserving availability order", {
             traceId,
-            dateYMD: day,
+            dateYmd: day,
             error: error?.message,
         });
         return input;

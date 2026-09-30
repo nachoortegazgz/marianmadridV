@@ -10,12 +10,12 @@ BASE NORMATIVA:
 
 DECISIONES DE ALINEACION (Fase 1):
   1. Cero alias legacy en lectura de URL y payloads:
-       slugUrl        -> ELIMINADO (CAMBIO.txt 3 / R19: slug unico)
-       addonIds       -> addOnIds  (clave tecnica ComplementosCatalogo: addOnId)
-       addonId        -> addOnId
-       dateYMD        -> dateYmd   (BIBLIA 4.6 / 4.8)
-       imageUrl       -> mainMedia (clave tecnica ServiciosCatalogo)
-       phase2ServiceId<- linkedPhases (REFERENCE, GUID Wix preservado)
+       slug        -> ELIMINADO (CAMBIO.txt 3 / R19: slug unico)
+       addOnIds       -> addOnIds  (clave tecnica ComplementosCatalogo: addOnId)
+       addOnId        -> addOnId
+       dateYmd        -> dateYmd   (BIBLIA 4.6 / 4.8)
+       mainMedia       -> mainMedia (clave tecnica ServiciosCatalogo)
+       linkedPhases<- linkedPhases (REFERENCE, GUID Wix preservado)
   2. Cero spread del DTO backend: proyeccion por lista blanca. Ningun campo
      fiscal, de coste o de notas internas (tipoImpositivo, codigoImpuesto,
      claveRegimen, cuentaContable*, costPrice, margin, internalNotes) entra
@@ -167,7 +167,7 @@ const PUBLIC_SERVICE_FIELDS = Object.freeze([
   "description",
   "tagLine",
   "mainMedia",
-  "imageUrl",
+  "mainMedia",
   "price",
   "currency",
   "totalDuration",
@@ -176,7 +176,7 @@ const PUBLIC_SERVICE_FIELDS = Object.freeze([
   "exposureDuration",
   "durationRange",
   "allowCombine",
-  "phase2ServiceId",
+  "linkedPhases",
   "addOns",
   "location",
   "serviceType",
@@ -494,7 +494,7 @@ function normalizeService(data, params) {
     description: text(data.description),
     tagLine: text(data.tagLine),
     mainMedia,
-    imageUrl: mainMedia,
+    mainMedia: mainMedia,
     price: number(data.price, 0),
     currency: text(data.currency, SITE.CURRENCY).toUpperCase(),
     totalDuration,
@@ -503,7 +503,7 @@ function normalizeService(data, params) {
     exposureDuration,
     durationRange: data.durationRange ?? null,
     allowCombine,
-    phase2ServiceId: allowCombine ? linkedPhaseId : "",
+    linkedPhases: allowCombine ? linkedPhaseId : "",
     addOns,
     location: text(data.location),
     serviceType: text(data.serviceType),
@@ -528,12 +528,12 @@ function normalizeService(data, params) {
       description: text(data.description),
       tagLine: text(data.tagLine),
       mainMedia,
-      imageUrl: mainMedia,
+      mainMedia: mainMedia,
       price: number(data.price, 0),
       currency: text(data.currency, SITE.CURRENCY).toUpperCase(),
       totalDuration,
       allowCombine,
-      phase2ServiceId: allowCombine ? linkedPhaseId : "",
+      linkedPhases: allowCombine ? linkedPhaseId : "",
       addOns
     }
   };
@@ -807,7 +807,7 @@ function createCalendarController({ traceId, widget, params }) {
     return {
       serviceId: state.service.serviceId,
       slug: state.service.slug,
-      phase2ServiceId: state.service.phase2ServiceId,
+      linkedPhases: state.service.linkedPhases,
       allowCombine: state.service.allowCombine,
       slotF1: bookingData.slotF1 ?? null,
       slotF2: state.service.allowCombine ? bookingData.slotF2 ?? null : null,

@@ -105,7 +105,7 @@ export function cleanGuidList(value) {
 export function _buildPairFingerprint({
     serviceId,
     linkedPhases,
-    dateYMD,
+    dateYmd,
     f1Start,
     f1End,
     f2Start,
@@ -115,7 +115,7 @@ export function _buildPairFingerprint({
     return [
         _safeTrim(serviceId) || "",
         _safeTrim(linkedPhases) || "",
-        _safeTrim(dateYMD) || "",
+        _safeTrim(dateYmd) || "",
         _safeTrim(f1Start) || "",
         _safeTrim(f1End) || "",
         _safeTrim(f2Start) || "",

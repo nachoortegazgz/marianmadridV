@@ -95,7 +95,7 @@ function skipWithoutLoader(t) {
 
 export async function DYN_01() { // huella canonica dual es determinista y sensible a los 8 campos
   const base = {
-    serviceId: GUID_A, linkedPhases: GUID_B, dateYMD: '2026-09-20',
+    serviceId: GUID_A, linkedPhases: GUID_B, dateYmd: '2026-09-20',
     f1Start: '2026-09-20T10:00:00', f1End: '2026-09-20T10:30:00',
     f2Start: '2026-09-20T10:45:00', f2End: '2026-09-20T11:15:00',
     resourceId: GUID_C

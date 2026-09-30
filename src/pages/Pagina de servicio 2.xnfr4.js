@@ -29,7 +29,7 @@ ALINEACION DE IDs TECNICAS APLICADA (Fase 1):
                                 status, clientHidden, itemNature, serviceType,
                                 onlinePayment, inPersonPayment, depositType,
                                 depositAmount, pricingModel, recomendaciones
-  Claves legacy toleradas     : slugUrl, tituloServicio, addOnOptions, addonId
+  Claves legacy toleradas     : slug, tituloServicio, addOnOptions, addOnId
                                 (SOLO lectura; nunca escritura - CAMBIO.txt)
   Claves visibles NO usadas   : servicioID, titulo, principalMedia, duracionTotal,
                                 permitirCombinacion, fasesVinculadas, disponibleStaff,
@@ -93,7 +93,7 @@ const PUBLIC_SERVICE_FIELDS = Object.freeze([
   "description",
   "tagLine",
   "mainMedia",
-  "imageUrl",
+  "mainMedia",
   "price",
   "currency",
   "totalDuration",
@@ -102,7 +102,7 @@ const PUBLIC_SERVICE_FIELDS = Object.freeze([
   "exposureDuration",
   "durationRange",
   "allowCombine",
-  "phase2ServiceId",
+  "linkedPhases",
   "addons",
   "location",
   "serviceType",
@@ -263,8 +263,8 @@ function getServiceSlug(service) {
   if (!service || typeof service !== "object") {
     return "";
   }
-  // slug = identidad publica (BIBLIAV 10). slugUrl es legacy de lectura.
-  return _safeSlugOrId(text(pick(service, "slug", ["slugUrl"])));
+  // slug = identidad publica (BIBLIAV 10). slug es legacy de lectura.
+  return _safeSlugOrId(text(pick(service, "slug", ["slug"])));
 }
 
 function getServiceImage(service) {
@@ -278,7 +278,7 @@ function getServiceImage(service) {
       : {};
 
   // Clave tecnica canonica: mainMedia (visible: principalMedia).
-  return text(pick(service, "mainMedia", ["imageUrl"]) || pick(metadata, "mainMedia", ["imageUrl"]));
+  return text(pick(service, "mainMedia", ["mainMedia"]) || pick(metadata, "mainMedia", ["mainMedia"]));
 }
 
 /** Aritmetica dual SSOT: totalDuration = phase1 + exposure + phase2. */
@@ -315,8 +315,8 @@ function normalizeAddon(entry) {
     return null;
   }
 
-  // Canonico: addOnId. Legacy de lectura: addonId / id / nativeId.
-  const addOnId = text(pick(entry, "addOnId", ["addonId", "nativeId", "id", "_id"]));
+  // Canonico: addOnId. Legacy de lectura: addOnId / id / nativeId.
+  const addOnId = text(pick(entry, "addOnId", ["addOnId", "nativeId", "id", "_id"]));
   if (!addOnId) {
     return null;
   }
@@ -354,7 +354,7 @@ function normalizeAddons(data, metadata) {
 function normalizeService(data) {
   const serviceId = getServiceId(data);
   const slug = getServiceSlug(data);
-  const imageUrl = getServiceImage(data);
+  const mainMedia = getServiceImage(data);
 
   if (!_looksLikeGuid(serviceId)) {
     throw new Error("El servicio no tiene un serviceId valido.");
@@ -380,7 +380,7 @@ function normalizeService(data) {
   }
 
   // linkedPhases: REFERENCE con GUID Wix. Nunca se convierte a slug.
-  const phase2ServiceId = getReferenceId(
+  const linkedPhases = getReferenceId(
     pick(data, "linkedPhases", ["linkFases", "linkedPhasess"]) ||
     sourceMetadata.linkedPhases
   );
@@ -405,14 +405,14 @@ function normalizeService(data) {
     price: num(pick(data, "price", ["precio"]) ?? sourceMetadata.price, 0),
     currency: text(pick(data, "currency", ["moneda"]), DEFAULT_CURRENCY),
 
-    mainMedia: imageUrl,
-    imageUrl,
+    mainMedia: mainMedia,
+    mainMedia,
 
     serviceType: text(pick(data, "serviceType", ["servicioTipo"])),
     itemNature: text(pick(data, "itemNature", ["naturalezaItem"])),
 
     allowCombine,
-    phase2ServiceId: allowCombine && _looksLikeGuid(phase2ServiceId) ? phase2ServiceId : "",
+    linkedPhases: allowCombine && _looksLikeGuid(linkedPhases) ? linkedPhases : "",
 
     onlinePayment: bool(pick(data, "onlinePayment", ["pagoOnline"]), false),
     inPersonPayment: bool(pick(data, "inPersonPayment", ["pagoPresencial"]), true),
@@ -445,12 +445,12 @@ function normalizeService(data) {
     durationRange: metadata.durationRange,
     price: metadata.price,
     currency: metadata.currency,
-    mainMedia: imageUrl,
-    imageUrl,
+    mainMedia: mainMedia,
+    mainMedia,
     serviceType: metadata.serviceType,
     addons: normalizeAddons(data, sourceMetadata),
     allowCombine: metadata.allowCombine,
-    phase2ServiceId: metadata.phase2ServiceId,
+    linkedPhases: metadata.linkedPhases,
     onlinePayment: metadata.onlinePayment,
     inPersonPayment: metadata.inPersonPayment,
     depositType: metadata.depositType,
@@ -488,11 +488,11 @@ async function resolveServiceLookup() {
   const query = wixLocation.query || {};
 
   // Orden canonico: slug (publico) -> serviceId (tecnico Wix).
-  // slugUrl queda como alias legacy de lectura (CAMBIO.txt 3, retirada V5010).
+  // slug queda como alias legacy de lectura (CAMBIO.txt 3, retirada V5010).
   const candidates = [
     query.slug,
     query.serviceId,
-    query.slugUrl
+    query.slug
   ];
 
   for (const candidate of candidates) {
@@ -526,8 +526,8 @@ function getAddonIds(payload) {
       payload.addons
         .map((addon) => {
           if (addon && typeof addon === "object") {
-            // Canonico: addOnId (ComplementosCatalogo). Legacy: addonId / id.
-            return text(addon.addOnId || addon.nativeId || addon.addonId || addon.id);
+            // Canonico: addOnId (ComplementosCatalogo). Legacy: addOnId / id.
+            return text(addon.addOnId || addon.nativeId || addon.addOnId || addon.id);
           }
           return text(addon);
         })
@@ -548,10 +548,10 @@ function buildBookingUrl(service, payload) {
     "referral=servicio-2"
   ];
 
-  const addonIds = getAddonIds(payload);
+  const addOnIds = getAddonIds(payload);
 
-  if (addonIds.length) {
-    query.push(`addOnIds=${encodeURIComponent(addonIds.join(","))}`);
+  if (addOnIds.length) {
+    query.push(`addOnIds=${encodeURIComponent(addOnIds.join(","))}`);
   }
 
   return `${base}?${query.join("&")}`;
@@ -722,7 +722,7 @@ ALINEACION DE IDs TECNICAS APLICADA (Fase 1):
                                 status, clientHidden, itemNature, serviceType,
                                 onlinePayment, inPersonPayment, depositType,
                                 depositAmount, pricingModel, recomendaciones
-  Claves legacy toleradas     : slugUrl, tituloServicio, addOnOptions, addonId
+  Claves legacy toleradas     : slug, tituloServicio, addOnOptions, addOnId
                                 (SOLO lectura; nunca escritura - CAMBIO.txt)
   Claves visibles NO usadas   : servicioID, titulo, principalMedia, duracionTotal,
                                 permitirCombinacion, fasesVinculadas, disponibleStaff,
@@ -786,7 +786,7 @@ const PUBLICSERVICEFIELDS = Object.freeze([
   "description",
   "tagLine",
   "mainMedia",
-  "imageUrl",
+  "mainMedia",
   "price",
   "currency",
   "totalDuration",
@@ -795,7 +795,7 @@ const PUBLICSERVICEFIELDS = Object.freeze([
   "exposureDuration",
   "durationRange",
   "allowCombine",
-  "phase2ServiceId",
+  "linkedPhases",
   "addons",
   "location",
   "serviceType",
@@ -902,8 +902,8 @@ function getServiceSlug(service) {
   if (!service || typeof service !== "object") {
     return "";
   }
-  // slug = identidad publica (BIBLIAV 10). slugUrl es legacy de lectura.
-  return _safeSlugOrId(text(pick(service, "slug", ["slugUrl"])));
+  // slug = identidad publica (BIBLIAV 10). slug es legacy de lectura.
+  return _safeSlugOrId(text(pick(service, "slug", ["slug"])));
 }
 
 function getServiceImage(service) {
@@ -917,7 +917,7 @@ function getServiceImage(service) {
       : {};
 
   // Clave tecnica canonica: mainMedia (visible: principalMedia).
-  return text(pick(service, "mainMedia", ["imageUrl"]) || pick(metadata, "mainMedia", ["imageUrl"]));
+  return text(pick(service, "mainMedia", ["mainMedia"]) || pick(metadata, "mainMedia", ["mainMedia"]));
 }
 
 / Aritmetica dual SSOT: totalDuration = phase1 + exposure + phase2. */
@@ -954,8 +954,8 @@ function normalizeAddon(entry) {
     return null;
   }
 
-  // Canonico: addOnId. Legacy de lectura: addonId / id / nativeId.
-  const addOnId = text(pick(entry, "addOnId", ["addonId", "nativeId", "id", "_id"]));
+  // Canonico: addOnId. Legacy de lectura: addOnId / id / nativeId.
+  const addOnId = text(pick(entry, "addOnId", ["addOnId", "nativeId", "id", "_id"]));
   if (!addOnId) {
     return null;
   }
@@ -993,7 +993,7 @@ function normalizeAddons(data, metadata) {
 function normalizeService(data) {
   const serviceId = getServiceId(data);
   const slug = getServiceSlug(data);
-  const imageUrl = getServiceImage(data);
+  const mainMedia = getServiceImage(data);
 
   if (!_looksLikeGuid(serviceId)) {
     throw new Error("El servicio no tiene un serviceId valido.");
@@ -1019,7 +1019,7 @@ function normalizeService(data) {
   }
 
   // linkedPhases: REFERENCE con GUID Wix. Nunca se convierte a slug.
-  const phase2ServiceId = getReferenceId(
+  const linkedPhases = getReferenceId(
     pick(data, "linkedPhases", ["linkFases", "linkedPhasess"]) ||
     sourceMetadata.linkedPhases
   );
@@ -1044,14 +1044,14 @@ function normalizeService(data) {
     price: num(pick(data, "price", ["precio"]) ?? sourceMetadata.price, 0),
     currency: text(pick(data, "currency", ["moneda"]), DEFAULT_CURRENCY),
 
-    mainMedia: imageUrl,
-    imageUrl,
+    mainMedia: mainMedia,
+    mainMedia,
 
     serviceType: text(pick(data, "serviceType", ["servicioTipo"])),
     itemNature: text(pick(data, "itemNature", ["naturalezaItem"])),
 
     allowCombine,
-    phase2ServiceId: allowCombine && _looksLikeGuid(phase2ServiceId) ? phase2ServiceId : "",
+    linkedPhases: allowCombine && _looksLikeGuid(linkedPhases) ? linkedPhases : "",
 
     onlinePayment: bool(pick(data, "onlinePayment", ["pagoOnline"]), false),
     inPersonPayment: bool(pick(data, "inPersonPayment", ["pagoPresencial"]), true),
@@ -1084,12 +1084,12 @@ function normalizeService(data) {
     durationRange: metadata.durationRange,
     price: metadata.price,
     currency: metadata.currency,
-    mainMedia: imageUrl,
-    imageUrl,
+    mainMedia: mainMedia,
+    mainMedia,
     serviceType: metadata.serviceType,
     addons: normalizeAddons(data, sourceMetadata),
     allowCombine: metadata.allowCombine,
-    phase2ServiceId: metadata.phase2ServiceId,
+    linkedPhases: metadata.linkedPhases,
     onlinePayment: metadata.onlinePayment,
     inPersonPayment: metadata.inPersonPayment,
     depositType: metadata.depositType,
@@ -1127,11 +1127,11 @@ async function resolveServiceLookup() {
   const query = wixLocation.query || {};
 
   // Orden canonico: slug (publico) -> serviceId (tecnico Wix).
-  // slugUrl queda como alias legacy de lectura (CAMBIO.txt 3, retirada V5010).
+  // slug queda como alias legacy de lectura (CAMBIO.txt 3, retirada V5010).
   const candidates = [
     query.slug,
     query.serviceId,
-    query.slugUrl
+    query.slug
   ];
 
   for (const candidate of candidates) {
@@ -1165,8 +1165,8 @@ function getAddonIds(payload) {
       payload.addons
         .map((addon) => {
           if (addon && typeof addon === "object") {
-            // Canonico: addOnId (ComplementosCatalogo). Legacy: addonId / id.
-            return text(addon.addOnId || addon.nativeId || addon.addonId || addon.id);
+            // Canonico: addOnId (ComplementosCatalogo). Legacy: addOnId / id.
+            return text(addon.addOnId || addon.nativeId || addon.addOnId || addon.id);
           }
           return text(addon);
         })
@@ -1187,10 +1187,10 @@ function buildBookingUrl(service, payload) {
     "referral=servicio-2"
   ];
 
-  const addonIds = getAddonIds(payload);
+  const addOnIds = getAddonIds(payload);
 
-  if (addonIds.length) {
-    query.push(addOnIds=${encodeURIComponent(addonIds.join(","))});
+  if (addOnIds.length) {
+    query.push(addOnIds=${encodeURIComponent(addOnIds.join(","))});
   }
 
   return ${base}?${query.join("&")};

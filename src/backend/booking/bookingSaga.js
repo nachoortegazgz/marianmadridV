@@ -253,7 +253,7 @@ function _resolveUnifiedPairToken({
         const fingerprint = _buildPairFingerprint({
             serviceId: serviceId,
             linkedPhases: linkedPhases,
-            dateYMD: _safeTrim(f1Start).slice(0, 10),
+            dateYmd: _safeTrim(f1Start).slice(0, 10),
             f1Start: f1Start,
             f1End: f1End,
             f2Start: f2Start,
@@ -704,10 +704,10 @@ function _detectAddons(unsafePayload, metaCita, serviceConfig, traceId) {
     const rawAddons =
         unsafePayload?.nativeAddonIds ||
         unsafePayload?.addOnIds ||
-        unsafePayload?.addonIds ||
+        unsafePayload?.addOnIds ||
         metaCita?.nativeAddonIds ||
         metaCita?.addOnIds ||
-        metaCita?.addonIds ||
+        metaCita?.addOnIds ||
         [];
 
     const requested = Array.isArray(rawAddons)
@@ -772,11 +772,11 @@ function _detectAddons(unsafePayload, metaCita, serviceConfig, traceId) {
  * Se exponen ambas claves porque el contrato del Writer V2 ha usado
  * historicamente addOnIds y selectedAddOns.
  */
-function _buildAddonSlotFields(addonIds) {
-    if (!Array.isArray(addonIds) || addonIds.length === 0) return {};
+function _buildAddonSlotFields(addOnIds) {
+    if (!Array.isArray(addOnIds) || addOnIds.length === 0) return {};
     return {
-        addOnIds: addonIds.slice(),
-        selectedAddOns: addonIds.slice(),
+        addOnIds: addOnIds.slice(),
+        selectedAddOns: addOnIds.slice(),
     };
 }
 
@@ -1065,7 +1065,7 @@ export async function executeBookingSaga(unsafePayload) {
             f2Start: isDual ? f2LocalStart : null,
             f2End: isDual ? f2LocalEnd : null,
             requestedResourceId: requestedResourceId || null,
-            addonIds: detectedAddonIds,
+            addOnIds: detectedAddonIds,
             traceId: traceId,
         });
 

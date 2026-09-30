@@ -6,7 +6,7 @@
  * STANDARDS: G10 ASCII Strict.
  *
  * ALINEACION SSOT (BIBLIA v5009-V20-FINAL-CONSOLIDATED-v4, apartado 4.3):
- *  - FIX-01 Identidad publica unica: slug. Se retira slugUrl del contrato.
+ *  - FIX-01 Identidad publica unica: slug. Se retira slug del contrato.
  *  - FIX-02 Normalizacion segura del slug (query, hash, barras, ultimo segmento).
  *  - FIX-03 Consulta separada: GUID -> serviceId / slug -> slug.
  *  - FIX-04 Se retira el fallback GUID imposible dentro de la rama no-GUID.
@@ -15,7 +15,7 @@
  *  - FIX-07 Contrato frontend/backend alineado (raiz + metadata).
  *  - FIX-08 price y currency expuestos en raiz y en metadata.
  *  - FIX-09 title, description, tagLine expuestos en raiz.
- *  - FIX-10 mainMedia e imageUrl expuestos de forma compatible.
+ *  - FIX-10 mainMedia e mainMedia expuestos de forma compatible.
  *  - FIX-11 Complementos normalizados desde addOnOptions (campo canonico 4.3).
  *  - FIX-12 linkedPhases sigue siendo GUID de Bookings (no se convierte a slug).
  *  - FIX-13 SERVICELOCATIONMISMATCH preservado como error estructurado.
@@ -381,7 +381,7 @@ function _normalizeImport2Addon(addon) {
   if (!addon || typeof addon !== "object") return null;
   return {
     ...addon,
-    id: safeTrim(addon.id || addon.id || addon.addonId),
+    id: safeTrim(addon.id || addon.id || addon.addOnId),
     nombre: _safeTrim(addon.nombre || addon.name || addon.title),
     precio: Number(addon.precio ?? addon.price ?? 0) || 0
   };
@@ -723,7 +723,7 @@ export async function _mapServiceImport2ToUX(service, traceId) {
     category,
     location,
     mainMedia,
-    imageUrl: mainMedia,
+    mainMedia: mainMedia,
     addOnOptions,
 
     // H-07: fuente unica availableStaff (4.3 fila 18).
@@ -761,7 +761,7 @@ export async function _mapServiceImport2ToUX(service, traceId) {
       estado: status,
       addons: addOnOptions,
       addonsPrecio: addOnOptions.map((addon) => Number(addon?.precio || 0)),
-      imageUrl: mainMedia,
+      mainMedia: mainMedia,
       mainMedia,
       pricingModel,
       pricing: { base: price, currency },
@@ -984,9 +984,9 @@ export function _toPublicService(service) {
 
 export const getAvailableSlots = webMethod(
   Permissions.Anyone,
-  async (serviceIdOrSlug, resourceId, dateYMD, addonIds) => {
+  async (serviceIdOrSlug, resourceId, dateYmd, addOnIds) => {
     const traceId = makeTraceId("available-slots");
-    const safeAddonIds = Array.isArray(addonIds) ? addonIds : [];
+    const safeAddonIds = Array.isArray(addOnIds) ? addOnIds : [];
 
     try {
       const serviceResult = await _getServiceBySlugOrIdInternal(serviceIdOrSlug, traceId);
@@ -1030,7 +1030,7 @@ export const getAvailableSlots = webMethod(
         );
       }
 
-      const ymd = _safeTrim(dateYMD);
+      const ymd = _safeTrim(dateYmd);
       if (!_isValidMadridYmd(ymd)) {
         return _structuredError(
           ERRORCODES.INVALIDDATE,
@@ -1081,7 +1081,7 @@ export const getAvailableSlots = webMethod(
         data: {
           slots,
           serviceId,
-          dateYMD: ymd,
+          dateYmd: ymd,
           resourceId: requestedResourceId[0] || null
         },
         error: null
@@ -1090,7 +1090,7 @@ export const getAvailableSlots = webMethod(
       log.warn("getAvailableSlots failed", {
         traceId,
         serviceIdOrSlug: _safeTrim(serviceIdOrSlug),
-        dateYMD: _safeTrim(dateYMD),
+        dateYmd: _safeTrim(dateYmd),
         message: error?.message
       });
       return _structuredError(
@@ -1108,9 +1108,9 @@ export const getAvailableSlots = webMethod(
 
 export const getAvailableDays = webMethod(
   Permissions.Anyone,
-  async (serviceIdOrSlug, resourceId, year, month, addonIds) => {
+  async (serviceIdOrSlug, resourceId, year, month, addOnIds) => {
     const traceId = makeTraceId("available-days");
-    const safeAddonIds = Array.isArray(addonIds) ? addonIds : [];
+    const safeAddonIds = Array.isArray(addOnIds) ? addOnIds : [];
 
     try {
       const serviceResult = await _getServiceBySlugOrIdInternal(serviceIdOrSlug, traceId);
@@ -1218,8 +1218,8 @@ export const getAvailableDays = webMethod(
 // B-01: campo canonico bookingStatus (4.6 fila 15) y enum interno CANCELADO.
 // ============================================================================
 
-async function _countStaffLoadForDay(dateYMD, resourceIds, traceId) {
-  const ymd = _safeTrim(dateYMD);
+async function _countStaffLoadForDay(dateYmd, resourceIds, traceId) {
+  const ymd = _safeTrim(dateYmd);
   const ids = cleanGuidList(resourceIds);
   const loadByResource = {};
 
@@ -1260,7 +1260,7 @@ async function _countStaffLoadForDay(dateYMD, resourceIds, traceId) {
   } catch (error) {
     log.warn("_countStaffLoadForDay failed; using zero loads", {
       traceId,
-      dateYMD: ymd,
+      dateYmd: ymd,
       message: error?.message
     });
   }
@@ -1272,9 +1272,9 @@ async function _countStaffLoadForDay(dateYMD, resourceIds, traceId) {
 // DISPONIBILIDAD DUAL (PATCH-02: pairToken determinista via huella canonica)
 // ============================================================================
 
-export async function _getCertifiedDualSlotsInternal(serviceId, resourceId, dateYMD, addonIds) {
+export async function _getCertifiedDualSlotsInternal(serviceId, resourceId, dateYmd, addOnIds) {
   const traceId = makeTraceId("dual-slots");
-  const safeAddonIds = Array.isArray(addonIds) ? addonIds : [];
+  const safeAddonIds = Array.isArray(addOnIds) ? addOnIds : [];
   const serviceRes = await _getServiceBySlugOrIdInternal(serviceId, traceId);
 
   if (serviceRes?.status !== "SUCCESS" || !serviceRes?.data) {
@@ -1301,7 +1301,7 @@ export async function _getCertifiedDualSlotsInternal(serviceId, resourceId, date
     );
   }
 
-  const ymd = _safeTrim(dateYMD);
+  const ymd = _safeTrim(dateYmd);
   if (!_isValidMadridYmd(ymd)) {
     return _structuredError(
       ERRORCODES.INVALIDDATE,
@@ -1429,7 +1429,7 @@ export async function _getCertifiedDualSlotsInternal(serviceId, resourceId, date
       const pairToken = _buildPairTokenDeterministic({
         serviceId: service.serviceId,
         linkedPhases: service.linkedPhases,
-        dateYMD: ymd,
+        dateYmd: ymd,
         f1Start,
         f1End,
         f2Start,
@@ -1449,7 +1449,7 @@ export async function _getCertifiedDualSlotsInternal(serviceId, resourceId, date
         pairToken,
         serviceId: service.serviceId,
         linkedPhases: service.linkedPhases,
-        dateYMD: ymd,
+        dateYmd: ymd,
         gapMinutes,
         exposureDuration: Number(service.exposureDuration || 0) || 0,
         totalDuration: Number(service.totalDuration || 0) || 0
@@ -1462,7 +1462,7 @@ export async function _getCertifiedDualSlotsInternal(serviceId, resourceId, date
 
 export const getCertifiedDualSlots = webMethod(
   Permissions.Anyone,
-  async (serviceIdOrSlug, resourceId, dateYMD, addonIds) => {
+  async (serviceIdOrSlug, resourceId, dateYmd, addOnIds) => {
     try {
       const resolved = await _resolveServiceIdInternal(serviceIdOrSlug);
       if (!resolved) {
@@ -1471,7 +1471,7 @@ export const getCertifiedDualSlots = webMethod(
           "Service identifier not found."
         );
       }
-      return await _getCertifiedDualSlotsInternal(resolved, resourceId, dateYMD, addonIds);
+      return await _getCertifiedDualSlotsInternal(resolved, resourceId, dateYmd, addOnIds);
     } catch (error) {
       return {
         status: "ERROR",
@@ -1493,11 +1493,11 @@ export async function _resolveStaffForSlotInternal({
   f2Start,
   f2End,
   requestedResourceId,
-  addonIds,
+  addOnIds,
   traceId
 }) {
   const activeTraceId = traceId || makeTraceId("staff-resolve");
-  const safeAddonIds = Array.isArray(addonIds) ? addonIds : [];
+  const safeAddonIds = Array.isArray(addOnIds) ? addOnIds : [];
   const resolved = await _resolveServiceIdInternal(serviceId);
 
   if (!resolved) {
@@ -1570,7 +1570,7 @@ export async function _resolveStaffForSlotInternal({
 
 export const resolveStaffForSlot = webMethod(
   Permissions.Anyone,
-  async (serviceIdOrSlug, start, resourceId, addonIds, end) => {
+  async (serviceIdOrSlug, start, resourceId, addOnIds, end) => {
     try {
       const resolved = await _resolveServiceIdInternal(serviceIdOrSlug);
       if (!resolved) {
@@ -1587,7 +1587,7 @@ export const resolveStaffForSlot = webMethod(
         f2Start: null,
         f2End: null,
         requestedResourceId: resourceId,
-        addonIds,
+        addOnIds,
         traceId: makeTraceId("staff-resolve-wm")
       });
     } catch (error) {
@@ -1604,7 +1604,7 @@ export const resolveStaffForSlot = webMethod(
 // INVALIDACION DE CACHES
 // ============================================================================
 
-export async function _invalidateCachesInternal(serviceId, dateYMD, resourceId, traceId) {
+export async function _invalidateCachesInternal(serviceId, dateYmd, resourceId, traceId) {
   try {
     const sid = _safeTrim(serviceId);
 
@@ -1620,7 +1620,7 @@ export async function _invalidateCachesInternal(serviceId, dateYMD, resourceId, 
     log.info("_invalidateCachesInternal", {
       traceId,
       serviceId: sid || null,
-      dateYMD: _safeTrim(dateYMD) || null,
+      dateYmd: _safeTrim(dateYmd) || null,
       resourceId: _safeTrim(resourceId) || null
     });
 
