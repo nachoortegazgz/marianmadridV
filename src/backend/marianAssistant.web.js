@@ -155,4 +155,3 @@ export const askMarianAssistant = webMethod(
     }
   }
 );
-Requiere que exista el secreto `MARIAN_ASSISTANT_OPENAI_KEY` en Wix Secrets Manager.
