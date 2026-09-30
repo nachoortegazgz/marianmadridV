@@ -4,7 +4,6 @@
  * BASE: v5009-FISCAL-V20.7-PROD + Auditoria de alineacion SSOT ServiciosCatalogo
  * RESPONSABILITY: Availability engine, dual slots, staff pairing and caching.
  * STANDARDS: G10 ASCII Strict.
- *
  * ALINEACION SSOT (BIBLIA v5009-V20-FINAL-CONSOLIDATED-v4, apartado 4.3):
  *  - FIX-01 Identidad publica unica: slug. Se retira slug del contrato.
  *  - FIX-02 Normalizacion segura del slug (query, hash, barras, ultimo segmento).
