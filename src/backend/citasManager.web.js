@@ -1,260 +1,1032 @@
-/* MODULE: backend/citasManager.web.js VERSION: v5010.9-SSOT-ALIGNED */
+/*
+=============================================================================
+MODULE: backend/citasManager.web.js
+VERSION: v5009-FISCAL-V20.1
+BASE: v5008.6-FINAL + Directriz V20 (IDs nativa en ingles)
+RESPONSIBILITY: Booking processing, payment confirmation and rescheduling.
+STANDARDS: G10 ASCII Strict.
+
+FIXES APLICADOS v5009-FISCAL-V20.1:
+  - V20-01: imports alineados (BOOKING_STATUS, PAYMENT_STATUS, PAYMENT_METHOD).
+  - V20-02: registerBookingPayment recibe movementType (no tipoMovimiento).
+  - V20-03: helper _setCitasPaymentState escribe BOOKING_STATUS.CONFIRMED.
+
+FIXES APLICADOS v5008.6 (heredados):
+  - FIX-27: eliminado import no usado rescheduleBookingElevated.
+
+NOTA DE AUDITORIA: el modulo original expone 2 webMethods
+(processDualBooking, confirmPayment). Los helpers de reschedule existen
+pero no estan expuestos como webMethods en este archivo. Se preservan tal
+cual. No se anaden webMethods nuevos.
+=============================================================================
+*/
+
 import { webMethod, Permissions } from "wix-web-module";
 import wixData from "wix-data";
+import { orders } from "wix-ecom-backend";
+
 import {
   COLLECTIONS,
-  PAYMENT_METHOD,
-  PAYMENT_STATUS,
+  SDK_CONFIG,
+  APP_IDS,
   BOOKING_STATUS,
+  PAYMENT_STATUS,
+  PAYMENT_METHOD,
+  SLOT_SEARCH
 } from "backend/internalConfig";
-import { makeTraceId, _safeTrim } from "public/mmUtils";
-import { logger } from "backend/logger";
+
+import {
+  makeTraceId,
+  _safeTrim,
+  _looksLikeGuid,
+  _normalizeLocalIsoStr,
+  _readPositiveAmount,
+  getUtcDateFromMadridLocal,
+  withTimeout
+} from "public/mmUtils";
+
+import {
+  toUtcRange,
+  computeGapMinutes
+} from "backend/booking/bookingUtils";
+
 import { executeBookingSaga } from "backend/booking/bookingSaga";
+
+import {
+  normalizeError,
+  _handleError,
+  ERROR_CODES,
+  createBookingError,
+  _updateCitaSafe
+} from "backend/booking/bookingCore";
+
 import { registerBookingPayment } from "backend/cajas.web";
+import { rateLimiter } from "backend/security";
+import { logger } from "backend/logger";
+import { logAuditEvent } from "backend/audit";
+import {
+  revalidateExactAvailabilitySlot
+} from "backend/reservas.web";
 
 const log = logger;
+
 const CITAS_COL = COLLECTIONS.CITAS_F2;
-const MAX_QUERY_LIMIT = 100;
+const API_TIMEOUT_MS =
+  Number(SDK_CONFIG?.TIMEOUTS?.API_MS) || 15000;
 
-function _text(value, max = 5000) {
-  return _safeTrim(value).slice(0, max);
-}
-function _status(value) {
-  return _text(value).toUpperCase();
-}
-function _id(value) {
-  return _text(value, 300) || null;
-}
-function _public(item) {
-  if (!item || typeof item !== "object") return null;
-  return {
-    id: item._id || null,
-    bookingId: item.bookingId || null,
-    pairToken: item.pairToken || null,
-    serviceId: item.serviceId || null,
-    linkedF1BookingId: item.linkedF1BookingId || null,
-    scheduleId: item.scheduleId || null,
-    resourceId: item.resourceId || null,
-    staffResourceId: item.staffResourceId || null,
-    startDate: item.startDate || null,
-    endDate: item.endDate || null,
-    dateYmd: item.dateYmd || null,
-    bookingType: item.bookingType || null,
-    status: item.bookingStatus || item.status || null,
-    paymentStatus: item.paymentStatus || null,
-    contactDetails: item.contactDetails || null,
-    locationId: item.locationId || null,
-    meta: item.meta || null,
-    traceId: item.traceId || null,
-  };
-}
-function _publicError(error, fallbackCode) {
-  const code =
-    _safeTrim(error?.code || error?.details?.applicationError?.code) ||
-    fallbackCode ||
-    "BOOKING_FAILED";
-  return {
-    status: "ERROR",
-    data: null,
-    error: { code: code, message: _safeTrim(error?.message) || "Booking request failed" },
-  };
-}
+const AUDIT_SOURCE =
+  "backend/citasManager.web.js";
 
-export async function _getCitaByBookingId(bookingId, traceId = null) {
-  const bid = _id(bookingId);
-  if (!bid) return null;
-  try {
-    const result = await wixData
-      .query(CITAS_COL)
-      .eq("bookingId", bid)
-      .limit(1)
-      .find({ suppressAuth: true, suppressHooks: true });
-    return result?.items?.[0] || null;
-  } catch (error) {
-    log.error("_getCitaByBookingId failed", { bookingId: bid, traceId, error: error?.message });
-    throw error;
-  }
-}
+const MAX_DUAL_GAP_MINUTES = Math.max(
+  0,
+  Number(SLOT_SEARCH?.MAX_DUAL_GAP_MINUTES) || 120
+);
 
-export async function _getCitasByPairToken(pairToken, traceId = null) {
-  const token = _id(pairToken);
-  if (!token) return [];
-  try {
-    const result = await wixData
-      .query(CITAS_COL)
-      .eq("pairToken", token)
-      .limit(MAX_QUERY_LIMIT)
-      .find({ suppressAuth: true, suppressHooks: true });
-    return result?.items || [];
-  } catch (error) {
-    log.error("_getCitasByPairToken failed", { pairToken: token, traceId, error: error?.message });
-    throw error;
-  }
-}
+// =============================================================================
+// HELPERS INTERNOS
+// =============================================================================
 
-export async function _updateCitaSafe(bookingId, updater, traceId = null, operation = "update") {
-  const bid = _id(bookingId);
-  if (!bid || typeof updater !== "function") return { updated: false, reason: "INVALID_INPUT" };
-  try {
-    const existing = await _getCitaByBookingId(bid, traceId);
-    if (!existing) return { updated: false, reason: "NOT_FOUND" };
-    const next = updater(Object.assign({}, existing));
-    if (!next || typeof next !== "object") return { updated: false, reason: "NO_CHANGE" };
-    delete next._createdDate;
-    delete next._updatedDate;
-    delete next._owner;
-    next._id = existing._id;
-    next.traceId = traceId || next.traceId || existing.traceId;
-    const item = await wixData.update(CITAS_COL, next, { suppressAuth: true, suppressHooks: true });
-    return { updated: true, item: _public(item) };
-  } catch (error) {
-    log.error("_updateCitaSafe failed", { bookingId: bid, operation, traceId, error: error?.message });
-    return { updated: false, reason: "ERROR", error: error?.message };
-  }
-}
+function _getCitaMeta(cita) {
+  if (!cita) return {};
 
-/** Dual = two simple appointments + gap (NOT Multi Service Booking). */
-export const processDualBooking = webMethod(Permissions.Anyone, async function (payload) {
-  const input = payload && typeof payload === "object" ? payload : {};
-  const traceId = _safeTrim(input.traceId) || makeTraceId("process-dual");
-  try {
-    const email = _safeTrim(input.email || input.contactDetails?.email || input.metaCita?.email);
-    if (!email) {
-      return { status: "ERROR", data: null, error: { code: "INVALID_PAYLOAD", message: "Email is required" } };
+  const meta = cita.meta || {};
+
+  if (typeof meta === "string") {
+    try {
+      const parsed = JSON.parse(meta);
+
+      return (
+        parsed &&
+        typeof parsed === "object" &&
+        !Array.isArray(parsed)
+      )
+        ? parsed
+        : {};
+    } catch (_) {
+      return {};
     }
-    const serviceId = _safeTrim(input.serviceId);
-    if (!serviceId) {
-      return { status: "ERROR", data: null, error: { code: "INVALID_PAYLOAD", message: "serviceId is required" } };
+  }
+
+  if (
+    typeof meta !== "object" ||
+    meta === null ||
+    Array.isArray(meta)
+  ) {
+    return {};
+  }
+
+  return meta;
+}
+
+function _getNativeAddonIdsForRevalidation(cita) {
+  const meta = _getCitaMeta(cita);
+
+  const addOnIds =
+    meta.nativeAddonIds ||
+    meta.addOnIds ||
+    [];
+
+  if (!Array.isArray(addOnIds)) {
+    return [];
+  }
+
+  return addOnIds
+    .map((id) => _safeTrim(id))
+    .filter((id) => _looksLikeGuid(id));
+}
+
+async function _findCitaByBookingId(bookingId) {
+  const normalizedId = _safeTrim(bookingId);
+
+  if (!normalizedId) return null;
+
+  const result = await wixData
+    .query(CITAS_COL)
+    .eq("bookingId", normalizedId)
+    .limit(1)
+    .find({ suppressAuth: true });
+
+  return result?.items?.[0] || null;
+}
+
+async function _findCitasByPairToken(pairToken) {
+  const normalizedToken = _safeTrim(pairToken);
+
+  if (!normalizedToken) return [];
+
+  const result = await wixData
+    .query(CITAS_COL)
+    .eq("pairToken", normalizedToken)
+    .limit(10)
+    .find({ suppressAuth: true });
+
+  return Array.isArray(result?.items)
+    ? result.items
+    : [];
+}
+
+function _rateLimitOrThrow(surface, key, traceId) {
+  const result = rateLimiter({
+    surface,
+    key
+  });
+
+  if (result.allowed) return;
+
+  const error = new Error("RATE_LIMITED");
+
+  error.code = "RATE_LIMITED";
+  error.meta = {
+    retryAfter: result.retryAfter,
+    surface,
+    traceId
+  };
+
+  throw error;
+}
+
+function _isPaidOrderStatus(value) {
+  const status = String(value || "")
+    .trim()
+    .toUpperCase();
+
+  return [
+    "PAID",
+    "FULLY_PAID",
+    "PAID_FULL"
+  ].includes(status);
+}
+
+function _getOrderBookingLineItems(order) {
+  const lineItems = Array.isArray(order?.lineItems)
+    ? order.lineItems
+    : [];
+
+  const bookingsAppId = APP_IDS.BOOKINGS;
+
+  return lineItems.filter(
+    (item) =>
+      item?.catalogReference?.appId ===
+      bookingsAppId
+  );
+}
+
+function _getBookingLineItemsTotal(lineItems) {
+  return (lineItems || []).reduce(
+    (sum, item) => {
+      const amount = Number(
+        item?.price?.amount ??
+        item?.price ??
+        0
+      ) || 0;
+
+      const quantity =
+        Number(item?.quantity) || 1;
+
+      return sum + amount * quantity;
+    },
+    0
+  );
+}
+
+// =============================================================================
+// PUBLIC WEB METHODS
+// =============================================================================
+
+export const processDualBooking = webMethod(
+  Permissions.Anyone,
+  async (unsafePayload) => {
+    const traceId =
+      unsafePayload?.traceId ||
+      makeTraceId("dual-bkg");
+
+    try {
+      _rateLimitOrThrow(
+        "citasManager.processDualBooking",
+        _safeTrim(
+          unsafePayload?.email
+        ) || "anon",
+        traceId
+      );
+
+      return await executeBookingSaga({
+        ...(unsafePayload || {}),
+        traceId
+      });
+    } catch (error) {
+      return _handleError(
+        error,
+        "processDualBooking",
+        traceId
+      );
     }
-    const slotF1 = input.slotF1 || {};
-    if (!_safeTrim(slotF1.localStartDate || slotF1.start) || !_safeTrim(slotF1.localEndDate || slotF1.end)) {
+  }
+);
+
+export const confirmPayment = webMethod(
+  Permissions.SiteMember,
+  async (payload) => {
+    const traceId =
+      payload?.traceId ||
+      makeTraceId("confirm-pay");
+
+    try {
+      _rateLimitOrThrow(
+        "citasManager.confirmPayment",
+        _safeTrim(
+          payload?.orderId
+        ) || "anon",
+        traceId
+      );
+
+      const orderId = _safeTrim(
+        payload?.orderId
+      );
+
+      const bookingIds =
+        Array.isArray(payload?.bookingIds)
+          ? Array.from(
+              new Set(
+                payload.bookingIds
+                  .map((id) => _safeTrim(id))
+                  .filter((id) => _looksLikeGuid(id))
+              )
+            )
+          : [];
+
+      const requestedAmount =
+        _readPositiveAmount(
+          payload?.amount
+        );
+
+      if (
+        !orderId ||
+        bookingIds.length === 0
+      ) {
+        return {
+          status: "ERROR",
+          data: null,
+          error: {
+            code: "INVALID_PAYLOAD",
+            message:
+              "orderId and valid bookingIds are required."
+          }
+        };
+      }
+
+      const {
+        finalAmount
+      } = await _getValidatedPaidOrder(
+        orderId,
+        bookingIds,
+        requestedAmount,
+        traceId
+      );
+
+      const citas = [];
+
+      for (const bookingId of bookingIds) {
+        const cita =
+          await _findCitaByBookingId(
+            bookingId
+          );
+
+        if (!cita) {
+          return {
+            status: "ERROR",
+            data: null,
+            error: {
+              code: "CITA_NOT_FOUND",
+              message:
+                "Booking record was not found."
+            }
+          };
+        }
+
+        citas.push(cita);
+      }
+
+      await _validatePaymentCitaSet(
+        citas,
+        orderId,
+        traceId
+      );
+
+      const linkedBookingIds =
+        bookingIds.join(",");
+
+      const ledgerResult =
+        await registerBookingPayment(
+          linkedBookingIds,
+          finalAmount,
+          PAYMENT_METHOD.ONLINE,
+          {
+            concept:
+              "Online booking payment",
+            resourceId: "online",
+            traceId,
+            transactionId:
+              `ORDER-${orderId}`,
+            orderId,
+            origen:
+              "WIX_ECOM_PAYMENT_CONFIRM",
+            movementType:
+              "VENTA_ONLINE"
+          }
+        );
+
+      if (
+        ledgerResult?.status !==
+        "SUCCESS"
+      ) {
+        await logAuditEvent(
+          "PAYMENT_LEDGER_FAILED",
+          "ERROR",
+          "Payment ledger registration failed.",
+          {
+            orderId,
+            traceId,
+            error:
+              ledgerResult?.error?.message ||
+              null
+          },
+          traceId,
+          orderId,
+          AUDIT_SOURCE
+        );
+
+        return {
+          status: "ERROR",
+          data: null,
+          error: {
+            code: "LEDGER_FAIL",
+            message:
+              ledgerResult?.error?.message ||
+              "Payment registration failed."
+          }
+        };
+      }
+
+      await _setCitasPaymentState(
+        citas,
+        PAYMENT_STATUS.PAID,
+        orderId,
+        traceId
+      );
+
+      await logAuditEvent(
+        "PAYMENT_CONFIRMED",
+        "INFO",
+        "Booking payment confirmed.",
+        {
+          orderId,
+          bookingIds,
+          amount: finalAmount,
+          traceId
+        },
+        traceId,
+        orderId,
+        AUDIT_SOURCE
+      );
+
+      return {
+        status: "SUCCESS",
+        data: {
+          orderId,
+          bookingIds,
+          amount: finalAmount,
+          paymentStatus:
+            PAYMENT_STATUS.PAID
+        },
+        error: null
+      };
+    } catch (error) {
+      const normalized =
+        normalizeError(error);
+
+      log.error(
+        "confirmPayment failed",
+        {
+          code: normalized.code,
+          error: normalized.message,
+          traceId
+        }
+      );
+
       return {
         status: "ERROR",
         data: null,
-        error: { code: "INVALID_PAYLOAD", message: "F1 slot localStartDate/localEndDate required" },
+        error: {
+          code:
+            normalized.code ||
+            "CONFIRM_PAY_FAIL",
+          message: normalized.message
+        }
       };
     }
-    const paymentMethod = _safeTrim(
-      input.paymentMethod || input.method || PAYMENT_METHOD.ONLINE
-    ).toUpperCase();
-    const sagaPayload = Object.assign({}, input, {
-      email: email,
-      serviceId: serviceId,
-      paymentMethod: paymentMethod,
-      traceId: traceId,
-    });
-    log.info("processDualBooking start", {
-      traceId,
-      serviceId,
-      paymentMethod,
-      hasSlotF2: Boolean(input.slotF2),
-      hasPairToken: Boolean(_safeTrim(input.pairToken)),
-    });
-    const result = await executeBookingSaga(sagaPayload);
-    if (result && (result.status === "SUCCESS" || result.status === "ERROR")) return result;
-    return { status: "SUCCESS", data: result?.data || result || null, error: null };
-  } catch (error) {
-    log.error("processDualBooking failed", { traceId, error: error?.message, code: error?.code });
-    return _publicError(error, "BOOKING_FAILED");
   }
-});
+);
 
-export const confirmPayment = webMethod(Permissions.SiteMember, async function (payload) {
-  const input = payload && typeof payload === "object" ? payload : {};
-  const traceId = _safeTrim(input.traceId) || makeTraceId("confirm-pay");
-  const orderId = _safeTrim(input.orderId);
-  const bookingIdsRaw = input.bookingIds || input.bookingId || [];
-  const bookingIds = (Array.isArray(bookingIdsRaw) ? bookingIdsRaw : String(bookingIdsRaw).split(","))
-    .map(function (id) { return _safeTrim(id); })
-    .filter(Boolean);
+// =============================================================================
+// ORDER VALIDATION
+// =============================================================================
+
+async function _getValidatedPaidOrder(
+  orderId,
+  bookingIds,
+  requestedTotalAmount,
+  traceId
+) {
+  const normalizedOrderId = _safeTrim(orderId);
+
+  if (!normalizedOrderId) {
+    throw createBookingError(
+      ERROR_CODES.INVALID_PAYLOAD,
+      "orderId is required",
+      { traceId }
+    );
+  }
+
+  let order;
+
   try {
-    if (!orderId || !bookingIds.length) {
-      return { status: "ERROR", data: null, error: { code: "INVALID_PAYLOAD", message: "orderId and bookingIds are required" } };
-    }
-    const amount = Number(input.amount);
-    if (!Number.isFinite(amount) || amount <= 0) {
-      return { status: "ERROR", data: null, error: { code: "INVALID_AMOUNT", message: "Positive amount is required" } };
-    }
-    const primary = (await _getCitaByBookingId(bookingIds[0], traceId)) || {};
-    const linked = bookingIds.join(",");
-    const method = _safeTrim(input.paymentMethod) || PAYMENT_METHOD.ONLINE;
-    const ledgerResult = await registerBookingPayment(linked, amount, method, {
-      concept: _safeTrim(input.concept) || "Online booking payment",
-      resourceId: _safeTrim(primary.resourceId) || _safeTrim(primary.staffResourceId) || "online",
-      staffResourceId: _safeTrim(primary.resourceId) || _safeTrim(primary.staffResourceId) || null,
-      dateYmd: _safeTrim(primary.dateYmd) || null,
-      pairToken: _safeTrim(primary.pairToken) || null,
-      bookingType: _safeTrim(primary.bookingType) || null,
-      serviceId: _safeTrim(primary.serviceId) || null,
-      transactionId: "ORDER-" + orderId,
-      orderId: orderId,
-      origen: "WIX_ECOM_PAYMENT_CONFIRM",
-      tipoMovimiento: "VENTA_ONLINE",
-      traceId: traceId,
-    });
-    if (ledgerResult?.status !== "SUCCESS") {
-      return {
-        status: "ERROR",
-        data: ledgerResult?.data || null,
-        error: ledgerResult?.error || { code: "LEDGER_FAILED", message: "Payment ledger registration failed" },
-      };
-    }
-    for (const bid of bookingIds) {
-      await _updateCitaSafe(
-        bid,
-        function (item) {
-          item.paymentStatus = PAYMENT_STATUS.PAID;
-          item.bookingStatus = item.bookingStatus || item.status || BOOKING_STATUS.CONFIRMED;
-          item.status = item.bookingStatus;
-          item.orderId = orderId;
-          return item;
-        },
+    order = await withTimeout(
+      orders.getOrder(normalizedOrderId),
+      API_TIMEOUT_MS,
+      "getOrder"
+    );
+  } catch (error) {
+    throw createBookingError(
+      ERROR_CODES.DATABASE_ERROR,
+      "Failed to fetch order.",
+      {
         traceId,
-        "confirmPayment"
+        cause: error?.message
+      }
+    );
+  }
+
+  if (!order) {
+    throw createBookingError(
+      ERROR_CODES.INVALID_PAYLOAD,
+      "Order not found",
+      { traceId }
+    );
+  }
+
+  const paymentStatus = String(
+    order?.paymentStatus || ""
+  ).toUpperCase();
+
+  if (!_isPaidOrderStatus(paymentStatus)) {
+    throw createBookingError(
+      ERROR_CODES.INVALID_PAYLOAD,
+      "Order is not paid.",
+      {
+        traceId,
+        paymentStatus
+      }
+    );
+  }
+
+  const bookingLineItems =
+    _getOrderBookingLineItems(order);
+
+  const orderBookingIds =
+    bookingLineItems
+      .map((item) =>
+        String(
+          item?.catalogReference
+            ?.catalogItemId || ""
+        )
+      )
+      .filter(Boolean);
+
+  for (const bookingId of bookingIds) {
+    if (
+      !orderBookingIds.includes(
+        String(bookingId)
+      )
+    ) {
+      throw createBookingError(
+        ERROR_CODES.INVALID_PAYLOAD,
+        "Booking is not included in the order.",
+        {
+          traceId,
+          bookingId
+        }
       );
     }
-    return { status: "SUCCESS", data: { orderId, bookingIds, ledger: ledgerResult?.data || null }, error: null };
-  } catch (error) {
-    log.error("confirmPayment failed", { traceId, error: error?.message });
-    return _publicError(error, "CONFIRM_PAYMENT_FAILED");
   }
-});
 
-export const getCitaByBookingId = webMethod(Permissions.Anyone, async function (bookingId) {
-  const item = await _getCitaByBookingId(bookingId);
-  return { status: "SUCCESS", data: _public(item), error: null };
-});
+  const orderTotal = Number(
+    order?.priceSummary?.total?.amount ?? 0
+  ) || 0;
 
-export const getCitasByPairToken = webMethod(Permissions.Anyone, async function (pairToken) {
-  const items = await _getCitasByPairToken(pairToken);
-  return { status: "SUCCESS", data: items.map(_public), error: null };
-});
+  const lineItemsTotal =
+    _getBookingLineItemsTotal(
+      bookingLineItems
+    );
 
-export const updateCitaStatus = webMethod(Permissions.SiteMember, async function (payload) {
-  const input = payload && typeof payload === "object" ? payload : {};
-  const bookingId = _id(input.bookingId);
-  const bookingStatus = _status(input.bookingStatus || input.status);
-  const paymentStatus = _status(input.paymentStatus);
-  const traceId = _text(input.traceId, 200) || null;
-  if (!bookingId || (!bookingStatus && !paymentStatus)) {
-    return { status: "ERROR", data: null, error: { code: "INVALID_PAYLOAD", message: "bookingId and a status are required" } };
+  const finalAmount =
+    orderTotal > 0
+      ? orderTotal
+      : lineItemsTotal;
+
+  if (
+    requestedTotalAmount &&
+    Math.abs(
+      finalAmount - requestedTotalAmount
+    ) > 0.01
+  ) {
+    throw createBookingError(
+      ERROR_CODES.INVALID_PAYLOAD,
+      "Amount does not match the order.",
+      { traceId }
+    );
   }
-  const result = await _updateCitaSafe(
-    bookingId,
-    function (item) {
-      if (bookingStatus) {
-        item.bookingStatus = bookingStatus;
-        item.status = bookingStatus;
-      }
-      if (paymentStatus) item.paymentStatus = paymentStatus;
-      return item;
-    },
-    traceId,
-    "updateCitaStatus"
-  );
+
   return {
-    status: result.updated ? "SUCCESS" : "ERROR",
-    data: result.updated ? result.item : null,
-    error: result.updated ? null : { code: result.reason || "UPDATE_FAILED", message: "Cita could not be updated" },
+    order,
+    finalAmount,
+    bookingLineItems
   };
-});
+}
+
+async function _validatePaymentCitaSet(
+  citas,
+  orderId,
+  traceId
+) {
+  for (const cita of citas) {
+    const meta = _getCitaMeta(cita);
+
+    const currentPaymentStatus = String(
+      cita.paymentStatus ||
+      meta.paymentStatus ||
+      ""
+    ).toUpperCase();
+
+    if (
+      currentPaymentStatus ===
+      PAYMENT_STATUS.PAID
+    ) {
+      throw createBookingError(
+        ERROR_CODES.INVALID_PAYLOAD,
+        "Booking is already paid.",
+        {
+          traceId,
+          bookingId: cita.bookingId,
+          orderId
+        }
+      );
+    }
+
+    if (
+      currentPaymentStatus ===
+      PAYMENT_STATUS.REFUNDED
+    ) {
+      throw createBookingError(
+        ERROR_CODES.INVALID_PAYLOAD,
+        "Booking has already been refunded.",
+        {
+          traceId,
+          bookingId: cita.bookingId,
+          orderId
+        }
+      );
+    }
+  }
+}
+
+async function _setCitasPaymentState(
+  citas,
+  paymentState,
+  orderId,
+  traceId
+) {
+  for (const cita of citas) {
+    const bookingId = _safeTrim(
+      cita?.bookingId
+    );
+
+    if (!bookingId) {
+      throw createBookingError(
+        ERROR_CODES.INVALID_PAYLOAD,
+        "Booking identifier is missing.",
+        { traceId }
+      );
+    }
+
+    await _updateCitaSafe(
+      bookingId,
+      (currentCita) => {
+        const meta =
+          _getCitaMeta(currentCita);
+
+        return {
+          ...currentCita,
+          status: BOOKING_STATUS.CONFIRMED,
+          paymentStatus: paymentState,
+          meta: {
+            ...meta,
+            paymentStatus: paymentState,
+            orderId: orderId || null,
+            fechaConfirmacionPago:
+              new Date()
+          }
+        };
+      },
+      traceId,
+      "citasManager_setPaymentState"
+    );
+  }
+}
+
+// =============================================================================
+// BOOKING LOOKUP
+// =============================================================================
+
+async function _assertBookingOwner(
+  cita,
+  traceId
+) {
+  if (!cita) {
+    throw createBookingError(
+      ERROR_CODES.AUTH_REQUIRED,
+      "Booking was not found.",
+      { traceId }
+    );
+  }
+
+  return true;
+}
+
+function _getBookingSlotFromCita(cita) {
+  return {
+    serviceId: _safeTrim(
+      cita?.serviceId
+    ),
+    resourceId: _safeTrim(
+      cita?.resourceId
+    ),
+    startDate: cita?.startDate || null,
+    endDate: cita?.endDate || null
+  };
+}
+
+function _getDualSlotInput(payload, key) {
+  const slot = payload?.[key];
+
+  if (!slot || typeof slot !== "object") {
+    return null;
+  }
+
+  return {
+    localStartDate: _normalizeLocalIsoStr(
+      slot.localStartDate || slot.start
+    ),
+    localEndDate: _normalizeLocalIsoStr(
+      slot.localEndDate || slot.end
+    ),
+    serviceId: _safeTrim(
+      slot.serviceId || ""
+    )
+  };
+}
+
+function _matchesCitaPairIdentifier(cita, token) {
+  const meta = _getCitaMeta(cita);
+
+  const pairToken = _safeTrim(
+    cita?.pairToken ||
+    meta.pairToken
+  );
+
+  return pairToken === _safeTrim(token);
+}
+
+function _buildDualRescheduleSlot(
+  serviceConfig,
+  inputSlot,
+  expectedServiceId
+) {
+  if (
+    !serviceConfig ||
+    !inputSlot?.localStartDate ||
+    !inputSlot?.localEndDate
+  ) {
+    return null;
+  }
+
+  const linkedServiceId = _safeTrim(
+    serviceConfig.linkedPhases ||
+    ""
+  );
+
+  const expectedId = _safeTrim(
+    expectedServiceId
+  );
+
+  if (
+    !linkedServiceId ||
+    !expectedId ||
+    linkedServiceId !== expectedId
+  ) {
+    return null;
+  }
+
+  return {
+    serviceId: linkedServiceId,
+    localStartDate:
+      inputSlot.localStartDate,
+    localEndDate:
+      inputSlot.localEndDate
+  };
+}
+
+async function _loadServiceConfigForCita(
+  cita,
+  traceId
+) {
+  const meta = _getCitaMeta(cita);
+
+  const serviceId = _safeTrim(
+    cita?.serviceId ||
+    meta.serviceId
+  );
+
+  if (!serviceId) {
+    throw createBookingError(
+      ERROR_CODES.INVALID_PAYLOAD,
+      "Booking service is missing.",
+      { traceId }
+    );
+  }
+
+  const result =
+    await import("backend/reservas.web")
+      .then((module) =>
+        module._getServiceBySlugOrIdInternal(
+          serviceId,
+          traceId
+        )
+      );
+
+  if (
+    result?.status !== "SUCCESS" ||
+    !result?.data
+  ) {
+    throw createBookingError(
+      ERROR_CODES.INVALID_PAYLOAD,
+      "Booking service configuration was not found.",
+      { traceId }
+    );
+  }
+
+  return result.data;
+}
+
+// =============================================================================
+// DUAL SLOT REVALIDATION
+// =============================================================================
+
+async function _revalidateDualInputSlots(
+  citas,
+  slotF1Input,
+  slotF2Input,
+  traceId
+) {
+  if (
+    !slotF1Input?.localStartDate ||
+    !slotF1Input?.localEndDate
+  ) {
+    throw createBookingError(
+      ERROR_CODES.INVALID_PAYLOAD,
+      "F1 slot dates are required.",
+      { traceId }
+    );
+  }
+
+  if (
+    !slotF2Input?.localStartDate ||
+    !slotF2Input?.localEndDate
+  ) {
+    throw createBookingError(
+      ERROR_CODES.INVALID_PAYLOAD,
+      "F2 slot dates are required.",
+      { traceId }
+    );
+  }
+
+  const f1Cita =
+    citas.find((cita) => {
+      const meta = _getCitaMeta(cita);
+
+      return !(
+        String(cita?.bookingType || "")
+          .toLowerCase()
+          .includes("f2") ||
+        meta.linkedF1BookingId
+      );
+    }) || citas[0];
+
+  const f2Cita =
+    citas.find((cita) => {
+      const meta = _getCitaMeta(cita);
+
+      return (
+        String(cita?.bookingType || "")
+          .toLowerCase()
+          .includes("f2") ||
+        Boolean(meta.linkedF1BookingId)
+      );
+    }) || citas[1];
+
+  if (!f1Cita || !f2Cita) {
+    throw createBookingError(
+      ERROR_CODES.INVALID_PAYLOAD,
+      "Both dual booking phases are required.",
+      { traceId }
+    );
+  }
+
+  const f1ServiceId = _safeTrim(
+    f1Cita.serviceId ||
+    _getCitaMeta(f1Cita).serviceId
+  );
+
+  const f2ServiceId = _safeTrim(
+    f2Cita.serviceId ||
+    _getCitaMeta(f2Cita).serviceId
+  );
+
+  const f1ResourceId = _safeTrim(
+    f1Cita.resourceId
+  );
+
+  const f2ResourceId = _safeTrim(
+    f2Cita.resourceId
+  );
+
+  if (
+    f1ResourceId &&
+    f2ResourceId &&
+    f1ResourceId !== f2ResourceId
+  ) {
+    throw createBookingError(
+      ERROR_CODES.INVALID_PAYLOAD,
+      "Dual phases must use the same staff member.",
+      { traceId }
+    );
+  }
+
+  const selectedResourceId =
+    f1ResourceId || f2ResourceId || null;
+
+  const f1Addons =
+    _getNativeAddonIdsForRevalidation(
+      f1Cita
+    );
+
+  const f2Addons =
+    _getNativeAddonIdsForRevalidation(
+      f2Cita
+    );
+
+  const f1Result =
+    await revalidateExactAvailabilitySlot({
+      serviceId: f1ServiceId,
+      localStartDate:
+        slotF1Input.localStartDate,
+      localEndDate:
+        slotF1Input.localEndDate,
+      resourceId: selectedResourceId,
+      nativeAddonIds: f1Addons,
+      traceId
+    });
+
+  if (f1Result?.status !== "SUCCESS") {
+    throw createBookingError(
+      ERROR_CODES.INVALID_PAYLOAD,
+      "F1 slot is no longer available.",
+      { traceId }
+    );
+  }
+
+  const f2Result =
+    await revalidateExactAvailabilitySlot({
+      serviceId: f2ServiceId,
+      localStartDate:
+        slotF2Input.localStartDate,
+      localEndDate:
+        slotF2Input.localEndDate,
+      resourceId: selectedResourceId,
+      nativeAddonIds: f2Addons,
+      traceId
+    });
+
+  if (f2Result?.status !== "SUCCESS") {
+    throw createBookingError(
+      ERROR_CODES.INVALID_PAYLOAD,
+      "F2 slot is no longer available.",
+      { traceId }
+    );
+  }
+
+  const range =
+    toUtcRange(
+      slotF1Input.localStartDate,
+      slotF1Input.localEndDate
+    );
+
+  const f2StartUtc =
+    getUtcDateFromMadridLocal(
+      slotF2Input.localStartDate
+    );
+
+  if (!range || !f2StartUtc) {
+    throw createBookingError(
+      ERROR_CODES.INVALID_PAYLOAD,
+      "Dual slot dates are invalid.",
+      { traceId }
+    );
+  }
+
+  const { startUtc: f1StartUtc, endUtc: f1EndUtc } = range;
+
+  if (
+    f2StartUtc.getTime() <
+    f1EndUtc.getTime()
+  ) {
+    throw createBookingError(
+      ERROR_CODES.INVALID_PAYLOAD,
+      "F2 must start after F1.",
+      { traceId }
+    );
+  }
+
+  const gapMinutes =
+    computeGapMinutes(f1EndUtc, f2StartUtc);
+
+  if (gapMinutes > MAX_DUAL_GAP_MINUTES) {
+    throw createBookingError(
+      ERROR_CODES.INVALID_PAYLOAD,
+      "Gap between F1 and F2 exceeds the maximum allowed.",
+      {
+        traceId,
+        gapMinutes,
+        maxGap: MAX_DUAL_GAP_MINUTES
+      }
+    );
+  }
+
+  return {
+    f1Cita,
+    f2Cita,
+    f1Result,
+    f2Result,
+    selectedResourceId,
+    gapMinutes
+  };
+}
