@@ -198,8 +198,7 @@ function _toError(code, message, extra) {
   return error;
 }
 
-/
- * Constructor canonico de respuesta de error estructurada.
+/* Constructor canonico de respuesta de error estructurada.
  */
 function _structuredError(code, message, traceId, extra) {
   return {
