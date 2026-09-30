@@ -13,9 +13,8 @@ espanol porque son obligacion normativa.
 
 FIXES APLICADOS v5009-FISCAL-V20.1:
   - V20-01: renames de campos en inserts y queries (DatosFiscales,
-            MovimientosCaja, HistoricoCierresZ). [v5010.7 ZOMBIE-CLEAN:
-            las proyecciones contables separadas fueron eliminadas; el
-            ledger unico es MovimientosCaja con desgloseDetallado].
+            MovimientosCaja, LibroAsientosContablesDetalle,
+            FacturasRecibidas, HistoricoCierresZ).
   - V20-02: imports de constantes alineados a internalConfig V20.1.
   - V20-03: anadidos campos faltantes en la matriz pero usados por el
             codigo: fiscalRole, linkedAdvanceId, vatAccrualStatus,
@@ -40,18 +39,17 @@ import {
     IVA_RATES,
     CONCURRENCY,
     AEAT_INVOICE_TYPE,
+    CORRECTION_REASON,
     VAT_ACCRUAL_STATUS,
     FISCAL_ROLE,
     EVENT_TYPE,
     THIRD_PARTY_TYPE,
     PROJECTION_STATUS,
     COMPUTER_SYSTEM,
-    RECORD_TYPE,
-    LIBRO_ORIGEN_TIPO,
-    LIBRO_ORIGEN_REGISTRO,
 } from "backend/internalConfig";
 
 import {
+    hashSHA256,
     hashChain,
 } from "backend/securityEngine";
 
@@ -60,56 +58,9 @@ import {
     _safeTrim,
     _cleanText,
     _looksLikeGuid,
+    _roundMoney,
     withTimeout,
 } from "public/mmUtils";
-
-// ============================================================================
-// SSOT V2 (v5011): singleton de configuracion fiscal/Veri*factu.
-// Unica fuente de verdad: DatosFiscales con recordType = "CONFIG_SISTEMA".
-// Campos canonicos (matriz de normalizacion): nifProductor,
-// nombreRazonProductor, idSistemaInformatico, numeroInstalacion,
-// tipoUsoPosibleSoloVerifactu, tipoUsoPosibleMultiOT, indicadorMultiplesOT,
-// fechaInicioVerifactu. Prohibido consultar la antigua cabecera fiscal
-// separada o los campos legacy equivalentes.
-// ============================================================================
-
-let _fiscalSystemCache = null;
-let _fiscalSystemCacheAt = 0;
-const FISCAL_SYSTEM_CACHE_TTL_MS = Number(SDK_CONFIG?.SECURITY?.SECRET_CACHE_TTL_MS) || 300000;
-
-async function _getFiscalSystemConfig(traceId) {
-    const now = Date.now();
-    if (_fiscalSystemCache && now - _fiscalSystemCacheAt < FISCAL_SYSTEM_CACHE_TTL_MS) {
-        return _fiscalSystemCache;
-    }
-    let config = null;
-    try {
-        const res = await wixData
-            .query(COLLECTIONS.DATOS_FISCALES)
-            .eq("recordType", RECORD_TYPE.CONFIG_SISTEMA)
-            .limit(1)
-            .find({ suppressAuth: true });
-        config = res?.items?.[0] || null;
-    } catch (err) {
-        log.warn("No se pudo leer el singleton fiscal (DatosFiscales CONFIG_SISTEMA)", {
-            traceId, message: err?.message,
-        });
-    }
-    _fiscalSystemCache = Object.freeze({
-        sistemaInformaticoNombre: _safeTrim(config?.sistemaInformaticoNombre) || COMPUTER_SYSTEM.sistemaInformaticoNombre,
-        idSistemaInformatico: _safeTrim(config?.idSistemaInformatico) || COMPUTER_SYSTEM.idSistemaInformatico,
-        version: _safeTrim(config?.version) || COMPUTER_SYSTEM.version,
-        numeroInstalacion: _safeTrim(config?.numeroInstalacion) || COMPUTER_SYSTEM.numeroInstalacion,
-        tipoUsoPosibleSoloVerifactu: _safeTrim(config?.tipoUsoPosibleSoloVerifactu) || COMPUTER_SYSTEM.tipoUsoPosibleSoloVerifactu,
-        tipoUsoPosibleMultiOT: _safeTrim(config?.tipoUsoPosibleMultiOT) || COMPUTER_SYSTEM.tipoUsoPosibleMultiOT,
-        indicadorMultiplesOT: _safeTrim(config?.indicadorMultiplesOT) || COMPUTER_SYSTEM.indicadorMultiplesOT,
-        nifProductor: _safeTrim(config?.nifProductor),
-        nombreRazonProductor: _safeTrim(config?.nombreRazonProductor) || COMPUTER_SYSTEM.nombreRazonProductor,
-        fechaInicioVerifactu: _safeTrim(config?.fechaInicioVerifactu) || null,
-    });
-    _fiscalSystemCacheAt = now;
-    return _fiscalSystemCache;
-}
 
 import {
     _lockSlotKeyOrFail,
@@ -130,11 +81,13 @@ const LEDGER_SCHEMA_VERSION = "LEDGER_V5_FISCAL";
 const GENESIS_HASH = "0".repeat(64);
 
 const SEQUENCE_MUTEX_KEY = "FISCAL_SEQUENCE_LOCK";
-const SEQUENCE_MUTEX_TTL_MS = Number(CONCURRENCY?.MS_TTL_MUTEX_ASIENTO) || 45000; // REF: BIBLIA 3.2.1 f17
+const SEQUENCE_MUTEX_TTL_MS = Number(CONCURRENCY?.LEDGER_MUTEX_TTL_MS) || 45000;
 
 const PROYECCION_BATCH_LIMIT = 25;
 const PROYECCION_TIMEOUT_MS =
     Number(SDK_CONFIG?.TIMEOUTS?.API_MS) || 15000;
+
+const FACTURA_PAYMENT_STATUSES = Object.freeze(["PENDIENTE", "PAGADO", "PARCIAL"]);
 
 // ============================================================================
 // SECCION 1 - HELPERS DE FECHA / AEAT
@@ -428,7 +381,7 @@ function _buildFiscalPayloadSnapshot({
 }
 
 // ============================================================================
-// SECCION 5 - MOTOR - registrarEventoEconomico
+// SECCION 5 - MOTOR — registrarEventoEconomico
 // ============================================================================
 
 export async function registrarEventoEconomico(input) {
@@ -454,13 +407,6 @@ export async function registrarEventoEconomico(input) {
     const recordTimestamp = _formatAEATDateTimeMadrid(ts);
 
     // 4. Construir movimiento base (aun sin huella)
-    const movementTypeRaw = _safeTrim(input.movementType);
-    const accountingAmount = Number(input.accountingAmount ??
-        (movementTypeRaw === MOVEMENT_TYPE.REEMBOLSO ||
-         movementTypeRaw === MOVEMENT_TYPE.DEVOLUCION_SERVICIO ||
-         movementTypeRaw === MOVEMENT_TYPE.DEVOLUCION_PRODUCTO
-            ? -Number(input.totalAmount ?? 0)
-            : Number(input.totalAmount ?? 0)));
     const baseMovement = {
         sequenceNumber: seq.sequenceNumber,
         invoiceNumber: _safeTrim(input.invoiceNumber) || seq.invoiceNumber,
@@ -476,9 +422,6 @@ export async function registrarEventoEconomico(input) {
         channelType: _safeTrim(input.channelType) || "POS",
 
         totalAmount: Number(input.totalAmount ?? 0),
-        // accountingAmount: importe contable con signo (criterio de cierre Z y
-        // agregador fiscal); derivado de totalAmount + movementType si no viene.
-        accountingAmount,
         taxableBaseOrNonSubjectAmount: Number(input.taxableBaseOrNonSubjectAmount ?? 0),
         taxAmount: Number(input.taxAmount ?? 0),
         taxRate: Number(input.taxRate ?? IVA_RATES.GENERAL),
@@ -550,53 +493,60 @@ export async function registrarEventoEconomico(input) {
         recordTimestamp,
     });
 
-    // 7. Doc cabecera [SSOT-V2 v5011 CERO LEGACY: campo canonico de desglose
-    // en escrituras nuevas = desgloseDetallado (legacy detailedBreakdown solo
-    // se tolera en LECTURA de registros historicos, nunca en escritura)].
+    // 7. Doc cabecera
     const doc = {
         ...baseMovement,
         recordHash,
         previousRecordHash,
         recordTimestamp,
         generationTimestamp: _buildGenerationTimestamp(ts),
-        desgloseDetallado: fiscalPayload.desgloseDetallado,
+        detailedBreakdown: fiscalPayload.desgloseDetallado,
         computerSystem: fiscalPayload.sistemaInformatico,
         fiscalPayload,
         projectionStatus: PROJECTION_STATUS.PENDIENTE,
+        projectionDetailIds: [],
         traceId,
+        registeredAt: ts,
         _createdDate: new Date(),
     };
 
-    let cabecera;
-    try {
-        cabecera = await wixData.insert(COLLECTIONS.MOVIMIENTOS_CAJA, doc, { suppressAuth: true });
-    } catch (err) {
-        // Error controlado: el motor NUNCA lanza crudo al caller (mismo
-        // contrato {status,data,error} que el resto del modulo).
-        log.error("registrarEventoEconomico: insercion de cabecera fallo", {
-            traceId,
-            message: err?.message,
-            code: err?.code || null,
-        });
-        return {
-            status: "ERROR",
-            data: null,
-            error: {
-                code: "LEDGER_INSERT_FAIL",
-                message: err?.message || "No se pudo registrar el evento economico.",
-                traceId,
-            },
-        };
+    const cabecera = await wixData.insert(COLLECTIONS.MOVIMIENTOS_CAJA, doc, { suppressAuth: true });
+
+    // 8. Detalle (lineas)
+    const detailIds = [];
+    const breakdown = Array.isArray(input.breakdown) ? input.breakdown : [];
+    for (let i = 0; i < breakdown.length; i++) {
+        const d = breakdown[i];
+        const lineHash = await hashSHA256(recordHash + JSON.stringify(d));
+        const det = await wixData.insert(COLLECTIONS.LIBRO_ASIENTOS_CONTABLES_DETALLE, {
+            lineHash,
+            taxableBaseOrNonSubjectAmount: Number(d.taxableBaseOrNonSubjectAmount ?? d.base ?? 0),
+            taxRate: Number(d.taxRate ?? d.tipo ?? 0),
+            chargedTaxAmount: Number(d.chargedTaxAmount ?? d.cuota ?? 0),
+            sourceEventId: cabecera._id,
+            lineNumber: i + 1,
+            thirdPartyId: thirdParty?._id || null,
+            catalogId: catalog?._id || null,
+            operationDescription: _cleanText(d.operationDescription || input.operationDescription || "", 500),
+            units: Number(d.units || 1),
+            magnitude: Number(d.magnitude || 1),
+            netUnitAmount: Number(d.netUnitAmount ?? 0),
+            taxCode: _safeTrim(d.taxCode || catalog?.taxCode) || null,
+            regimeKey: _safeTrim(d.regimeKey || fiscalPayload.claveRegimen),
+            operationClassification: _safeTrim(d.operationClassification || fiscalPayload.calificacionOperacion),
+            exemptOperation: _safeTrim(d.exemptOperation) || null,
+            reverseCharge: d.reverseCharge === true || fiscalPayload.inversionSujetoPasivo,
+            accountCode: _safeTrim(d.accountCode || catalog?.incomeAccountCode) || null,
+            surchargeRate: Number(d.surchargeRate ?? 0),
+            surchargeAmount: Number(d.surchargeAmount ?? 0),
+            irpfWithholdingAmount: Number(d.irpfWithholdingAmount || 0),
+            irpfWithholdingRate: Number(d.irpfWithholdingRate || 0),
+            _createdDate: new Date(),
+        }, { suppressAuth: true });
+        detailIds.push(det._id);
     }
 
-    // 8. [SSOT-v5010.7 ZOMBIE-CLEAN] Lineas de detalle: la coleccion
-    // El libro auxiliar de detalle fue eliminado por la BIBLIA. El desglose
-    // canonico ya queda persistido en el campo desgloseDetallado de la
-    // cabecera MovimientosCaja (ledger fiscal unico). No se proyecta a libro
-    // contable separado.
-    const detailIds = [];
-
-    // 9. Proyeccion secundaria - NUNCA propaga errores al caller
+    // 9. Proyeccion secundaria — NUNCA propaga errores al caller
     let projectionStatus = PROJECTION_STATUS.OK;
     try {
         await _proyectarSegunTipoEvento(cabecera, detailIds, traceId);
@@ -630,16 +580,13 @@ export async function registrarEventoEconomico(input) {
 
 async function _proyectarSegunTipoEvento(cabecera, detailIds, traceId) {
     switch (cabecera.eventType) {
-        // [SSOT-v5010.1 ZOMB-01 + v5010.7 ZOMBIE-CLEAN] VENTA_LINEA/RECTIFICATIVA/
-        // AJUSTE/COMPRA_LINEA: sin proyeccion separada. Las colecciones
-        // contables auxiliares fueron eliminadas por la BIBLIA; MovimientosCaja es
-        // SSOT fiscal unico (la compra queda registrada como PAGO_PROVEEDOR con
-        // su desgloseDetallado). reconciliarProyecciones marca OK tras verificacion
-        // de hash chain.
         case EVENT_TYPE.VENTA_LINEA:
         case EVENT_TYPE.RECTIFICATIVA:
         case EVENT_TYPE.AJUSTE:
+            await _proyectarAsientoContable(cabecera, traceId);
+            break;
         case EVENT_TYPE.COMPRA_LINEA:
+            await _proyectarFacturaRecibida(cabecera, traceId);
             break;
         case EVENT_TYPE.MOV_STOCK:
             await _proyectarMovimientoInventario(cabecera, traceId);
@@ -649,6 +596,69 @@ async function _proyectarSegunTipoEvento(cabecera, detailIds, traceId) {
             break;
         default:
             log.warn("Tipo evento sin proyeccion", { traceId, eventType: cabecera.eventType });
+    }
+}
+
+async function _proyectarAsientoContable(cabecera, traceId) {
+    try {
+        const { projectLedgerMovementToAccounting } = await import("backend/contabilidad");
+        const res = await projectLedgerMovementToAccounting(cabecera);
+        if (res?.status !== "SUCCESS" && res?.status !== "SKIPPED") {
+            throw new Error(`contabilidad.js: ${res?.status || "UNKNOWN"}`);
+        }
+    } catch (err) {
+        log.warn("Proyeccion contable fallo", { traceId, eventoId: cabecera._id, message: err?.message });
+        throw err;
+    }
+}
+
+async function _proyectarFacturaRecibida(cabecera, traceId) {
+    const receptionDate = new Date();
+    const receptionNumber = `FR-${cabecera.sequenceNumber}`;
+    try {
+        await wixData.insert(COLLECTIONS.FACTURAS_RECIBIDAS, {
+            receptionNumber,
+            invoiceNumber: cabecera.invoiceNumber,
+            invoiceIssueDate: cabecera.invoiceIssueDate,
+            operationDate: cabecera.operationDate,
+            receptionDate,
+            accountingEntryDate: receptionDate,
+            thirdPartyId: cabecera.thirdPartyId,
+            issuerTaxId: cabecera.issuerTaxId,
+            issuerLegalName: cabecera.issuerLegalName,
+            recipientTaxId: cabecera.recipientTaxId,
+            recipientLegalName: cabecera.recipientLegalName,
+            invoiceType: cabecera.invoiceType,
+            operationDescription: cabecera.operationDescription,
+            totalAmount: cabecera.totalAmount,
+            totalTaxableBase: cabecera.taxableBaseOrNonSubjectAmount,
+            totalVatAmount: cabecera.taxAmount,
+            surchargeAmount: cabecera.surchargeAmount,
+            irpfWithholdingAmount: cabecera.irpfWithholdingAmount,
+            irpfWithholdingRate: cabecera.irpfWithholdingRate,
+            detailedBreakdown: cabecera.detailedBreakdown,
+            regimeKey: cabecera.regimeKey,
+            operationClassification: cabecera.operationClassification,
+            exemptOperation: cabecera.exemptOperation,
+            reverseCharge: cabecera.reverseCharge,
+            deductible: true,
+            deductionPercentage: 100,
+            deductibleAmount: Number(cabecera.taxAmount || 0),
+            paymentStatus: "PENDIENTE",
+            sourceEventId: cabecera._id,
+            receptionSource: "API",
+            validationStatus: "PENDIENTE",
+            traceId,
+            _createdDate: new Date(),
+            _updatedDate: new Date(),
+        }, { suppressAuth: true });
+    } catch (err) {
+        const msg = String(err?.message || "");
+        if (msg.includes("WDE0123") || msg.includes("Duplicated") || msg.includes("already exists")) {
+            log.info("FacturaRecibida ya existe (idempotente)", { traceId, receptionNumber });
+            return;
+        }
+        throw err;
     }
 }
 
@@ -720,13 +730,14 @@ export const getEventoPorId = webMethod(
             if (!evento) {
                 return { status: "ERROR", data: null, error: { code: "NOT_FOUND" } };
             }
-            // [SSOT-v5010.7 ZOMBIE-CLEAN] Libro auxiliar de detalle eliminado.
-            // El detalle canonico vive en el campo desgloseDetallado de la
-            // cabecera MovimientosCaja (ledger fiscal unico); se tolera en
-            // lectura el legacy detailedBreakdown de registros historicos.
+            const detail = await wixData
+                .query(COLLECTIONS.LIBRO_ASIENTOS_CONTABLES_DETALLE)
+                .eq("sourceEventId", eventoId)
+                .ascending("lineNumber")
+                .find({ suppressAuth: true });
             return {
                 status: "SUCCESS",
-                data: { cabecera: evento, detalle: Array.isArray(evento.desgloseDetallado) ? evento.desgloseDetallado : (Array.isArray(evento.detailedBreakdown) ? evento.detailedBreakdown : []) },
+                data: { cabecera: evento, detalle: detail.items || [] },
                 error: null,
             };
         } catch (error) {
@@ -737,7 +748,189 @@ export const getEventoPorId = webMethod(
 );
 
 // ============================================================================
-// SECCION 8 - RECONCILIACION (cron)
+// SECCION 8 - API DE COMPRAS (absorbe facturasRecibidas.web.js)
+// ============================================================================
+
+export const registrarFacturaRecibida = webMethod(
+    Permissions.SiteMember,
+    async (payload) => {
+        const traceId = payload?.traceId || makeTraceId("fact-rec");
+        try {
+            const issuerTaxId = _safeTrim(payload?.issuerTaxId).toUpperCase();
+            if (!issuerTaxId) {
+                return {
+                    status: "ERROR", data: null,
+                    error: { code: "ISSUER_TAX_ID_REQUIRED", message: "issuerTaxId obligatorio" },
+                };
+            }
+            const invoiceNumber = _safeTrim(payload?.invoiceNumber);
+            if (!invoiceNumber) {
+                return {
+                    status: "ERROR", data: null,
+                    error: { code: "INVOICE_NUMBER_REQUIRED", message: "invoiceNumber obligatorio" },
+                };
+            }
+            const totalAmount = Number(payload?.totalAmount) || 0;
+            if (totalAmount <= 0) {
+                return {
+                    status: "ERROR", data: null,
+                    error: { code: "INVALID_AMOUNT", message: "totalAmount > 0" },
+                };
+            }
+
+            // Idempotencia por invoiceNumber + issuerTaxId
+            const existing = await wixData
+                .query(COLLECTIONS.FACTURAS_RECIBIDAS)
+                .eq("invoiceNumber", invoiceNumber)
+                .eq("issuerTaxId", issuerTaxId)
+                .limit(1)
+                .find({ suppressAuth: true });
+            if (existing?.items?.[0]) {
+                return {
+                    status: "SUCCESS",
+                    data: existing.items[0],
+                    error: null,
+                    idempotent: true,
+                };
+            }
+
+            const eventResult = await registrarEventoEconomico({
+                eventType: EVENT_TYPE.COMPRA_LINEA,
+                movementType: MOVEMENT_TYPE.PAGO_PROVEEDOR,
+                paymentMethod: _safeTrim(payload?.paymentMethod) || PAYMENT_METHOD.EFECTIVO,
+                totalAmount,
+                taxableBaseOrNonSubjectAmount: Number(payload?.totalTaxableBase) || 0,
+                taxAmount: Number(payload?.totalVatAmount) || 0,
+                taxRate: Number(payload?.taxRate) || IVA_RATES.GENERAL,
+                surchargeRate: Number(payload?.surchargeRate) || 0,
+                surchargeAmount: Number(payload?.surchargeAmount) || 0,
+                irpfWithholdingAmount: Number(payload?.irpfWithholdingAmount) || 0,
+                irpfWithholdingRate: Number(payload?.irpfWithholdingRate) || 0,
+                operationDescription: _cleanText(payload?.operationDescription || "", 500),
+                invoiceNumber,
+                invoiceIssueDate: _safeTrim(payload?.invoiceIssueDate),
+                operationDate: _safeTrim(payload?.operationDate) || null,
+                invoiceType: _safeTrim(payload?.invoiceType) || AEAT_INVOICE_TYPE.F1,
+                issuerTaxId,
+                issuerLegalName: _safeTrim(payload?.issuerLegalName),
+                recipientTaxId: _safeTrim(payload?.recipientTaxId),
+                recipientLegalName: _safeTrim(payload?.recipientLegalName),
+                regimeKey: _safeTrim(payload?.regimeKey) || "01",
+                operationClassification: _safeTrim(payload?.operationClassification) || "S1",
+                exemptOperation: _safeTrim(payload?.exemptOperation) || null,
+                reverseCharge: payload?.reverseCharge === true,
+                breakdown: Array.isArray(payload?.detailedBreakdown) ? payload.detailedBreakdown : [],
+                traceId,
+            });
+
+            return eventResult;
+        } catch (err) {
+            log.error("registrarFacturaRecibida fallo", { traceId, message: err?.message });
+            return {
+                status: "ERROR", data: null,
+                error: { code: "FACT_REC_FAIL", message: err?.message },
+            };
+        }
+    }
+);
+
+export const getFacturaRecibida = webMethod(
+    Permissions.Admin,
+    async (facturaId) => {
+        const traceId = makeTraceId("get-fact-rec");
+        try {
+            if (!_looksLikeGuid(facturaId)) {
+                return { status: "ERROR", data: null, error: { code: "INVALID_ID" } };
+            }
+            const factura = await wixData
+                .get(COLLECTIONS.FACTURAS_RECIBIDAS, facturaId, { suppressAuth: true })
+                .catch(() => null);
+            if (!factura) {
+                return { status: "ERROR", data: null, error: { code: "NOT_FOUND" } };
+            }
+            return { status: "SUCCESS", data: factura, error: null };
+        } catch (err) {
+            log.error("getFacturaRecibida fallo", { traceId, message: err?.message });
+            return { status: "ERROR", data: null, error: { code: "LOOKUP_FAILED" } };
+        }
+    }
+);
+
+export const listarFacturasRecibidas = webMethod(
+    Permissions.Admin,
+    async (filters = {}) => {
+        const traceId = makeTraceId("list-fact-rec");
+        try {
+            let q = wixData.query(COLLECTIONS.FACTURAS_RECIBIDAS);
+            if (filters?.paymentStatus) {
+                q = q.eq("paymentStatus", _safeTrim(filters.paymentStatus).toUpperCase());
+            }
+            if (filters?.thirdPartyId && _looksLikeGuid(filters.thirdPartyId)) {
+                q = q.eq("thirdPartyId", filters.thirdPartyId);
+            }
+            if (filters?.desde) {
+                q = q.ge("invoiceIssueDate", filters.desde);
+            }
+            if (filters?.hasta) {
+                q = q.le("invoiceIssueDate", filters.hasta);
+            }
+            const limit = Math.min(Number(filters?.limit) || 50, 200);
+            const res = await q.descending("invoiceIssueDate").limit(limit)
+                .find({ suppressAuth: true });
+            return {
+                status: "SUCCESS",
+                data: { items: res.items || [], total: res.totalCount },
+                error: null,
+            };
+        } catch (err) {
+            log.error("listarFacturasRecibidas fallo", { traceId, message: err?.message });
+            return { status: "ERROR", data: null, error: { code: "QUERY_FAILED" } };
+        }
+    }
+);
+
+export const actualizarEstadoPagoFactura = webMethod(
+    Permissions.SiteMember,
+    async (facturaId, newStatus, meta = {}) => {
+        const traceId = meta?.traceId || makeTraceId("upd-fact-rec");
+        try {
+            if (!_looksLikeGuid(facturaId)) {
+                return { status: "ERROR", data: null, error: { code: "INVALID_ID" } };
+            }
+            const factura = await wixData
+                .get(COLLECTIONS.FACTURAS_RECIBIDAS, facturaId, { suppressAuth: true })
+                .catch(() => null);
+            if (!factura) {
+                return { status: "ERROR", data: null, error: { code: "NOT_FOUND" } };
+            }
+            const status = _safeTrim(newStatus).toUpperCase();
+            if (!FACTURA_PAYMENT_STATUSES.includes(status)) {
+                return {
+                    status: "ERROR", data: null,
+                    error: { code: "INVALID_PAYMENT_STATUS", message: `paymentStatus debe ser ${FACTURA_PAYMENT_STATUSES.join("|")}` },
+                };
+            }
+            await wixData.update(COLLECTIONS.FACTURAS_RECIBIDAS, {
+                _id: facturaId,
+                paymentStatus: status,
+                paymentDate: status === "PAGADO" ? new Date() : factura.paymentDate,
+                paymentMethod: meta?.paymentMethod || factura.paymentMethod,
+                _updatedDate: new Date(),
+            }, { suppressAuth: true });
+            return {
+                status: "SUCCESS",
+                data: { facturaId, paymentStatus: status },
+                error: null,
+            };
+        } catch (err) {
+            log.error("actualizarEstadoPagoFactura fallo", { traceId, message: err?.message });
+            return { status: "ERROR", data: null, error: { code: "UPDATE_FAILED" } };
+        }
+    }
+);
+
+// ============================================================================
+// SECCION 9 - RECONCILIACION (cron)
 // ============================================================================
 
 export async function reconciliarProyecciones() {
@@ -755,7 +948,7 @@ export async function reconciliarProyecciones() {
         for (const evento of pending.items || []) {
             try {
                 await withTimeout(
-                    _proyectarSegunTipoEvento(evento, [], traceId),
+                    _proyectarSegunTipoEvento(evento, evento.projectionDetailIds || [], traceId),
                     PROYECCION_TIMEOUT_MS,
                     "reconciliarProyecciones"
                 );
@@ -793,8 +986,8 @@ export default {
     _getNextSequenceInternal,
     getEventoPorId,
     reconciliarProyecciones,
-    // [SSOT-v5010.7 ZOMBIE-CLEAN] La API de compras sobre facturas recibidas
-    // (registrar/get/listar/actualizarEstadoPago) fue eliminada: coleccion
-    // prohibida por la BIBLIA. Las compras se registran exclusivamente como
-    // eventos PAGO_PROVEEDOR en MovimientosCaja via registrarEventoEconomico.
+    registrarFacturaRecibida,
+    getFacturaRecibida,
+    listarFacturasRecibidas,
+    actualizarEstadoPagoFactura,
 };

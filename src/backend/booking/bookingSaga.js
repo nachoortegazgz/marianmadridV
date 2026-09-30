@@ -95,14 +95,14 @@ import {
 
 const log = logger;
 
-const LOCKTTLMS = Number(CONCURRENCY?.MUTEX_TTL_MS) || 300000;
-const HEARTBEATMS = Number(CONCURRENCY?.HEARTBEAT_MS) || 15000;
+const LOCKTTLMS = Number(CONCURRENCY?.MS_TTL_MUTEX) || 300000;
+const HEARTBEATMS = Number(CONCURRENCY?.MS_LATIDO) || 15000;
 const CITASCOL = COLLECTIONS.CITAS_F2;
 const SERVICIOSCOL = COLLECTIONS.SERVICIOS_CATALOGO;
 const COMPENSACIONESCOL = COLLECTIONS.COMPENSACIONES_PENDIENTES;
 
-const MAX_DUAL_GAP_MINUTES =
-    Math.max(0, Number(SLOT_SEARCH?.MAX_DUAL_GAP_MINUTES || 120));
+const MINUTOS_MAX_HUECO_DUAL =
+    Math.max(0, Number(SLOT_SEARCH?.MINUTOS_MAX_HUECO_DUAL || 120));
 
 const BOOKING_CREATION_TIMEOUT_MS =
     Number(SDK_CONFIG?.TIMEOUTS?.BOOKING_CREATION_MS) || 25000;
@@ -343,15 +343,15 @@ function _validateDualGap(f1LocalEnd, f2LocalStart, traceId) {
 
     const gapMinutes = computeGapMinutes(f1EndUtc, f2StartUtc);
 
-    if (gapMinutes > MAX_DUAL_GAP_MINUTES) {
+    if (gapMinutes > MINUTOS_MAX_HUECO_DUAL) {
         throw createBookingError(
             ERROR_CODES.INVALID_PAYLOAD,
-            `Dual gap validation: gap ${gapMinutes.toFixed(2)} min exceeds MAX (${MAX_DUAL_GAP_MINUTES})`,
-            { traceId, gapMinutes, maxGapMinutes: MAX_DUAL_GAP_MINUTES }
+            `Dual gap validation: gap ${gapMinutes.toFixed(2)} min exceeds MAX (${MINUTOS_MAX_HUECO_DUAL})`,
+            { traceId, gapMinutes, maxGapMinutes: MINUTOS_MAX_HUECO_DUAL }
         );
     }
 
-    return { gapMinutes, maxGapMinutes: MAX_DUAL_GAP_MINUTES };
+    return { gapMinutes, maxGapMinutes: MINUTOS_MAX_HUECO_DUAL };
 }
 
 // =============================================================================
@@ -371,7 +371,7 @@ async function _validateLinkedPhaseService(linkedPhases, parentLocationId, trace
         .query(SERVICIOSCOL)
         .eq("serviceId", linkedServiceId)
         .limit(1)
-        .find({ suppressAuth: true, consistentRead: true })
+        .find({ suppressAuth: true })
         .catch(() => ({ items: [] }));
 
     const service = res?.items?.[0] || null;

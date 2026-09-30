@@ -8,7 +8,7 @@ STANDARDS: G10 ASCII Strict.
 
 FIXES APLICADOS v5009-FISCAL-V20.1:
   - V20-01: imports alineados (BOOKING_STATUS, PAYMENT_STATUS, PAYMENT_METHOD).
-  - V20-02: registerBookingPayment recibe movementType (no tipoMovimiento).
+  - V20-02: registerBookingPayment recibe movementType (no movementType).
   - V20-03: helper _setCitasPaymentState escribe BOOKING_STATUS.CONFIRMED.
 
 FIXES APLICADOS v5008.6 (heredados):
@@ -77,9 +77,9 @@ const API_TIMEOUT_MS =
 const AUDIT_SOURCE =
   "backend/citasManager.web.js";
 
-const MAX_DUAL_GAP_MINUTES = Math.max(
+const MINUTOS_MAX_HUECO_DUAL = Math.max(
   0,
-  Number(SLOT_SEARCH?.MAX_DUAL_GAP_MINUTES) || 120
+  Number(SLOT_SEARCH?.MINUTOS_MAX_HUECO_DUAL) || 120
 );
 
 // =============================================================================
@@ -761,6 +761,7 @@ function _buildDualRescheduleSlot(
 
   const linkedServiceId = _safeTrim(
     serviceConfig.linkedPhases ||
+    serviceConfig.linkedPhases ||
     ""
   );
 
@@ -1009,14 +1010,14 @@ async function _revalidateDualInputSlots(
   const gapMinutes =
     computeGapMinutes(f1EndUtc, f2StartUtc);
 
-  if (gapMinutes > MAX_DUAL_GAP_MINUTES) {
+  if (gapMinutes > MINUTOS_MAX_HUECO_DUAL) {
     throw createBookingError(
       ERROR_CODES.INVALID_PAYLOAD,
       "Gap between F1 and F2 exceeds the maximum allowed.",
       {
         traceId,
         gapMinutes,
-        maxGap: MAX_DUAL_GAP_MINUTES
+        maxGap: MINUTOS_MAX_HUECO_DUAL
       }
     );
   }

@@ -49,6 +49,7 @@ import {
     CORRECTION_REASON,
     FISCAL_ROLE,
     EVENT_TYPE,
+    THIRD_PARTY_TYPE,
     VAT_ACCRUAL_STATUS,
 } from "backend/internalConfig";
 
@@ -209,7 +210,7 @@ function _handleError(error, context, traceId) {
 }
 
 // ============================================================================
-// EXTRACCION FISCAL DEL PEDIDO - nomenclatura V20.1
+// EXTRACCION FISCAL DEL PEDIDO — nomenclatura V20.1
 // ============================================================================
 
 function _extractFiscalDataFromOrder(order) {
@@ -450,7 +451,7 @@ export async function wixBookingsV2_onBookingConfirmed(rawBody) {
 }
 
 // ============================================================================
-// WEBHOOK: BOOKING CANCELED - RECTIFICATIVA via eventLog
+// WEBHOOK: BOOKING CANCELED — RECTIFICATIVA via eventLog
 // ============================================================================
 
 export async function wixBookingsV2_onBookingCanceled(rawBody) {
@@ -549,12 +550,12 @@ export async function wixBookingsV2_onBookingCanceled(rawBody) {
                     });
                     await queueFiscalRecovery({
                         bookingIds: bookingId,
-                        totalAmount: -Math.abs(Number(originalMovement.totalAmount || 0)),
+                        amount: -Math.abs(Number(originalMovement.totalAmount || 0)),
                         paymentMethod: originalMovement.paymentMethod || PAYMENT_METHOD.ONLINE,
                         transactionId: `RECT-${bookingId}`,
                         orderId: originalMovement.orderId || null,
                         origin: "WIX_BOOKINGS_CANCEL_WEBHOOK",
-                        operationDescription: `Rectificacion cancelacion booking ${bookingId}`,
+                        concept: `Rectificacion cancelacion booking ${bookingId}`,
                         resourceId: "online",
                         movementType: MOVEMENT_TYPE.REEMBOLSO,
                         traceId,
@@ -574,7 +575,7 @@ export async function wixBookingsV2_onBookingCanceled(rawBody) {
 }
 
 // ============================================================================
-// WEBHOOK: ORDER PAYMENT STATUS UPDATED - via eventLog
+// WEBHOOK: ORDER PAYMENT STATUS UPDATED — via eventLog
 // ============================================================================
 
 export async function wixEcom_onOrderPaymentStatusUpdated(rawBody) {
@@ -754,12 +755,12 @@ export async function wixEcom_onOrderPaymentStatusUpdated(rawBody) {
 
         await queueFiscalRecovery({
             bookingIds: linkedBookingIds,
-            totalAmount: finalLedgerAmount,
+            amount: finalLedgerAmount,
             paymentMethod: PAYMENT_METHOD.ONLINE,
             transactionId,
             orderId,
             origin: "WIX_ECOM_PAYMENT_WEBHOOK",
-            operationDescription: orderConcept,
+            concept: orderConcept,
             resourceId: "online",
             movementType: MOVEMENT_TYPE.VENTA_ONLINE,
             traceId,
@@ -789,7 +790,7 @@ export async function wixEcom_onOrderPaymentStatusUpdated(rawBody) {
 }
 
 // ============================================================================
-// WEBHOOK: ORDER REFUNDED - via eventLog
+// WEBHOOK: ORDER REFUNDED — via eventLog
 // ============================================================================
 
 export async function wixEcom_onOrderRefunded(rawBody) {
@@ -802,14 +803,9 @@ export async function wixEcom_onOrderRefunded(rawBody) {
         const refundObj = event?.refund || event?.data?.refund || null;
         if (!refundObj || orderId === "unknown") return { status: "OK" };
 
-        // WIX-BOUNDARY (contrato oficial eCom Refund.money = { amount, currency }).
-        // Lectura del payload OFICIAL Wix; NO es campo interno persistido.
-        // Se normaliza inmediatamente a refundAmount (modelo interno).
-        const officialRefundMoney = refundObj?.amount;
-        // WIX-BOUNDARY: acceso a subcampos oficiales Money.amount del contrato eCom.
-        const rawAmount = typeof officialRefundMoney === "object" && officialRefundMoney !== null
-            ? Number(officialRefundMoney.amount ?? 0) // WIX-BOUNDARY Money.amount oficial
-            : officialRefundMoney ?? 0;
+        const rawAmount = typeof refundObj?.amount === "object" && refundObj?.amount !== null
+            ? refundObj.amount.amount
+            : refundObj?.amount ?? 0;
         const refundAmount = Number(rawAmount) || 0;
         if (refundAmount <= 0) return { status: "OK" };
 
@@ -841,12 +837,12 @@ export async function wixEcom_onOrderRefunded(rawBody) {
         if (!originalMovement) {
             await queueFiscalRecovery({
                 bookingIds: "",
-                totalAmount: -refundAmount,
+                amount: -refundAmount,
                 paymentMethod: PAYMENT_METHOD.ONLINE,
                 transactionId,
                 orderId, refundId,
                 origin: "WIX_ECOM_REFUND_WEBHOOK",
-                operationDescription: `Refund - Order ${orderId}`,
+                concept: `Refund - Order ${orderId}`,
                 resourceId: "online",
                 movementType: MOVEMENT_TYPE.REEMBOLSO,
                 phase: "WAIT_FOR_ORIGINAL_ORDER_LEDGER",
@@ -981,12 +977,12 @@ export async function wixEcom_onOrderRefunded(rawBody) {
         if (!ledgerOk) {
             await queueFiscalRecovery({
                 bookingIds: linkedBookingIds.join(","),
-                totalAmount: -refundAmount,
+                amount: -refundAmount,
                 paymentMethod: PAYMENT_METHOD.ONLINE,
                 transactionId,
                 orderId, refundId,
                 origin: "WIX_ECOM_REFUND_WEBHOOK",
-                operationDescription: `Refund - Order ${orderId}`,
+                concept: `Refund - Order ${orderId}`,
                 resourceId: "online",
                 movementType: MOVEMENT_TYPE.REEMBOLSO,
                 traceId,

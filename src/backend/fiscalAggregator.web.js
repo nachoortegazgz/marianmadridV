@@ -13,26 +13,18 @@ FIXES APLICADOS v5009-FISCAL-V20.1:
   - V20-02: lectura de campos de MovimientosCaja con nomenclatura V20.1
             (taxableBaseOrNonSubjectAmount, recordHash, linkedBookingIds,
             operationDescription, previousInvoiceId) + fallback legacy.
-  - V20-03: [v5011 SSOT-MIGRATION] la antigua configuracion fiscal separada
-            fue FUSIONADA en DatosFiscales (recordType=CONFIG_SISTEMA). La
-            lectura usa la nomenclatura canonica V2 (nifProductor, ver
-            matriz de normalizacion); fallbacks legacy eliminados (cero
-            tolerancia).
-  SSOT-V2: [v5011] los asientos contables y eventos de facturacion/traza-
-            bilidad (antiguos AsientosContables y EventosSistemaFacturacion)
-            se consolidan en LibroAsientosContablesDetalle. Este modulo no
-            consultaba esas colecciones obsoletas; sus extractos se leen
-            del diario operativo MovimientosCaja y se proyectan al libro
-            definitivo via eventLog/registrarEventoEconomico.
+  - V20-03: lectura de DatosFiscales con nomenclatura V20.1
+            (producerTaxId) + fallback legacy (businessTaxId, taxId,
+            nifEmisor).
 =============================================================================
 */
 
 import { webMethod, Permissions } from "wix-web-module";
 import wixData from "wix-data";
 
-import { COLLECTIONS, SDK_CONFIG, MOVEMENT_TYPE, RECORD_TYPE } from "backend/internalConfig";
+import { COLLECTIONS, SDK_CONFIG, MOVEMENT_TYPE } from "backend/internalConfig";
 import { makeTraceId, _safeTrim, _roundMoney, withTimeout } from "public/mmUtils";
-import { requireCajero, requireAdmin, rateLimiter } from "backend/security";
+import { requireCajero, requireAdmin, requireMarianManager, rateLimiter } from "backend/security";
 import { logger } from "backend/logger";
 
 import { _toPublicError } from "backend/responseUtils";
@@ -59,7 +51,7 @@ function _readTaxRate(m) {
 }
 
 function _readMovementType(m) {
-  return _safeTrim(m.movementType ?? m.tipoMovimiento);
+  return _safeTrim(m.movementType ?? m.movementType);
 }
 
 function _readOperationNature(m) {
@@ -270,10 +262,7 @@ export async function getQuarterlyTaxSummaryInternal(year, quarter, options = {}
   const state = _initTaxAccumulator(months);
   _accumulatePage(fetchResult.items, state);
 
-  // v5010.7: sin fallback BXXXXXXXX (prohibido inventar NIF). Si falta el
-  // singleton fiscal, el error se propaga al wrapper webMethod que devuelve
-  // TAX_SUMMARY_FAIL con trazabilidad.
-  const nifEmisor = await _getBusinessTaxId(traceId);
+  const nifEmisor = await _getBusinessTaxId(traceId).catch(() => "BXXXXXXXX");
 
   return {
     status: "SUCCESS",
@@ -371,11 +360,7 @@ export async function getLibroRegistroFacturasExpedidasInternal(year, quarter, o
       tipoFactura: isRefund ? "R1" : (isTip || isAdjustment ? "BORRADOR_INTERNO" : "BORRADOR_INTERNO"),
       movementType: _readMovementType(m),
       operationNature: operationNature || "VENTA",
-      // v5010.7 SSOT: "taxTreatment" era campo phantom del ledger antiguo
-      // (no existe en la matriz V20.1 de MovimientosCaja). El tratamiento
-      // fiscal se DERIVA canonicamente de operationNature/movementType:
-      // propinas y ajustes internos no devengan IVA hasta validacion.
-      taxTreatment: (isTip || isAdjustment) ? "PENDIENTE_VALIDACION" : "DEVENGADO",
+      taxTreatment: _safeTrim(m.taxTreatment) || "PENDIENTE_VALIDACION",
       incluidoEnBorradorIva: !isTip && !isAdjustment,
       referenciaRectificativa: _readPreviousInvoiceId(m),
       paymentMethod: _safeTrim(m.paymentMethod ?? m.medioPago),
@@ -387,7 +372,7 @@ export async function getLibroRegistroFacturasExpedidasInternal(year, quarter, o
       origen: _readRecordSource(m),
       orderId: _safeTrim(m.orderId) || null,
       refundId: _safeTrim(m.refundId) || null,
-      fechaHoraRegistro: m.recordTimestamp || null,
+      fechaHoraRegistro: m.registeredAt || null,
       huellaSha256: _readRecordHash(m).slice(0, 8).toUpperCase(),
       hashCompleto: _readRecordHash(m),
       reservaVinculada: _readLinkedBookingIds(m) || null,
@@ -409,31 +394,22 @@ export async function getLibroRegistroFacturasExpedidasInternal(year, quarter, o
   };
 }
 
-/**
- * v5011 SSOT-MIGRATION (BIBLIA R3 + matriz de normalizacion V2): la antigua
- * cabecera fiscal separada (ConfiguracionFiscal) fue fusionada en
- * DatosFiscales via recordType = CONFIG_SISTEMA. El acceso al singleton es
- * OBLIGATORIAMENTE filtrando por recordType. Campo canonico: nifProductor
- * (legacy producerTaxId eliminado; cero tolerancia, prohibido inventar NIF).
- * Si falta, lanza error controlado (regla dura #8).
- */
 async function _getBusinessTaxId(traceId) {
-  const config = await withTimeout(
-    wixData.query(COLLECTIONS.DATOS_FISCALES)
-      .eq("recordType", RECORD_TYPE.CONFIG_SISTEMA)
-      .limit(1)
-      .find({ suppressAuth: true }),
-    CMS_TIMEOUT_MS,
-    "getBusinessTaxId"
-  );
-  const item = config?.items?.[0];
-  const taxId = _safeTrim(item?.nifProductor);
-  if (!taxId) {
-    throw new Error(
-      "FISCAL_CONFIG_MISSING: no existe singleton DatosFiscales recordType=CONFIG_SISTEMA con nifProductor"
+  try {
+    const config = await withTimeout(
+      wixData.query(COLLECTIONS.CONFIGURACION_FISCAL)
+        .eq("active", true)
+        .limit(1)
+        .find({ suppressAuth: true }),
+      CMS_TIMEOUT_MS,
+      "getBusinessTaxId"
     );
+    const item = config?.items?.[0];
+    return item?.producerTaxId || item?.businessTaxId || item?.taxId || item?.issuerTaxId || item?.nifEmisor || "BXXXXXXXX";
+  } catch (err) {
+    log.warn("_getBusinessTaxId failed, using fallback", { traceId, error: err?.message });
+    return "BXXXXXXXX";
   }
-  return taxId.toUpperCase();
 }
 
 // =============================================================================

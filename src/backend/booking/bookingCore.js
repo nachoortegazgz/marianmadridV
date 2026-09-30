@@ -311,9 +311,9 @@ export async function getCheckoutUrlSafe(checkoutSessionOrId) {
 // BLOQUE 8 - MUTEX LOCKS (SlotLocks)
 // =============================================================================
 
-const MUTEX_TTL_MS = Number(CONCURRENCY?.MUTEX_TTL_MS);
-if (!Number.isFinite(MUTEX_TTL_MS) || MUTEX_TTL_MS <= 0) {
-    throw new Error("MUTEX_TTL_MS must be positive");
+const MS_TTL_MUTEX = Number(CONCURRENCY?.MS_TTL_MUTEX);
+if (!Number.isFinite(MS_TTL_MUTEX) || MS_TTL_MUTEX <= 0) {
+    throw new Error("MS_TTL_MUTEX must be positive");
 }
 const LOCKS_COL = COLLECTIONS.SLOT_LOCKS;
 
@@ -357,7 +357,7 @@ function _buildLockDocument(slotClave, lockOwnerId, ttlMs, existing) {
         _id: _safeLockId(slotClave),
         slotKey: String(slotClave),
         lockOwnerId: String(lockOwnerId || makeTraceId("lock")),
-        expiresAt: new Date(Date.now() + (Number(ttlMs) || MUTEX_TTL_MS)),
+        expiresAt: new Date(Date.now() + (Number(ttlMs) || MS_TTL_MUTEX)),
         _createdDate: existing?._createdDate ? _toDateSafe(existing._createdDate) || now : now,
         _updatedDate: now,
     };
@@ -710,7 +710,7 @@ export async function _getDualPairFromCache(pairToken, traceId, expected = {}) {
         .query(DUAL_CACHE_COL)
         .eq("_id", String(pairToken))
         .limit(1)
-        .find({ suppressAuth: true, consistentRead: true })
+        .find({ suppressAuth: true })
         .catch(() => null);
 
     const item = res?.items?.[0] || null;
@@ -915,7 +915,7 @@ export async function getCertifiedDualSlotsOptimized(serviceId, resourceId, date
             .eq("status", "ACTIVE")
             .gt("expiresAt", new Date())
             .limit(50)
-            .find({ suppressAuth: true, consistentRead: true })
+            .find({ suppressAuth: true })
             .catch(() => ({ items: [] }));
 
         if (cached?.items?.length > 0 && resourceId) {

@@ -95,9 +95,9 @@ const SERVICIOS_COL = COLLECTIONS.SERVICIOS_CATALOGO;
 const WATCHDOG_TIMEOUT_MS = SDK_CONFIG.TIMEOUTS.WATCHDOG_MS;
 const SERVICE_CACHE_TTL_MS = SDK_CONFIG.CACHE.SERVICES_TTL_MS;
 const DIAS_LIMITE = SLOT_SEARCH.DIAS_LIMITE;
-const MAX_DUAL_GAP_MINUTES = Math.max(
+const MINUTOS_MAX_HUECO_DUAL = Math.max(
   0,
-  Number(SLOT_SEARCH?.MAX_DUAL_GAP_MINUTES) || 120
+  Number(SLOT_SEARCH?.MINUTOS_MAX_HUECO_DUAL) || 120
 );
 const CACHE_MAX_SIZE = SDK_CONFIG.CACHE.MAX_ENTRIES;
 const STAFF_RESOURCE_TYPE_ID = API.STAFF_RESOURCE_TYPE_ID;
@@ -129,7 +129,7 @@ function _cacheSetBounded(map, key, value, maxSize) {
   if (firstKey !== undefined) map.delete(firstKey);
 }
 
-function __toPublicError(err, fallbackCode = "INTERNAL_ERROR", fallbackMessage = "Internal Error") {
+function _toPublicError(err, fallbackCode = "INTERNAL_ERROR", fallbackMessage = "Internal Error") {
   return {
     code: String(err?.code || fallbackCode),
     message: String(err?.message || fallbackMessage)
@@ -367,9 +367,9 @@ export async function _getServiceBySlugOrIdInternal(slugOrId, externalTraceId = 
       );
     } else {
       result = await withTimeout(
-        () => wixData.query(SERVICIOS_COL).eq("slug", clean).limit(1).find({ suppressAuth: true }),
+        () => wixData.query(SERVICIOS_COL).eq("slugUrl", clean).limit(1).find({ suppressAuth: true }),
         WATCHDOG_TIMEOUT_MS,
-        "getServiceBySlugOrId:slug"
+        "getServiceBySlugOrId:slugUrl"
       );
 
       if (!result?.items?.[0] && _looksLikeGuid(clean)) {
@@ -397,8 +397,8 @@ export async function _getServiceBySlugOrIdInternal(slugOrId, externalTraceId = 
     if (mapped.serviceId) {
       _cacheSetBounded(serviceCatalogRAM, mapped.serviceId, cacheEntry, CACHE_MAX_SIZE);
     }
-    if (mapped.slug) {
-      _cacheSetBounded(serviceCatalogRAM, mapped.slug, cacheEntry, CACHE_MAX_SIZE);
+    if (mapped.slugUrl) {
+      _cacheSetBounded(serviceCatalogRAM, mapped.slugUrl, cacheEntry, CACHE_MAX_SIZE);
     }
 
     return { status: "SUCCESS", data: mapped, error: null };
@@ -461,11 +461,12 @@ export async function _mapServiceImport2ToUX(service, traceId) {
   }
 
   const totalDuration = Number(_readImport2Field(service, "totalDuration")) || 0;
+  const buffer = Number(_readImport2Field(service, "buffer")) || 0;
   const title = _safeTrim(_readImport2Field(service, "title")) || "Service";
   const price = Number(_readImport2Field(service, "price")) || 0;
   const currency = _safeTrim(_readImport2Field(service, "currency")) || "EUR";
   const pricingModel = _safeTrim(_readImport2Field(service, "pricingModel")) || null;
-  const slug = _safeTrim(_readImport2Field(service, "slug")) || null;
+  const slugUrl = _safeTrim(_readImport2Field(service, "slugUrl")) || null;
   const serviceType = _safeTrim(_readImport2Field(service, "serviceType")) || null;
   const sku = _safeTrim(_readImport2Field(service, "sku")) || null;
   const depositAmount = Number(_readImport2Field(service, "depositAmount")) || 0;
@@ -473,7 +474,7 @@ export async function _mapServiceImport2ToUX(service, traceId) {
   const onlinePayment = _readImport2Field(service, "onlinePayment") === true;
   const inPersonPayment = _readImport2Field(service, "inPersonPayment") === true;
   const taxIncluded = _readImport2Field(service, "taxIncluded") === true;
-  const tipoImpositivo = Number(_readImport2Field(service, "tipoImpositivo")) || 0;
+  const taxRate = Number(_readImport2Field(service, "taxRate")) || 0;
   const categoryId = _safeTrim(_readImport2Field(service, "categoryId")) || null;
   const locationId = _safeTrim(_readImport2Field(service, "locationId")) || null;
   const location = _safeTrim(_readImport2Field(service, "location")) || null;
@@ -511,19 +512,20 @@ export async function _mapServiceImport2ToUX(service, traceId) {
 
   return {
     serviceId,
-    slug,
+    slugUrl,
     serviceType,
     sku,
     categoryId,
     locationId,
     localizacion: location,
     internalNotes,
-    linkedPhases: allowCombine ? linkedPhases : null,
+    linkFases: allowCombine ? linkedPhases : null,
     permitirCombinar: allowCombine,
     tiempoFase1: phase1Duration,
     tiempoExposicion: exposureDuration,
     tiempoFase2: phase2Duration,
     duracionTotal: totalDuration,
+    buffer,
     availableStaff,
     staffOptions,
     depositAmount,
@@ -531,7 +533,7 @@ export async function _mapServiceImport2ToUX(service, traceId) {
     onlinePayment,
     inPersonPayment,
     taxIncluded,
-    tipoImpositivo,
+    taxRate,
     pricingModel,
     currency,
     linkedPhases: allowCombine ? linkedPhases : null,
@@ -555,7 +557,7 @@ export async function _mapServiceImport2ToUX(service, traceId) {
       addonsPrecio: addons.map((addon) => Number(addon?.precio || 0)),
       imageUrl,
       currency,
-      tipoImpositivo,
+      taxRate,
       pricing: { base: price, currency },
       timing: { estimatedTotal, totalDuration: estimatedTotal },
       durationRange
@@ -590,7 +592,7 @@ export const getServiceBySlugOrId = webMethod(
       return {
         status: "ERROR",
         data: null,
-        error: __toPublicError(error, "SERVICE_LOOKUP_FAILED")
+        error: _toPublicError(error, "SERVICE_LOOKUP_FAILED")
       };
     }
   }
@@ -613,7 +615,7 @@ export const resolveServiceId = webMethod(
       return {
         status: "ERROR",
         data: null,
-        error: __toPublicError(error, "SERVICE_RESOLVE_FAILED")
+        error: _toPublicError(error, "SERVICE_RESOLVE_FAILED")
       };
     }
   }
@@ -621,7 +623,7 @@ export const resolveServiceId = webMethod(
 
 export function _toPublicService(service) {
   if (!service || typeof service !== "object") return null;
-  const { linkedPhases, internalNotes, ...publicService } = service;
+  const { linkFases, internalNotes, ...publicService } = service;
   return {
     ...publicService,
     linkedPhases: publicService.linkedPhases || null
@@ -1042,7 +1044,7 @@ export async function _getCertifiedDualSlotsInternal(serviceId, resourceId, date
       if (!f2StartUtc) continue;
 
       const gapMinutes = computeGapMinutes(range.endUtc, f2StartUtc);
-      if (gapMinutes < 0 || gapMinutes > MAX_DUAL_GAP_MINUTES) continue;
+      if (gapMinutes < 0 || gapMinutes > MINUTOS_MAX_HUECO_DUAL) continue;
 
       const f2Resources = _getResourceIdsFromSlot(f2);
       const shared = f1Resources.filter((id) => f2Resources.includes(id));
@@ -1092,7 +1094,7 @@ export const getCertifiedDualSlots = webMethod(
       return {
         status: "ERROR",
         data: null,
-        error: __toPublicError(error, "DUAL_SLOTS_FAILED")
+        error: _toPublicError(error, "DUAL_SLOTS_FAILED")
       };
     }
   }
@@ -1149,7 +1151,7 @@ export async function _resolveStaffForSlotInternal({
   if (f2Start && f2End) {
     const serviceConfig = await _getServiceBySlugOrIdInternal(resolved, activeTraceId);
     const linkedPhases = _safeTrim(
-      serviceConfig?.data?.linkedPhases || serviceConfig?.data?.linkedPhases
+      serviceConfig?.data?.linkedPhases || serviceConfig?.data?.linkFases
     );
 
     if (!_looksLikeGuid(linkedPhases)) {
@@ -1213,7 +1215,7 @@ export const resolveStaffForSlot = webMethod(
       return {
         status: "ERROR",
         data: null,
-        error: __toPublicError(error, "STAFF_RESOLVE_FAILED")
+        error: _toPublicError(error, "STAFF_RESOLVE_FAILED")
       };
     }
   }

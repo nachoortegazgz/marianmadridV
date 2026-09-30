@@ -213,7 +213,8 @@ function _readBreakdownBaseAndTax(item) {
     const breakdown =
         item.detailedBreakdown ||
         item.desgloseDetallado ||
-        item.desgloseImpuestos;
+        item.desgloseImpuestos ||
+        item.lineItems;
 
     if (breakdown) {
         try {
@@ -583,7 +584,7 @@ async function _validateMapaStaffUniqueness(item = {}) {
             .eq("resourceId", resourceId)
             .ne("_id", itemId)
             .limit(1)
-            .find({ suppressAuth: true, consistentRead: true });
+            .find({ suppressAuth: true });
 
         if (existingByResource?.items?.length > 0) {
             _schemaError("resourceId duplicado en MapaStaff");
@@ -596,7 +597,7 @@ async function _validateMapaStaffUniqueness(item = {}) {
             .eq("staffMemberId", staffMemberId)
             .ne("_id", itemId)
             .limit(1)
-            .find({ suppressAuth: true, consistentRead: true });
+            .find({ suppressAuth: true });
 
         if (existingByMember?.items?.length > 0) {
             _schemaError("staffMemberId duplicado en MapaStaff");
@@ -609,7 +610,7 @@ async function _validateMapaStaffUniqueness(item = {}) {
             .eq("email", email)
             .ne("_id", itemId)
             .limit(1)
-            .find({ suppressAuth: true, consistentRead: true });
+            .find({ suppressAuth: true });
 
         if (existingByEmail?.items?.length > 0) {
             _schemaError("email duplicado en MapaStaff");
