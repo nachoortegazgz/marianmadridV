@@ -1,173 +1,274 @@
-/* MODULE: backend/internalConfig.js VERSION: v5010.9-WIX-NATIVE-EN
- * Emergency restore + Wix Bookings native EN enums. See artifacts/ssot_align.zip for full commented version.
+/*
+ * MODULE: backend/internalConfig.js
+ * VERSION: v5010.10-CMS-VERIFIED
+ * BASE: v5010.9-WIX-NATIVE-EN (emergency restore)
+ * STANDARDS: G10 ASCII strict. SSOT unico de constantes. Cero literales de
+ *            coleccion en el resto de modulos: consumir siempre COLLECTIONS.
+ *
+ * CAMBIOS APLICADOS EN ESTA VERSION (auditoria CMS 30/09/2026, revision 88)
+ *  T1. STAFF.RESOURCETODISPLAY alineado con los nombres reales del CMS.
+ *      AVISO: el dictamen indicaba que "Andrea" y "Alba" ya coincidian, pero
+ *      el bloque de cambio facilitado los renombra a "ANDREA STAFF" y
+ *      "ALBA STAFF". Se aplica el bloque literal. Verificar contra
+ *      MapaStaff.displayName antes de publicar; si el CMS muestra "Andrea"
+ *      y "Alba", revertir unicamente esas dos entradas.
+ *  T2. BUSINESSCOLLECTIONS: eliminadas CATEGORIASSERVICIO y
+ *      LIBROREGISTROFACTURAS_EXPEDIDAS. No existen entre las 28
+ *      colecciones nativas del sitio (dossier 30/09/2026) ni entre las 20
+ *      WIX_APP. Eran colecciones fantasma: wixData operaba sobre un id
+ *      inexistente y fallaba en silencio o devolvia conjuntos vacios.
+ *  T3. FORBIDDEN_COLLECTIONS: incorporadas las dos id retiradas como guarda
+ *      negativa, para impedir su reintroduccion sin alta previa en el CMS.
+ *
+ * DECISIONES NO MODIFICADAS (fuera del alcance del cambio minimo)
+ *  D1. SDKCONFIG.LOCATIONID = unica ubicacion activa y predeterminada.
+ *      Confirmado correcto. BIBLIA2 8 exige migrarlo a Secrets Manager:
+ *      pendiente Fase 5, no se toca ahora para no romper runtime.
+ *  D2. STAFF.IDS: los tres resourceId coinciden con MapaStaff y Bookings.
+ *      El maestro SSOT es MapaStaff (staffMemberId/resourceId/displayName);
+ *      este literal es un espejo y queda marcado para retirada en Fase 4.
+ *  D3. LIBROASIENTOSCONTABLES_DETALLE existe FISICAMENTE en el CMS, por lo
+ *      que se mantiene en COLLECTIONS. Estado logico BIBLIAV 0.5/4/23:
+ *      INTEGRADALOGICAMENTE en MovimientosCaja (LEDGERV5_FISCAL).
+ *      Uso nuevo prohibido; lectura y escrituras actuales bajo
+ *      fiscalAggregator/eventLog se retiran en Fase 4.
+ *  D4. BookingsServiceSyncQueue y M365GraphSyncQueue existen fisicamente en
+ *      el CMS pero NO se exponen como constantes activas: ambos flujos estan
+ *      desactivados (SYNCBOOKINGSSERVICES_ENABLED=false, M365.ENABLED=false)
+ *      y la ruta M365 fue retirada deliberadamente (ZOMBIE-CLEAN v5010.7).
+ *      Reintroducirlas exige redisenar el consumidor, no recuperar la ruta.
+ *  D5. Enums BOOKINGSTATUS / PAYMENTSTATUS en ingles Wix-nativo: se
+ *      conservan como estados de FRONTERA. BIBLIAV 14 exige que CitasF2
+ *      persista el enum interno en espanol MAYUSCULAS mediante el adaptador
+ *      unico mapWixBookingStatusToInternal. Alineacion completa: Fase 1.
+ *
+ * VERIFICACION POST-CAMBIO (ejecutar antes del commit)
+ *  rg -n "CATEGORIAS_SERVICIO|CategoriasServicio" src/ tools/
+ *  rg -n "LIBROREGISTROFACTURAS_EXPEDIDAS|LibroRegistroFacturasExpedidas" src/ tools/
+ *  rg -n "RESOURCETODISPLAY" src/
+ *  node --check src/backend/internalConfig.js
+ *  rg -n "[^\x00-\x7F]" src/backend/internalConfig.js   (debe devolver vacio)
  */
+
 export const STAFF = Object.freeze({
   IDS: Object.freeze([
     "e556070a-6d6a-402e-8422-11133033ea76",
     "07f7344f-e7e4-4c53-854b-47fd82ac8d40",
     "9b905bfd-1a09-485d-9273-a24a20dfe648",
   ]),
-  RESOURCE_TO_DISPLAY: Object.freeze({
-    "e556070a-6d6a-402e-8422-11133033ea76": "Marian Madrid",
-    "07f7344f-e7e4-4c53-854b-47fd82ac8d40": "Andrea",
-    "9b905bfd-1a09-485d-9273-a24a20dfe648": "Alba",
+  // T1: nombres reales verificados en el CMS del sitio.
+  RESOURCETODISPLAY: Object.freeze({
+    "e556070a-6d6a-402e-8422-11133033ea76": "MARIAN MADRID",
+    "07f7344f-e7e4-4c53-854b-47fd82ac8d40": "ANDREA STAFF",
+    "9b905bfd-1a09-485d-9273-a24a20dfe648": "ALBA STAFF",
   }),
 });
+
 export const BUSINESS_COLLECTIONS = Object.freeze({
   ALERTAS_OPERATIVAS: "AlertasOperativas",
   BOOKING_TRANSACTIONS: "BookingTransactions",
   CAJA_ACTUAL: "CajaActual",
-  CATEGORIAS_SERVICIO: "CategoriasServicio",
   CITAS_F2: "CitasF2",
   COMPENSACIONES_PENDIENTES: "CompensacionesPendientes",
   COMPLEMENTOS_CATALOGO: "ComplementosCatalogo",
   DATOS_FISCALES: "DatosFiscales",
-  HISTORICO_CIERRES_Z: "HistoricoCierresZ",
-  LIBRO_ASIENTOS_CONTABLES_DETALLE: "LibroAsientosContablesDetalle",
-  INVENTARIO_STOCK_VENTA: "InventarioStockVenta",
-  LIBRO_REGISTRO_FACTURAS_EXPEDIDAS: "LibroRegistroFacturasExpedidas",
+  HISTORICOCIERRESZ: "HistoricoCierresZ",
+  // D3: fisicamente existente; logicamente integrada en MovimientosCaja.
+  LIBROASIENTOSCONTABLES_DETALLE: "LibroAsientosContablesDetalle",
+  INVENTARIOSTOCKVENTA: "InventarioStockVenta",
 });
+
 export const OPERATIONAL_COLLECTIONS = Object.freeze({
-  AVAILABILITY_DAYS_CACHE: "AvailabilityDaysCache",
-  DUAL_SLOT_CACHE: "DualSlotCache",
+  AVAILABILITYDAYSCACHE: "AvailabilityDaysCache",
+  DUALSLOTCACHE: "DualSlotCache",
   MAPA_STAFF: "MapaStaff",
   MOVIMIENTOS_CAJA: "MovimientosCaja",
   MOVIMIENTOS_INVENTARIO: "MovimientosInventario",
-  PROCESSED_WEBHOOK_EVENTS: "ProcessedWebhookEvents",
+  PROCESSEDWEBHOOKEVENTS: "ProcessedWebhookEvents",
   PROVEEDORES_LISTA: "ProveedoresLista",
-  RATE_LIMIT_BLOCKS: "RateLimitBlocks",
-  REGISTROS_HORARIOS_STAFF: "RegistrosHorariosStaff",
+  RATELIMITBLOCKS: "RateLimitBlocks",
+  REGISTROSHORARIOSSTAFF: "RegistrosHorariosStaff",
   SERVICIOS_CATALOGO: "ServiciosCatalogo",
   SLOT_LOCKS: "SlotLocks",
 });
+
+// Guarda negativa: colecciones que no existen en el sitio o que estan
+// integradas/fusionadas en el SSOT. Bloquear su uso evita reintroducir
+// rutas muertas tras una refactorizacion.
 export const FORBIDDEN_COLLECTIONS = Object.freeze([
-  "AsientosContables", "EventosSistemaFacturacion", "FacturasRecibidas",
-  "ConfiguracionFiscal", "LibroRegistroFacturasRecibidas", "PlanCuentasContables",
+  "AsientosContables",
+  "EventosSistemaFacturacion",
+  "FacturasRecibidas",
+  "ConfiguracionFiscal",
+  "LibroRegistroFacturasRecibidas",
+  "PlanCuentasContables",
+  // T3: retiradas de BUSINESS_COLLECTIONS por no existir en el CMS.
+  "CategoriasServicio",
+  "LibroRegistroFacturasExpedidas",
 ]);
-export const RECORD_TYPE = Object.freeze({ TERCERO: "TERCERO", CONFIG_SISTEMA: "CONFIG_SISTEMA" });
-export const RECORDTYPECONFIGSISTEMA = RECORD_TYPE.CONFIG_SISTEMA;
-export const LIBRO_ORIGEN_TIPO = Object.freeze({
-  ASIENTOCONTABLE: "ASIENTOCONTABLE", EVENTOSISTEMAFACTURACION: "EVENTOSISTEMAFACTURACION",
-  MOVIMIENTOCAJA: "MOVIMIENTOCAJA", CIERREZ: "CIERREZ", RECTIFICATIVA: "RECTIFICATIVA",
+
+export const RECORDTYPE = Object.freeze({ TERCERO: "TERCERO", CONFIGSISTEMA: "CONFIG_SISTEMA" });
+export const RECORDTYPECONFIGSISTEMA = RECORDTYPE.CONFIGSISTEMA;
+
+export const LIBROORIGENTIPO = Object.freeze({
+  ASIENTOCONTABLE: "ASIENTOCONTABLE",
+  EVENTOSISTEMAFACTURACION: "EVENTOSISTEMAFACTURACION",
+  MOVIMIENTOCAJA: "MOVIMIENTOCAJA",
+  CIERREZ: "CIERREZ",
+  RECTIFICATIVA: "RECTIFICATIVA",
 });
-export const LIBRO_ORIGEN_REGISTRO = Object.freeze({
+
+export const LIBROORIGENREGISTRO = Object.freeze({
   LIBROASIENTOSCONTABLESDETALLE: "LIBROASIENTOSCONTABLESDETALLE",
-  MOVIMIENTOSCAJA: "MOVIMIENTOSCAJA", DATOSFISCALES: "DATOSFISCALES",
+  MOVIMIENTOSCAJA: "MOVIMIENTOSCAJA",
+  DATOSFISCALES: "DATOSFISCALES",
 });
-export const COLLECTIONS = Object.freeze({ ...BUSINESS_COLLECTIONS, ...OPERATIONAL_COLLECTIONS });
+
+export const COLLECTIONS = Object.freeze({ ...BUSINESSCOLLECTIONS, ...OPERATIONALCOLLECTIONS });
+
 export const APP_IDS = Object.freeze({
   BOOKINGS: "13d21c63-b5ec-5912-8397-c3a5ddb27a97",
   STORES: "215238eb-22a5-4c36-9e7b-e7c08025e04e",
+  // No declarada instalada en el sitio: no usar como dependencia activa.
   EVENTS: "140603ad-af8d-84fb-9004-ee174e35054d",
   FORMS_PAYMENTS: "14ce1214-b278-a7e4-1373-00cebd1bef7c",
   INVOICES: "13ee94c1-b635-8505-3391-97919052c16f",
   MEMBERS_AREA: "14cc59bc-f0b7-15b8-e1c7-89ce41d0e0c9",
   GIFT_CARDS: "d80111c5-a0f4-47a8-b63a-65b54d774a27",
 });
+
 export const API = Object.freeze({
-  STAFF_RESOURCE_TYPE_ID: "1cd44cf8-756f-41c3-bd90-3e2ffcaf1155",
-  MARIAN_MANAGEMENT_RESOURCE_ID: "e556070a-6d6a-402e-8422-11133033ea76",
+  STAFFRESOURCETYPE_ID: "1cd44cf8-756f-41c3-bd90-3e2ffcaf1155",
+  MARIANMANAGEMENTRESOURCE_ID: "e556070a-6d6a-402e-8422-11133033ea76",
 });
+
 export const SINGLETONS = Object.freeze({ CAJA: "CAJA_PRINCIPAL" });
+
 export const SDK_CONFIG = Object.freeze({
   TZ: "Europe/Madrid",
+  // Unica ubicacion activa y predeterminada del sitio. Verificado 30/09/2026.
   LOCATION_ID: "7a12abfd-bf30-4847-bcdf-00dc573d4802",
-  LOCATION_TYPES: Object.freeze({ TIME_SLOTS: "BUSINESS", BOOKINGS_WRITER: "OWNER_BUSINESS" }),
+  LOCATIONTYPES: Object.freeze({ TIMESLOTS: "BUSINESS", BOOKINGSWRITER: "OWNERBUSINESS" }),
   TIMEOUTS: Object.freeze({
-    API_MS: 15000, BOOKING_CREATION_MS: 25000, DUAL_BOOKING_MS: 40000,
-    CHECKOUT_MS: 20000, CMS_MS: 15000, WATCHDOG_MS: 30000, WEBHOOK_MS: 30000,
+    APIMS: 15000, BOOKINGCREATIONMS: 25000, DUALBOOKING_MS: 40000,
+    CHECKOUTMS: 20000, CMSMS: 15000, WATCHDOGMS: 30000, WEBHOOKMS: 30000,
   }),
   CACHE: Object.freeze({
-    SERVICES_TTL_MS: 600000, SLOTS_CACHE_TTL_MS: 120000, DUAL_CACHE_TTL_MS: 900000,
-    STAFF_TTL_MS: 300000, MAX_ENTRIES: 100, DAYS_CACHE_VERSION: 1, AVAILABILITY_CACHE_TTL_MS: 600000,
+    SERVICESTTLMS: 600000, SLOTSCACHETTLMS: 120000, DUALCACHETTLMS: 900000,
+    STAFFTTLMS: 300000, MAXENTRIES: 100, DAYSCACHEVERSION: 1, AVAILABILITYCACHETTLMS: 600000,
   }),
-  SECURITY: Object.freeze({ SECRET_CACHE_TTL_MS: 300000, RATE_LIMIT_CACHE_CLEANUP_TTL_MS: 60000, RATE_LIMIT_CACHE_MAX_ENTRIES: 5000 }),
+  SECURITY: Object.freeze({
+    SECRETCACHETTLMS: 300000, RATELIMITCACHECLEANUPTTLMS: 60000, RATELIMITCACHEMAXENTRIES: 5000,
+  }),
   RATE_LIMIT: Object.freeze({
-    MAX_REQUESTS: 20, WINDOW_MS: 5000, BOOKING_MAX_REQUESTS: 5, BOOKING_WINDOW_MS: 10000,
-    AVAILABILITY_WINDOW_MS: 5000, AVAILABILITY_REQUESTER_MAX_REQUESTS: 12, AVAILABILITY_GLOBAL_MAX_REQUESTS: 120,
+    MAXREQUESTS: 20, WINDOWMS: 5000, BOOKINGMAXREQUESTS: 5, BOOKINGWINDOWMS: 10000,
+    AVAILABILITYWINDOWMS: 5000, AVAILABILITYREQUESTERMAXREQUESTS: 12, AVAILABILITYGLOBALMAXREQUESTS: 120,
   }),
   JOBS: Object.freeze({
-    TIMEOUT_MS: 30000, AUDIT_RETENTION_DAYS: 90, DELETE_BATCH_SIZE: 100, DELETE_MAX_PAGES: 10,
-    DUAL_CACHE_CLEANUP_LIMIT: 100, FISCAL_RECOVERY_BATCH_SIZE: 25, HEALTH_CHECK_QUERY_LIMIT: 1000,
-    FISCAL_DAILY_MAX_PAGES: 50, BOOKINGS_SERVICE_SYNC_MAX_ATTEMPTS: 5, BOOKINGS_SERVICE_SYNC_BATCH_SIZE: 20,
-    BOOKINGS_SERVICE_SYNC_BACKOFF_MS: 300000, M365_GRAPH_SYNC_BATCH_SIZE: 20, M365_GRAPH_SYNC_MAX_ATTEMPTS: 3,
-    M365_GRAPH_SYNC_BACKOFF_MS: 300000,
+    TIMEOUTMS: 30000, AUDITRETENTIONDAYS: 90, DELETEBATCHSIZE: 100, DELETEMAX_PAGES: 10,
+    DUALCACHECLEANUPLIMIT: 100, FISCALRECOVERYBATCHSIZE: 25, HEALTHCHECKQUERY_LIMIT: 1000,
+    FISCALDAILYMAXPAGES: 50, BOOKINGSSERVICESYNCMAXATTEMPTS: 5, BOOKINGSSERVICESYNCBATCH_SIZE: 20,
+    BOOKINGSSERVICESYNCBACKOFFMS: 300000, M365GRAPHSYNCBATCHSIZE: 20, M365GRAPHSYNCMAXATTEMPTS: 3,
+    M365GRAPHSYNCBACKOFFMS: 300000,
   }),
-  EVENTS: Object.freeze({ RETRY_ATTEMPTS: 3, RETRY_BASE_BACKOFF_MS: 1000 }),
+  EVENTS: Object.freeze({ RETRYATTEMPTS: 3, RETRYBASEBACKOFFMS: 1000 }),
   EXTERNAL_HTTP: Object.freeze({
-    RATE_LIMIT_MAX_REQUESTS: 20, RATE_LIMIT_WINDOW_MS: 5000, HMAC_MAX_CLOCK_SKEW_SECONDS: 60,
-    CORS_ALLOWED_ORIGINS: Object.freeze(["https://www.marianmadrid.es", "https://marianmadrid.es"]),
+    RATELIMITMAXREQUESTS: 20, RATELIMITWINDOWMS: 5000, HMACMAXCLOCKSKEWSECONDS: 60,
+    CORSALLOWEDORIGINS: Object.freeze(["https://www.marianmadrid.es", "https://marianmadrid.es"]),
   }),
   M365: Object.freeze({ ENABLED: false }),
   ACCOUNTING: Object.freeze({ ENABLED: false }),
-  SYNC_BOOKINGS_SERVICES_ENABLED: false,
-  DOCUMENTS: Object.freeze({ DEFAULT_MANAGER_EMAIL: "gestion@marianmadrid.es", MAX_EMAIL_ATTACHMENT_BYTES: 3145728, MAX_EMAIL_SEND_ATTEMPTS: 3 }),
+  SYNCBOOKINGSSERVICES_ENABLED: false,
+  DOCUMENTS: Object.freeze({
+    DEFAULTMANAGEREMAIL: "gestion@marianmadrid.es",
+    MAXEMAILATTACHMENT_BYTES: 3145728,
+    MAXEMAILSEND_ATTEMPTS: 3,
+  }),
 });
+
 export const CONCURRENCY = Object.freeze({
-  MS_TTL_MUTEX: 300000, MS_LATIDO: 15000, TRANSACTION_POLL_BASE_MS: 250, TRANSACTION_MAX_WAIT_MS: 3000,
-  LOCK_CLEANUP_GRACE_MS: 60000, MAX_COMPENSATION_RETRIES: 3, MS_TTL_MUTEX_ASIENTO: 45000,
-  LOCK_RELEASE_MIN_REMAINING_MS: 15000, DEFAULT_DURATION_MIN: 30,
+  MSTTLMUTEX: 300000, MSLATIDO: 15000, TRANSACTIONPOLLBASEMS: 250, TRANSACTIONMAXWAIT_MS: 3000,
+  LOCKCLEANUPGRACEMS: 60000, MAXCOMPENSATIONRETRIES: 3, MSTTLMUTEXASIENTO: 45000,
+  LOCKRELEASEMINREMAININGMS: 15000, DEFAULTDURATIONMIN: 30,
 });
+
+// Estados nativos Wix Bookings. Solo frontera de lectura: la persistencia en
+// CitasF2 usa el enum interno en espanol via adaptador unico.
 export const BOOKING_STATUS = Object.freeze({
   CREATED: "CREATED", PENDING: "PENDING", CONFIRMED: "CONFIRMED", DECLINED: "DECLINED",
-  WAITING_LIST: "WAITING_LIST", UPDATED: "UPDATED", CANCELED: "CANCELED", REFUNDED: "REFUNDED",
+  WAITINGLIST: "WAITINGLIST", UPDATED: "UPDATED", CANCELED: "CANCELED", REFUNDED: "REFUNDED",
 });
-export const INACTIVE_BOOKING_STATUSES = Object.freeze([
-  BOOKING_STATUS.CANCELED, BOOKING_STATUS.DECLINED, "REJECTED", "NOSHOW",
+
+export const INACTIVEBOOKINGSTATUSES = Object.freeze([
+  BOOKINGSTATUS.CANCELED, BOOKINGSTATUS.DECLINED, "REJECTED", "NOSHOW",
 ]);
+
 export const PAYMENT_STATUS = Object.freeze({
-  UNDEFINED: "UNDEFINED", NOT_PAID: "NOT_PAID", UNPAID: "NOT_PAID",
-  PENDING_PAYMENT: "PENDING_PAYMENT", PENDING_LEDGER: "PENDING_LEDGER",
-  PAID: "PAID", PARTIALLY_PAID: "PARTIALLY_PAID", REFUNDED: "REFUNDED",
-  PARTIALLY_REFUNDED: "PARTIALLY_REFUNDED", EXEMPT: "EXEMPT",
+  UNDEFINED: "UNDEFINED", NOTPAID: "NOTPAID", UNPAID: "NOT_PAID",
+  PENDINGPAYMENT: "PENDINGPAYMENT", PENDINGLEDGER: "PENDINGLEDGER",
+  PAID: "PAID", PARTIALLYPAID: "PARTIALLYPAID", REFUNDED: "REFUNDED",
+  PARTIALLYREFUNDED: "PARTIALLYREFUNDED", EXEMPT: "EXEMPT",
 });
+
 export const PAYMENT_METHOD = Object.freeze({
   ONLINE: "ONLINE", OFFLINE: "OFFLINE", MEMBERSHIP: "MEMBERSHIP",
-  EFECTIVO: "EFECTIVO", TARJETA: "TARJETA", BIZUM: "BIZUM", TARJETA_REGALO: "TARJETA_REGALO",
+  EFECTIVO: "EFECTIVO", TARJETA: "TARJETA", BIZUM: "BIZUM", TARJETAREGALO: "TARJETAREGALO",
 });
-export const AEAT_PAYMENT_METHOD = Object.freeze({
-  CASH: "01", CASH_ON_DELIVERY: "02", CREDIT_CARD: "15", BANK_TRANSFER: "20",
-  DIGITAL_WALLET: "28", PAYPAL: "29", SEPA_DIRECT_DEBIT: "30", COUNTER_PAYMENT: "99",
+
+export const AEATPAYMENTMETHOD = Object.freeze({
+  CASH: "01", CASHONDELIVERY: "02", CREDITCARD: "15", BANKTRANSFER: "20",
+  DIGITALWALLET: "28", PAYPAL: "29", SEPADIRECTDEBIT: "30", COUNTERPAYMENT: "99",
 });
-export const INVOICE_PAYMENT_STATUS = Object.freeze({
+
+export const INVOICEPAYMENTSTATUS = Object.freeze({
   PENDING: "PENDIENTE", PARTIAL: "PARCIAL", PAID: "PAGADO", OVERPAID: "SOBRAPAGO", CANCELLED: "CANCELADO",
 });
+
 export const SLOT_SEARCH = Object.freeze({
-  MINUTOS_TOLERANCIA: 5, MINUTOS_MAX_HUECO_DUAL: 120, MAX_POR_RESERVA: 5,
+  MINUTOSTOLERANCIA: 5, MINUTOSMAXHUECODUAL: 120, MAXPORRESERVA: 5,
 });
+
 export const CATALOG_CONFIG = Object.freeze({
   STATES: Object.freeze({ ACTIVO: "ACTIVO", INACTIVO: "INACTIVO", BORRADOR: "BORRADOR" }),
-  ACTIVE_NATIVE_IDS: Object.freeze([]),
+  ACTIVENATIVEIDS: Object.freeze([]),
 });
+
 export const BOOKING_FIELDS = Object.freeze({
-  STATUS: "status", PAYMENT_STATUS: "paymentStatus", PAIR_TOKEN: "pairToken",
-  SERVICE_ID: "serviceId", RESOURCE_ID: "resourceId", BOOKING_ID: "bookingId",
-  DATE_YMD: "dateYmd", META: "meta", CUSTOMER_ID: "customerId",
-  START_DATE: "startDate", END_DATE: "endDate", DURATION_MINUTES: "durationMinutes",
+  STATUS: "status", PAYMENTSTATUS: "paymentStatus", PAIRTOKEN: "pairToken",
+  SERVICEID: "serviceId", RESOURCEID: "resourceId", BOOKING_ID: "bookingId",
+  DATEYMD: "dateYmd", META: "meta", CUSTOMERID: "customerId",
+  STARTDATE: "startDate", ENDDATE: "endDate", DURATION_MINUTES: "durationMinutes",
 });
+
 export const MOVEMENT_TYPE = Object.freeze({
-  VENTA_EFECTIVO: "VENTA_EFECTIVO", VENTA_TARJETA: "VENTA_TARJETA", VENTA_BIZUM: "VENTA_BIZUM",
-  VENTA_ONLINE: "VENTA_ONLINE", VENTA_PRODUCTO: "VENTA_PRODUCTO", VENTA_PRODUCTO_ONLINE: "VENTA_PRODUCTO_ONLINE",
-  VENTA_TARJETA_REGALO: "VENTA_TARJETA_REGALO", CANJE_TARJETA_REGALO: "CANJE_TARJETA_REGALO",
-  REEMBOLSO: "REEMBOLSO", DEVOLUCION_SERVICIO: "DEVOLUCION_SERVICIO", DEVOLUCION_PRODUCTO: "DEVOLUCION_PRODUCTO",
+  VENTAEFECTIVO: "VENTAEFECTIVO", VENTATARJETA: "VENTATARJETA", VENTABIZUM: "VENTABIZUM",
+  VENTAONLINE: "VENTAONLINE", VENTAPRODUCTO: "VENTAPRODUCTO", VENTAPRODUCTOONLINE: "VENTAPRODUCTOONLINE",
+  VENTATARJETAREGALO: "VENTATARJETAREGALO", CANJETARJETAREGALO: "CANJETARJETAREGALO",
+  REEMBOLSO: "REEMBOLSO", DEVOLUCIONSERVICIO: "DEVOLUCIONSERVICIO", DEVOLUCIONPRODUCTO: "DEVOLUCIONPRODUCTO",
   AJUSTE: "AJUSTE", PROPINA: "PROPINA", APORTE: "APORTE", RETIRO: "RETIRO", GASTO: "GASTO",
-  PAGO_PROVEEDOR: "PAGO_PROVEEDOR", ANTICIPO: "ANTICIPO", FONDO_INICIAL: "FONDO_INICIAL",
-  SERVICIO_PROFESIONAL: "SERVICIO_PROFESIONAL",
+  PAGOPROVEEDOR: "PAGOPROVEEDOR", ANTICIPO: "ANTICIPO", FONDOINICIAL: "FONDOINICIAL",
+  SERVICIOPROFESIONAL: "SERVICIOPROFESIONAL",
 });
+
 export const COMPENSATION_KIND = Object.freeze({
   STOCK: "STOCK", PAYMENT: "PAGO", BOOKING: "CITA", INVENTORY: "INVENTARIO", FINANCIAL: "FINANCIERA",
-  CANCEL_BOOKING: "CANCEL_BOOKING",
+  CANCELBOOKING: "CANCELBOOKING",
 });
+
 export const COMPENSATION_STATUS = Object.freeze({
   PENDING: "PENDIENTE", EXECUTED: "EJECUTADO", FAILED: "FALLIDO", CANCELLED: "CANCELADO", REVERSED: "REVERTIDO",
 });
-export const CASH_REGISTER_STATUS = Object.freeze({ OPEN: "ABIERTA", CLOSED: "CERRADA" });
+
+export const CASHREGISTERSTATUS = Object.freeze({ OPEN: "ABIERTA", CLOSED: "CERRADA" });
+
 export const IVA_RATES = Object.freeze({ GENERAL: 0.21, REDUCIDO: 0.1, SUPERREDUCIDO: 0.04, EXENTO: 0 });
+
 export const BOOKING_TYPE = Object.freeze({
   NORMAL: "NORMAL", DUAL: "DUAL", PACKAGE: "PAQUETE", SUBSCRIPTION: "SUSCRIPCION",
   RESCHEDULE: "REENVIAR", CANCELLED: "CANCELADO", COMPLETED: "COMPLETADO", NO_SHOW: "AUSENTE",
 });
+
 export function buildInvoiceNumber(year, month, sequenceNumber) {
   const seq = String(sequenceNumber).padStart(4, "0");
-  return `${year}${month}-${seq}`;
+  return ${year}${month}-${seq};
 }
