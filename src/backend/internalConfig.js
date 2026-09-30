@@ -103,7 +103,7 @@ export const SDK_CONFIG = Object.freeze({
     // B3-FIX: TIME_SLOTS debe ser "BUSINESS" per dev.wix.com V2 API
     LOCATION_TYPES: Object.freeze({
         TIME_SLOTS: "BUSINESS",
-        BOOKINGS_WRITER: "OWNERBUSINESS",
+        BOOKINGS_WRITER: "OWNER_BUSINESS",
     }),
 
     TIMEOUTS: Object.freeze({
@@ -192,8 +192,8 @@ export const SDK_CONFIG = Object.freeze({
 // =============================================================================
 
 export const CONCURRENCY = Object.freeze({
-    MUTEX_TTL_MS: 300000,
-    HEARTBEAT_MS: 15000,
+    MS_TTL_MUTEX: 300000,
+    MS_LATIDO: 15000,
     TRANSACTION_POLL_BASE_MS: 250,
     TRANSACTION_MAX_WAIT_MS: 3000,
     LOCK_CLEANUP_GRACE_MS: 60000,
@@ -222,7 +222,7 @@ export const ENTRY_STATUS = Object.freeze({
     APPROVED: "APROBADO",
     REJECTED: "RECHAZADO",
     POSTED: "ASIENTADO",
-    CANCELLED: "CANCELLED",
+    CANCELLED: "CANCELADO",
     DRAFT: "BORRADOR",
 });
 
@@ -280,7 +280,7 @@ export const PACKAGE_STATUS = Object.freeze({
     INACTIVE: "INACTIVO",
     SUSPENDED: "SUSPENDIDO",
     EXPIRED: "VENCIDO",
-    CANCELLED: "CANCELLED",
+    CANCELLED: "CANCELADO",
 });
 
 export const TAX_CODE = Object.freeze({
@@ -309,7 +309,7 @@ export const COMPENSATION_STATUS = Object.freeze({
     PENDING: "PENDIENTE",
     EXECUTED: "EJECUTADO",
     FAILED: "FALLIDO",
-    CANCELLED: "CANCELLED",
+    CANCELLED: "CANCELADO",
     REVERSED: "REVERTIDO",
 });
 
@@ -318,7 +318,7 @@ export const QUEUE_STATUS = Object.freeze({
     PROCESSING: "PROCESANDO",
     COMPLETED: "COMPLETADO",
     FAILED: "FALLIDO",
-    CANCELLED: "CANCELLED",
+    CANCELLED: "CANCELADO",
 });
 
 export const INVOICE_PAYMENT_STATUS = Object.freeze({
@@ -326,7 +326,7 @@ export const INVOICE_PAYMENT_STATUS = Object.freeze({
     PARTIAL: "PARCIAL",
     PAID: "PAGADO",
     OVERPAID: "SOBRAPAGO",
-    CANCELLED: "CANCELLED",
+    CANCELLED: "CANCELADO",
 });
 
 export const AEAT_PAYMENT_METHOD = Object.freeze({
@@ -361,7 +361,7 @@ export const BOOKING_TYPE = Object.freeze({
     PACKAGE: "PAQUETE",
     SUBSCRIPTION: "SUSCRIPCION",
     RESCHEDULE: "REENVIAR",
-    CANCELLED: "CANCELLED",
+    CANCELLED: "CANCELADO",
     COMPLETED: "COMPLETADO",
     NO_SHOW: "AUSENTE",
 });
@@ -485,6 +485,7 @@ export const INACTIVE_BOOKING_STATUSES = Object.freeze([
 ]);
 
 export const PAYMENT_STATUS = Object.freeze({
+    UNPAID: "UNPAID",
     NOT_PAID: "NOT_PAID",
     PENDING_PAYMENT: "PENDING_PAYMENT",
     PENDING_LEDGER: "PENDING_LEDGER",
@@ -518,12 +519,12 @@ export const CATALOG_CONFIG = Object.freeze({
 
 export const SLOT_SEARCH = Object.freeze({
     DIAS_LIMITE: 14,
-    TOLERANCE_MINUTES: 10,
-    MAX_DUAL_GAP_MINUTES: 120,
+    MINUTOS_TOLERANCIA: 10,
+    MINUTOS_MAX_HUECO_DUAL: 120,
 });
 
 export const BOOKINGS_ADDON_CONFIG = Object.freeze({
-    MAX_PER_BOOKING: 5,
+    MAX_POR_RESERVA: 5,
     ACTIVE_NATIVE_IDS: Object.freeze([]),
 });
 
@@ -557,7 +558,7 @@ export const BOOKING_FIELDS = Object.freeze({
     REFUNDED_DATE: "refundedDate",
     PAYMENT_METHOD: "paymentMethod",
     NOTES: "notes",
-    ADD_ON_IDS: "addOnIds",
+    ADDONS: "addons",
     CUSTOM_FIELDS: "customFields",
 });
 
@@ -887,9 +888,9 @@ export function enumIn(value, enumObject) {
 export function normalizeBookingType(type) {
     if (!type) return BOOKING_TYPE.NORMAL;
     const normalized = String(type).toUpperCase();
-    if (normalized === 'DUAL') return BOOKING_TYPE.DUAL;
-    if (normalized === 'PACKAGE') return BOOKING_TYPE.PACKAGE;
-    if (normalized === 'CANCELLED') return BOOKING_TYPE.CANCELLED;
+    if (normalized === 'DUAL' || normalized === 'PAIR') return BOOKING_TYPE.DUAL;
+    if (normalized === 'PACKAGE' || normalized === 'PAQUETE') return BOOKING_TYPE.PACKAGE;
+    if (normalized === 'CANCELLED' || normalized === 'CANCELADO') return BOOKING_TYPE.CANCELLED;
     return BOOKING_TYPE.NORMAL;
 }
 
@@ -912,15 +913,9 @@ export function isValidGuid(guid) {
  * Genera número de factura secuencial YYYYMM-SEQ.
  */
 export function buildInvoiceNumber(date, sequenceNumber) {
-    const parsedDate = new Date(date);
-    if (Number.isNaN(parsedDate.getTime())) {
-        throw new TypeError("Fecha de factura invalida");
-    }
-    const sequence = Number(sequenceNumber);
-    if (!Number.isInteger(sequence) || sequence < 0) {
-        throw new TypeError("Secuencia de factura invalida");
-    }
-    const year = String(parsedDate.getFullYear()).slice(-2);
-    const month = String(parsedDate.getMonth() + 1).padStart(2, "0");
-    return `${year}${month}-${String(sequence).padStart(4, "0")}`;
+    const d = new Date(date);
+    const year = d.getFullYear().toString().slice(-2);
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    const seq = String(sequenceNumber).padStart(4, '0');
+    return `${year}${month}-${seq}`;
 }
