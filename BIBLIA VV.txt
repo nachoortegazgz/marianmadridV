@@ -1,0 +1,1602 @@
+A continuación tienes una **Biblia Técnica SSOT Objetivo**, limpia, normativa y orientada a ser la referencia contra la que adaptar el código. Se ha generado como documento de gobierno, no como descripción permisiva del estado actual.
+
+---
+
+BIBLIA TÉCNICA SSOT OBJETIVO — MARIAN MADRID PELUQUERÍA Y ESTÉTICA
+
+Versión: `v7.0-SSOT-OBJETIVO`  
+Fecha: `30/09/2026`  
+Naturaleza: Fuente Única de Verdad normativa (SSOT)  
+Estado: Normativo objetivo para adaptación de código  
+Regla de autoridad: **El código se adapta a este documento. Este documento no se adapta para justificar código heredado.**
+
+---
+
+## 0. AUTORIDAD NORMATIVA
+
+Este documento constituye la Biblia Técnica SSOT Objetivo del sitio Marian Madrid Peluquería y Estética.
+
+Sustituye a:
+
+- `BIBLIA.txt`
+- `BIBLIA2.txt`
+- `BIBLIAV.txt`
+- `BIBLIA_MARIANMADRID_CONSOLIDADA_v6.md`
+- `BIBLIA_MARIANMADRID_CONSOLIDADA_v6.1-AUDIT-CORRECTED-INTEGRATED.txt`
+- cualquier documento previo, parcial o intermedio.
+
+Este documento define el **estado objetivo ideal**.
+
+El código backend, los hooks, los webMethods, los jobs, los flujos de negocio, los permisos, los enums, los índices y las convenciones de datos deben adaptarse a esta Biblia.
+
+Cuando exista discrepancia entre código y este documento:
+
+1. El código se considera incorrecto salvo excepción formal aprobada.
+2. No se acepta modificar este documento para justificar deuda técnica.
+3. Toda excepción debe registrarse como ADR o decisión técnica explícita.
+
+---
+
+## 1. OBJETIVO DEL DOCUMENTO
+
+Este SSOT define:
+
+1. Las fuentes de verdad por dominio.
+2. Las colecciones activas, reservadas, históricas, bloqueadas y prohibidas.
+3. Las constantes canónicas obligatorias.
+4. Los consumidores válidos por colección.
+5. Los esquemas de datos normativos.
+6. Los enums canónicos y la validación runtime obligatoria.
+7. Los hooks de integridad obligatorios.
+8. Los permisos mínimos y reales.
+9. Los módulos backend responsables.
+10. Los webMethods válidos.
+11. Los jobs programados autorizados.
+12. Los flujos de negocio normativos.
+13. La política de migración desde alias legacy.
+14. Los bloqueos activos antes de despliegue.
+
+No es un documento informativo. Es un contrato técnico de adaptación.
+
+---
+
+## 2. REGLAS DE ORO SSOT
+
+| Código | Regla |
+|---|---|
+| SSOT-01 | Prohibido usar un alias global `COLLECTIONS`. |
+| SSOT-02 | Solo se usan `BUSINESS_COLLECTIONS` y `OPERATIONAL_COLLECTIONS` como grupos activos. |
+| SSOT-03 | Toda colección activa debe tener consumidor normativo explícito. |
+| SSOT-04 | No puede existir doble fuente de verdad para el mismo evento. |
+| SSOT-05 | Los ledgers son append-only y protegidos por hooks. |
+| SSOT-06 | Prohibida la escritura nueva usando campos legacy. |
+| SSOT-07 | Los enums críticos deben validarse en runtime de forma centralizada. |
+| SSOT-08 | Wix Stores debe usar exclusivamente Catalog V1. Prohibido V3. |
+| SSOT-09 | Prohibido crear, leer o escribir colecciones incluidas en `FORBIDDEN_COLLECTIONS`. |
+| SSOT-10 | Ninguna colección sin consumidor debe borrarse sin clasificación formal. |
+| SSOT-11 | Los permisos Velo son capa mínima; el rol de negocio debe validarse internamente. |
+| SSOT-12 | Toda escritura transaccional debe incluir `traceId`. |
+| SSOT-13 | No se traducen ni renombran IDs técnicos Wix. |
+| SSOT-14 | Los hooks de integridad son obligatorios en colecciones append-only. |
+| SSOT-15 | Las colecciones bloqueadas no pueden usarse en nuevas funcionalidades. |
+
+---
+
+## 3. IDENTIDAD VERIFICADA DEL SITIO
+
+| Campo | Valor |
+|---|---|
+| Negocio | Marian Madrid Peluquería y Estética |
+| Dominio | `https://www.marianmadrid.es/` |
+| Editor | Wix Editor |
+| Velo | Habilitado |
+| Estado | Publicado · Premium · dominio personalizado |
+| Zona horaria | `Europe/Madrid` |
+| Moneda | `EUR` |
+| Decimales | 2 |
+| Idioma | `es-ES` |
+| Site ID | `188bed94-177c-4bc9-a9f0-35080d874f3e` |
+| Repositorio | `https://github.com/nachoortegazgz/marianmadridV.git` |
+| Contacto operativo | `hola@marianmadrid.es` |
+
+### 3.1 Constantes de identidad verificadas
+
+| Constante | Valor |
+|---|---|
+| `LOCATION_ID` | `7a12abfd-bf30-4847-bcdf-00dc573d4802` |
+| `STAFF_RESOURCE_TYPE_ID` | `1cd44cf8-756f-41c3-bd90-3e2ffcaf1155` |
+| `MARIAN_MANAGEMENT_RESOURCE_ID` | `e556070a-6d6a-402e-8422-11133033ea76` |
+
+### 3.2 Personal verificado
+
+| resourceId | Nombre visible |
+|---|---|
+| `e556070a-6d6a-402e-8422-11133033ea76` | MARIAN MADRID |
+| `07f7344f-e7e4-4c53-854b-47fd82ac8d40` | ANDREA STAFF |
+| `9b905bfd-1a09-485d-9273-a24a20dfe648` | ALBA STAFF |
+
+---
+
+## 4. APPS WIX INSTALADAS
+
+| App | App ID | Estado normativo |
+|---|---|---|
+| Wix Bookings | `13d21c63-b5ec-5912-8397-c3a5ddb27a97` | Activa — V2 |
+| Wix Stores | `215238eb-22a5-4c36-9e7b-e7c08025e04e` | Activa — Catalog V1 |
+| Forms & Payments | `14ce1214-b278-a7e4-1373-00cebd1bef7c` | Activa |
+| Invoices | `13ee94c1-b635-8505-3391-97919052c16f` | Activa |
+| Members Area | `14cc59bc-f0b7-15b8-e1c7-89ce41d0e0c9` | Activa |
+| Gift Cards | `d80111c5-a0f4-47a8-b63a-65b54d774a27` | Activa |
+| Wix Blog | — | Instalada |
+| Promote SEO | — | Instalada |
+| Wix Hotels | — | Instalada; auditar uso real antes de mantener dependencia |
+| Wix Events | `140603ad-af8d-84fb-9004-ee174e35054d` | No confirmada como dependencia activa |
+
+Regla:
+
+- Wix Stores debe consumirse exclusivamente mediante contratos Catalog V1.
+- Prohibido introducir rutas, payloads, enums o recetas de Catalog V3.
+
+---
+
+## 5. FUENTES DE VERDAD POR DOMINIO
+
+| Dominio | Fuente de verdad | Colección / sistema | No confundir con |
+|---|---|---|---|
+| Reserva oficial | Wix Bookings | Bookings nativo | `CitasF2` |
+| Pago / trazabilidad interna | Proyección interna | `CitasF2` | Wix Bookings |
+| Catálogo comercial público | Wix Stores Catalog V1 | `Stores/Products` | `ProductosCatalogo` |
+| Stock interno | Espejo interno | `InventarioStockVenta` | Stores Inventory |
+| Movimientos de inventario | Ledger append-only | `MovimientosInventario` | `InventarioStockVenta` |
+| Estado operativo de caja | Singleton operativo | `CajaActual` | `MovimientosCaja` |
+| Ledger fiscal / tesorería | Ledger append-only | `MovimientosCaja` | Contabilidad partida doble |
+| Eventos de facturación / contabilidad | Detalle contable | `LibroAsientosContablesDetalle` | `MovimientosCaja` |
+| Cierres Z | Consolidado diario | `HistoricoCierresZ` | `CajaActual` |
+| Configuración fiscal | Maestro fiscal | `DatosFiscales` | `ConfiguracionFiscal` |
+
+### 5.1 Enrutado normativo de eventos fiscales y contables
+
+| Evento | Fuente de verdad | Colección destino |
+|---|---|---|
+| Movimiento de tesorería | Pago, reembolso, venta, gasto, ajuste | `MovimientosCaja` |
+| Evento de facturación / asiento | Devengo, detalle contable, factura | `LibroAsientosContablesDetalle` |
+| Cierre Z diario | Consolidación de caja y fiscalidad | `HistoricoCierresZ` |
+| Estado actual de caja | Snapshot operativo | `CajaActual` |
+| Movimiento de stock | Entrada, salida, venta, devolución | `MovimientosInventario` |
+
+Regla crítica:
+
+- Un evento de caja no se duplica como contabilidad.
+- Un asiento contable puede referenciar un movimiento de caja mediante `sourceMovementId` o equivalente, pero no sustituye al ledger fiscal.
+- No puede existir doble fuente de verdad para el mismo hecho económico.
+
+---
+
+## 6. CONSTANTES CANÓNICAS OBJETIVO
+
+El archivo `internalConfig.js` debe adaptarse al siguiente modelo normativo.
+
+```js
+export const STAFF = Object.freeze({
+  IDS: Object.freeze([
+    "e556070a-6d6a-402e-8422-11133033ea76",
+    "07f7344f-e7e4-4c53-854b-47fd82ac8d40",
+    "9b905bfd-1a09-485d-9273-a24a20dfe648",
+  ]),
+  RESOURCE_TO_DISPLAY: Object.freeze({
+    "e556070a-6d6a-402e-8422-11133033ea76": "MARIAN MADRID",
+    "07f7344f-e7e4-4c53-854b-47fd82ac8d40": "ANDREA STAFF",
+    "9b905bfd-1a09-485d-9273-a24a20dfe648": "ALBA STAFF",
+  }),
+});
+
+export const BUSINESS_COLLECTIONS = Object.freeze({
+  ALERTAS_OPERATIVAS: "AlertasOperativas",
+  BOOKING_TRANSACTIONS: "BookingTransactions",
+  CAJA_ACTUAL: "CajaActual",
+  CITAS_F2: "CitasF2",
+  COMPENSACIONES_PENDIENTES: "CompensacionesPendientes",
+  COMPLEMENTOS_CATALOGO: "ComplementosCatalogo",
+  DATOS_FISCALES: "DatosFiscales",
+  HISTORICO_CIERRES_Z: "HistoricoCierresZ",
+  INVENTARIO_STOCK_VENTA: "InventarioStockVenta",
+  LIBRO_ASIENTOS_CONTABLES_DETALLE: "LibroAsientosContablesDetalle",
+});
+
+export const OPERATIONAL_COLLECTIONS = Object.freeze({
+  AVAILABILITY_DAYS_CACHE: "AvailabilityDaysCache",
+  DUAL_SLOT_CACHE: "DualSlotCache",
+  MAPA_STAFF: "MapaStaff",
+  MOVIMIENTOS_CAJA: "MovimientosCaja",
+  MOVIMIENTOS_INVENTARIO: "MovimientosInventario",
+  PROCESSED_WEBHOOK_EVENTS: "ProcessedWebhookEvents",
+  PROVEEDORES_LISTA: "ProveedoresLista",
+  RATE_LIMIT_BLOCKS: "RateLimitBlocks",
+  REGISTROS_HORARIOS_STAFF: "RegistrosHorariosStaff",
+  SERVICIOS_CATALOGO: "ServiciosCatalogo",
+  SLOT_LOCKS: "SlotLocks",
+});
+
+export const RESERVED_COLLECTIONS = Object.freeze({
+  COMPRAS_PROVEEDORES: "ComprasProveedores",
+  LINEAS_COMPRA_PROVEEDOR: "LineasCompraProveedor",
+  PRODUCTOS_CATALOGO: "ProductosCatalogo",
+  PRODUCTOS_VARIANTES: "ProductosVariantes",
+  UBICACIONES_INVENTARIO: "UbicacionesInventario",
+});
+
+export const HISTORICAL_COLLECTIONS = Object.freeze({
+  BOOKINGS_SERVICE_SYNC_QUEUE: "BookingsServiceSyncQueue",
+  M365_GRAPH_SYNC_QUEUE: "M365GraphSyncQueue",
+});
+
+export const BLOCKED_UNVERIFIED_COLLECTIONS = Object.freeze([
+  "SecuenciaTickets",
+  "InventarioStockVentaCierre",
+]);
+
+export const FORBIDDEN_COLLECTIONS = Object.freeze([
+  "AsientosContables",
+  "EventosSistemaFacturacion",
+  "FacturasRecibidas",
+  "ConfiguracionFiscal",
+  "LibroRegistroFacturasRecibidas",
+  "PlanCuentasContables",
+  "CategoriasServicio",
+  "LibroRegistroFacturasExpedidas",
+]);
+
+export const RECORD_TYPE = Object.freeze({
+  TERCERO: "TERCERO",
+  CONFIG_SISTEMA: "CONFIG_SISTEMA",
+});
+
+export const API = Object.freeze({
+  STAFF_RESOURCE_TYPE_ID: "1cd44cf8-756f-41c3-bd90-3e2ffcaf1155",
+  MARIAN_MANAGEMENT_RESOURCE_ID: "e556070a-6d6a-402e-8422-11133033ea76",
+});
+
+export const SDK_CONFIG = Object.freeze({
+  TZ: "Europe/Madrid",
+  LOCATION_ID: "7a12abfd-bf30-4847-bcdf-00dc573d4802",
+  LOCATION_TYPES: Object.freeze({
+    TIME_SLOTS: "BUSINESS",
+    BOOKINGS_WRITER: "OWNER_BUSINESS",
+  }),
+  M365: Object.freeze({ ENABLED: false }),
+  ACCOUNTING: Object.freeze({ ENABLED: false }),
+  SYNC_BOOKINGS_SERVICES_ENABLED: false,
+});
+
+export function buildInvoiceNumber(year, month, sequenceNumber) {
+  return `${year}${month}-${String(sequenceNumber).padStart(4, "0")}`;
+}
+```
+
+### 6.1 Prohibiciones sobre constantes
+
+- PROHIBIDO exportar o usar:
+
+```js
+export const COLLECTIONS = Object.freeze({
+  ...BUSINESS_COLLECTIONS,
+  ...OPERATIONAL_COLLECTIONS,
+});
+```
+
+- PROHIBIDO consumir colecciones mediante strings literales si existe constante canónica.
+- PROHIBIDO importar `RESERVED_COLLECTIONS` en módulos operativos sin aprobación formal.
+- PROHIBIDO importar `HISTORICAL_COLLECTIONS` o `BLOCKED_UNVERIFIED_COLLECTIONS` en funcionalidades nuevas.
+
+---
+
+## 7. INVENTARIO NORMATIVO DE COLECCIONES
+
+Extracción física verificada: 48 colecciones totales.
+
+- 28 colecciones `NATIVE`.
+- 20 colecciones `WIX_APP`.
+
+Clasificación normativa objetivo para las 28 colecciones `NATIVE`:
+
+| Clasificación | Cantidad | Significado |
+|---|---:|---|
+| Activas | 21 | Incluidas en grupos canónicos y con consumidor normativo |
+| Reservadas | 5 | Existen físicamente pero no deben consumirse sin activación formal |
+| Históricas | 2 | Módulos retirados; no usar en nuevas escrituras |
+
+Además:
+
+| Colecciones | Estado |
+|---|---|
+| `SecuenciaTickets` | Bloqueada / no verificada |
+| `InventarioStockVentaCierre` | Bloqueada / no verificada |
+
+### 7.1 Colecciones activas
+
+| Colección | Grupo canónico | Clasificación |
+|---|---|---|
+| `AlertasOperativas` | `BUSINESS_COLLECTIONS` | Activa |
+| `BookingTransactions` | `BUSINESS_COLLECTIONS` | Activa |
+| `CajaActual` | `BUSINESS_COLLECTIONS` | Activa |
+| `CitasF2` | `BUSINESS_COLLECTIONS` | Activa |
+| `CompensacionesPendientes` | `BUSINESS_COLLECTIONS` | Activa |
+| `ComplementosCatalogo` | `BUSINESS_COLLECTIONS` | Activa |
+| `DatosFiscales` | `BUSINESS_COLLECTIONS` | Activa |
+| `HistoricoCierresZ` | `BUSINESS_COLLECTIONS` | Activa |
+| `InventarioStockVenta` | `BUSINESS_COLLECTIONS` | Activa |
+| `LibroAsientosContablesDetalle` | `BUSINESS_COLLECTIONS` | Activa |
+| `AvailabilityDaysCache` | `OPERATIONAL_COLLECTIONS` | Activa |
+| `DualSlotCache` | `OPERATIONAL_COLLECTIONS` | Activa |
+| `MapaStaff` | `OPERATIONAL_COLLECTIONS` | Activa |
+| `MovimientosCaja` | `OPERATIONAL_COLLECTIONS` | Activa |
+| `MovimientosInventario` | `OPERATIONAL_COLLECTIONS` | Activa |
+| `ProcessedWebhookEvents` | `OPERATIONAL_COLLECTIONS` | Activa |
+| `ProveedoresLista` | `OPERATIONAL_COLLECTIONS` | Activa |
+| `RateLimitBlocks` | `OPERATIONAL_COLLECTIONS` | Activa |
+| `RegistrosHorariosStaff` | `OPERATIONAL_COLLECTIONS` | Activa |
+| `ServiciosCatalogo` | `OPERATIONAL_COLLECTIONS` | Activa |
+| `SlotLocks` | `OPERATIONAL_COLLECTIONS` | Activa |
+
+### 7.2 Colecciones reservadas
+
+| Colección | Clasificación | Regla |
+|---|---|---|
+| `ComprasProveedores` | Reservada | No usar hasta módulo de compras aprobado |
+| `LineasCompraProveedor` | Reservada | No usar hasta módulo de compras aprobado |
+| `ProductosCatalogo` | Reservada | Puede complementar Stores, nunca sustituirlo |
+| `ProductosVariantes` | Reservada | Depende de activación de `ProductosCatalogo` |
+| `UbicacionesInventario` | Reservada | No usar hasta multi-ubicación aprobado |
+
+### 7.3 Colecciones históricas
+
+| Colección | Clasificación | Regla |
+|---|---|---|
+| `BookingsServiceSyncQueue` | Histórica | No reactivar sin módulo, flag y decisión formal |
+| `M365GraphSyncQueue` | Histórica | No reactivar sin módulo, flag y decisión formal |
+
+### 7.4 Colecciones bloqueadas
+
+| Colección | Estado | Regla |
+|---|---|---|
+| `SecuenciaTickets` | Bloqueada | No usar en nuevas funcionalidades hasta esquema verificado |
+| `InventarioStockVentaCierre` | Bloqueada | No usar en nuevas funcionalidades hasta esquema verificado |
+
+Decisión normativa:
+
+- Si `SecuenciaTickets` no queda completamente documentada y verificada, debe retirarse o consolidarse en el mecanismo oficial de secuencias.
+- Si `InventarioStockVentaCierre` no queda completamente documentada y verificada, los cierres de inventario deben gobernar desde `HistoricoCierresZ` o desde el mecanismo que se apruebe formalmente.
+- No se autoriza mantener hooks activos sobre colecciones bloqueadas sin plan de regularización.
+
+---
+
+## 8. CONSUMIDORES NORMATIVOS
+
+Todo consumidor debe importarse desde el grupo canónico correcto.
+
+| Colección | Consumidor normativo | Responsabilidad | Adaptación requerida |
+|---|---|---|---|
+| `AlertasOperativas` | `securityEngine.js` / módulo operativo | Alertas operativas | Confirmar consumidor real o degradar a reservada |
+| `BookingTransactions` | `booking/bookingCore.js`, `booking/bookingSaga.js` | Idempotencia y transacciones de reserva | Mantener |
+| `CajaActual` | `cajas.web.js` | Estado operativo de caja | Mantener |
+| `CitasF2` | `booking/bookingCore.js`, `booking/bookingSaga.js`, `citasManager.web.js` | Proyección interna de citas | Mantener |
+| `CompensacionesPendientes` | `booking/bookingSaga.js`, `crons.js` | Recuperación de fallos parciales | Mantener |
+| `ComplementosCatalogo` | Módulo catálogo / CMS | Add-ons de servicios | Confirmar consumidor backend o regularizar gestión CMS |
+| `DatosFiscales` | `fiscalDocuments.web.js`, `fiscalAggregator.web.js`, `cajas.web.js`, `data.js` | Maestros fiscales | Mantener |
+| `HistoricoCierresZ` | `cajas.web.js`, `crons.js` | Cierres Z | Mantener |
+| `InventarioStockVenta` | `inventario.web.js`, `events.js` | Stock interno | Mantener |
+| `LibroAsientosContablesDetalle` | `data.js`, módulo fiscal/contable | Eventos de facturación / contabilidad | Regularizar esquema y consumidor normativo |
+| `AvailabilityDaysCache` | `reservas.web.js` | Caché de días | Mantener |
+| `DualSlotCache` | `reservas.web.js`, `booking/bookingCore.js` | Caché dual | Mantener |
+| `MapaStaff` | `horario.web.js`, `staff.js`, `booking/bookingCore.js` | Staff y recursos | Mantener |
+| `MovimientosCaja` | `cajas.web.js`, `fiscalAggregator.web.js`, `fiscalDocuments.web.js` | Ledger fiscal/tesorería | Mantener separación contable |
+| `MovimientosInventario` | `inventario.web.js` | Ledger inventario | Mantener append-only |
+| `ProcessedWebhookEvents` | `events.js` | Idempotencia de webhooks | Mantener |
+| `ProveedoresLista` | Módulo de proveedores / compras | Proveedores | Confirmar consumidor real o degradar a reservada |
+| `RateLimitBlocks` | `security.js`, `security.web.js` | Rate limiting | Mantener |
+| `RegistrosHorariosStaff` | `horario.web.js` | Fichajes | Mantener |
+| `ServiciosCatalogo` | `reservas.web.js` | Catálogo de servicios | Mantener |
+| `SlotLocks` | `booking/bookingCore.js`, `reservas.web.js` | Mutex de slots | Mantener |
+
+Regla:
+
+- Ningún módulo puede leer o escribir una colección sin estar declarado en esta tabla.
+- Las colecciones con consumidor pendiente deben regularizarse antes del cierre SSOT definitivo.
+
+---
+
+## 9. COLECCIONES WIX / APLICACIONES
+
+Las colecciones `WIX_APP` no deben editarse como colecciones personales.
+
+| Grupo | Colecciones |
+|---|---|
+| Blog | `Blog/Categories`, `Blog/Posts`, `Blog/Tags` |
+| Bookings | `Bookings/Schedule`, `Bookings/Services`, `Bookings/Staff` |
+| Campaign Manager | `CampaignManager/campaigns`, `CampaignManager/userConfig` |
+| Forms | `Forms/subscribers03` |
+| Locations | `Locations/Locations` |
+| Marketing | `Marketing/Coupons` |
+| Members | `Members/Badges`, `Members/FullData`, `Members/PrivateMemberData`, `Members/PublicData` |
+| Stores | `Stores/Collections`, `Stores/InventoryItems`, `Stores/Orders`, `Stores/Products`, `Stores/Variants` |
+
+Reglas:
+
+- La autoridad comercial pública es `Stores/Products`.
+- `ProductosCatalogo` solo puede ser capa interna complementaria.
+- Nunca debe usarse `ProductosCatalogo` como sustituto de Stores Catalog V1.
+
+---
+
+## 10. COLECCIONES PROHIBIDAS
+
+Prohibido crear, leer como fuente operativa o escribir:
+
+```text
+AsientosContables
+EventosSistemaFacturacion
+FacturasRecibidas
+ConfiguracionFiscal
+LibroRegistroFacturasRecibidas
+PlanCuentasContables
+CategoriasServicio
+LibroRegistroFacturasExpedidas
+```
+
+Destino normativo:
+
+| Colección prohibida | Destino SSOT |
+|---|---|
+| `ConfiguracionFiscal` | `DatosFiscales` con `recordType = "CONFIG_SISTEMA"` |
+| `AsientosContables` | `LibroAsientosContablesDetalle` |
+| `EventosSistemaFacturacion` | `LibroAsientosContablesDetalle` |
+| `FacturasRecibidas` | Flujo fiscal integrado de proveedores/caja |
+| `LibroRegistroFacturasRecibidas` | Consulta o agregado, sin colección |
+| `PlanCuentasContables` | Consulta o agregado, sin colección |
+| `CategoriasServicio` | Consulta o agregado, sin colección |
+| `LibroRegistroFacturasExpedidas` | Función calculada desde `MovimientosCaja` |
+
+---
+
+## 11. ESQUEMAS CANÓNICOS OBJETIVO
+
+Notación:
+
+- `WIX`: campo nativo Wix.
+- `CUSTOM`: campo interno.
+- `AEAT`: campo normativo fiscal español.
+- `PGC`: campo contable español.
+
+### 11.1 `ServiciosCatalogo`
+
+| Campo canónico | Tipo | Origen | Regla |
+|---|---|---|---|
+| `serviceId` | Text | WIX | Único, GUID Bookings |
+| `slug` | Text | WIX | Único, identidad pública |
+| `title` | Text | WIX | Requerido |
+| `price` | Number | CUSTOM | Escritura canónica |
+| `currency` | Text | CUSTOM | `EUR` |
+| `sku` | Text | CUSTOM | Único |
+| `allowCombine` | Boolean | WIX | Habilita flujo dual |
+| `linkedPhases` | Text | WIX | GUID Wix; nunca slug |
+| `phase1Duration` | Number | CUSTOM | — |
+| `phase2Duration` | Number | CUSTOM | — |
+| `exposureDuration` | Number | CUSTOM | Gap dual |
+| `totalDuration` | Number | CUSTOM | Suma exacta |
+| `availableStaff` | Array<Text> | CUSTOM | Canónico |
+| `addOnOptions` | Array<Object> | CUSTOM | Canónico |
+| `clientHidden` | Boolean | CUSTOM | Canónico |
+| `taxIncluded` | Boolean | AEAT | — |
+| `tipoImpositivo` | Number | AEAT | Obligatorio con `codigoImpuesto` |
+| `codigoImpuesto` | Text | AEAT | Obligatorio con `tipoImpositivo` |
+| `claveRegimen` | Text | AEAT | — |
+| `calificacionOperacion` | Text | AEAT | — |
+| `operacionExenta` | Boolean | AEAT | — |
+| `inversionSujetoPasivo` | Boolean | AEAT | — |
+| `cuentaContableIngreso` | Text | PGC | 6 dígitos |
+| `cuentaContableGasto` | Text | PGC | 6 dígitos |
+| `locationId` | Text | WIX | — |
+| `location` | Text | CUSTOM | — |
+| `active` | Boolean | CUSTOM | — |
+| `status` | Enum | CUSTOM | `ACTIVO`, `INACTIVO`, `BORRADOR` |
+| `itemNature` | Enum | CUSTOM | Gate de reservabilidad |
+| `inPersonPayment` | Boolean | CUSTOM | — |
+| `onlinePayment` | Boolean | CUSTOM | — |
+| `pricingModel` | Text | CUSTOM | — |
+| `depositAmount` | Number | CUSTOM | — |
+| `depositType` | Text | CUSTOM | — |
+| `margin` | Number | CUSTOM | — |
+| `mainMedia` | Text | CUSTOM | Canónico |
+| `internalNotes` | Text | CUSTOM | — |
+| `tagLine` | Text | CUSTOM | Anglicismo aceptado |
+
+Índices obligatorios:
+
+- `serviceId` único.
+- `slug` único.
+- `sku` único.
+- `active` / `status`.
+- `categoryId`.
+- `clientHidden`.
+
+### 11.2 `CitasF2`
+
+Campos normativos:
+
+- `bookingId` — único.
+- `serviceId`.
+- `scheduleId`.
+- `resourceId`.
+- `staffResourceId`.
+- `pairToken`.
+- `startDate`.
+- `endDate`.
+- `dateYmd`.
+- `bookingType`.
+- `bookingStatus`.
+- `paymentStatus`.
+- `contactDetails`.
+- `thirdPartyId`.
+- `catalogId`.
+- `sourceEventId`.
+- `cashMovementId`.
+- `fiscalData`.
+- `invoicingDate`.
+- `traceId`.
+- `revision`.
+
+Reglas:
+
+- `bookingId` es único.
+- `pairToken` agrupa reservas simples/dual.
+- `bookingType` permitido:
+  - `SIMPLE`
+  - `DUAL_F1`
+  - `DUAL_F2`
+- `bookingStatus` debe usar enum canónico.
+- `paymentStatus` debe usar enum canónico.
+- `traceId` obligatorio.
+
+Índices obligatorios:
+
+- `bookingId` único.
+- `pairToken`.
+- `(dateYmd, resourceId)`.
+- `(serviceId, dateYmd)`.
+- `(bookingStatus, paymentStatus)`.
+
+### 11.3 `MovimientosCaja`
+
+Dominio normativo:
+
+- Ledger fiscal append-only.
+- Ledger de tesorería.
+- No es estado actual de caja.
+- No es contabilidad partida doble.
+- `schemaVersion` obligatorio: `LEDGER_V5_FISCAL`.
+
+Bloques de campos:
+
+#### Identidad / operación
+
+- `totalAmount` — canónico.
+- `paymentMethod`.
+- `movementType`.
+- `operationDescription` — canónico.
+- `staffResourceId`.
+- `channelType`.
+- `linkedBookingIds`.
+- `transactionId`.
+- `orderId`.
+- `refundId`.
+
+#### Integridad
+
+- `recordHash` — canónico.
+- `previousRecordHash` — canónico.
+- `recordTimestamp` — ISO 8601 Madrid.
+- `schemaVersion`.
+
+#### AEAT / Verifactu
+
+- `numSerieFactura` — único.
+- `fechaExpedicionFactura`.
+- `fechaOperacion`.
+- `tipoFactura`.
+- `tipoRectificativa`.
+- `cuotaTotal`.
+- `tipoImpositivo`.
+- `baseImponibleOImporteNoSujeto`.
+- `claveRegimen`.
+- `calificacionOperacion`.
+- `operacionExenta`.
+- `nifEmisor`.
+- `nifDestinatario`.
+- `desgloseDetallado`.
+- `sistemaInformatico`.
+- `estadoEnvioAEAT`.
+- `csvAEAT`.
+- `fechaEnvioAEAT`.
+- `payloadFiscal`.
+
+#### FK / trazabilidad
+
+- `thirdPartyId`.
+- `catalogId`.
+- `pairToken`.
+- `sequenceNumber` — único y monótono.
+- `projectionStatus`.
+- `traceId`.
+
+Reglas:
+
+- Append-only.
+- Prohibido `update` destructivo.
+- Prohibido `remove`.
+- `sequenceNumber` debe generarse por mecanismo atómico verificado.
+- `traceId` obligatorio.
+
+Índices obligatorios:
+
+- `numSerieFactura` único.
+- `sequenceNumber` único.
+- `transactionId` único.
+- `recordTimestamp`.
+- `(movementType, recordTimestamp)`.
+- `(thirdPartyId, fechaExpedicionFactura)`.
+
+### 11.4 `DatosFiscales`
+
+Discriminador:
+
+- `recordType`: `TERCERO` o `CONFIG_SISTEMA`.
+- Singleton de configuración: `_id = CONFIG_SISTEMA_FISCAL`.
+
+Campos normativos:
+
+- `taxId` / `nifCif` — único.
+- `legalName` / `razonSocial`.
+- `thirdPartyType`.
+- `contactData`.
+- `regimenesEspeciales`.
+- `esMinoristaRecargoEquivalencia`.
+- `esEmpresarioProfesional`.
+- `bookingsResourceId`.
+- `staffMemberId`.
+- `isRegularSupplier`.
+- `paymentTerms`.
+- `active`.
+- `nifEmisorLegacy`.
+
+Bloque Verifactu, solo `CONFIG_SISTEMA`:
+
+- `sistemaInformatico`.
+- `nifProductor`.
+- `idSistemaInformatico`.
+- `version`.
+- `numeroInstalacion`.
+- `tipoUsoPosibleSoloVerifactu`.
+- `tipoUsoPosibleMultiOT`.
+- `indicadorMultiplesOT`.
+- `fechaInicioVerifactu`.
+
+### 11.5 `MapaStaff`
+
+Campos normativos:
+
+- `staffMemberId` — único.
+- `resourceId` — único.
+- `staffName`.
+- `email`.
+- `active`.
+- `staffRole`.
+- `thirdPartyId`.
+- `displayName`.
+- `scheduleId`.
+- `locationId`.
+- `location`.
+- `phone`.
+- `notes`.
+
+Roles normativos:
+
+```text
+ADMIN
+GESTION
+ESTILISTA
+```
+
+### 11.6 `InventarioStockVenta`
+
+Campos normativos:
+
+- `stockId`.
+- `productId`.
+- `variantId`.
+- `sku`.
+- `stockOnHand`.
+- `stockReserved`.
+- `stockAvailable`.
+- `stockMinimo`.
+- `reorderPoint`.
+- `reorderQuantity`.
+- `wixProductId`.
+- `wixVariantId`.
+- `needsWixReconciliation`.
+- `lastSyncAt`.
+- `traceId`.
+
+### 11.7 `MovimientosInventario`
+
+Campos normativos:
+
+- `movementId`.
+- `movementToken`.
+- `movementType`.
+- `direction`.
+- `quantity`.
+- `quantityDelta`.
+- `stockBefore`.
+- `stockAfter`.
+- `sourceEventId`.
+- `thirdPartyId`.
+- `wixProductId`.
+- `wixVariantId`.
+- `traceId`.
+
+Regla:
+
+- Append-only.
+- `movementToken` obligatorio para idempotencia.
+
+### 11.8 `CajaActual`
+
+Campos normativos:
+
+- `cashRegisterStatus`.
+- `operationDate`.
+- `openedAt`.
+- `openingAmount`.
+- Importes por medio de pago.
+- `lastMovementAt`.
+- `closedAt`.
+- `stateHash`.
+- `versionState`.
+- `sequenceCounters` solo modificable en documento `CAJA_SEQ`.
+
+Singleton normativo:
+
+```text
+CAJA_PRINCIPAL
+```
+
+### 11.9 `HistoricoCierresZ`
+
+Bloque común de cierre Z:
+
+- `closingStatus`.
+- `consolidatedTotalAmount`.
+- `grossSalesTotal`.
+- `netTaxableAmount`.
+- `netTaxAmount`.
+- Totales por medio de pago.
+- `startSequence`.
+- `endSequence`.
+- `startRecordHash`.
+- `endRecordHash`.
+- `isIntegrityVerified`.
+- `closingHash`.
+- `closingSignature`.
+- `estadoEnvioAEAT`.
+- `traceId`.
+
+Bloque de cierre de inventario:
+
+- `inventoryClosingId`.
+- `fiscalYear`.
+- `closingType`.
+- `sku`.
+- `wixProductId`.
+- `stockQuantity`.
+- `unitCost`.
+- `stockValue`.
+- Cuentas PGC.
+
+Bloque de paquetes gestoría:
+
+- `summaryData`.
+- `invoiceData`.
+- `packageStatus`.
+
+Valores de `closingType`:
+
+```text
+ANUAL
+MENSUAL
+EXTRAORDINARIO
+PAQUETE_GESTORIA
+```
+
+Valores de `packageStatus`:
+
+```text
+PREPARED
+SENT
+```
+
+### 11.10 `RegistrosHorariosStaff`
+
+Campos normativos:
+
+- `resourceId`.
+- `staffMemberId`.
+- `staffName`.
+- `recordedAt`.
+- `recordedTime`.
+- `dayKey`.
+- `monthKey`.
+- `clockEventType`.
+- `recordType`.
+- `registeredBy`.
+- `registeredByMemberId`.
+- `adjustmentReason`.
+- `deviceIpAddress`.
+- `signature`.
+- `meta`.
+- `traceId`.
+
+Valores de `clockEventType`:
+
+```text
+ENTRADA
+SALIDA
+PAUSA_INICIO
+PAUSA_FIN
+AJUSTE
+```
+
+Valores de `recordType`:
+
+```text
+REGULAR
+AJUSTE
+```
+
+Regla:
+
+- Append-only.
+- La vista reducida es solo reporting.
+
+---
+
+## 12. ENUMS CANÓNICOS Y VALIDACIÓN RUNTIME
+
+### 12.1 Decisión normativa de estados
+
+Para maximizar type-safety y alineación con Wix:
+
+- `CitasF2.bookingStatus` debe persistir valores canónicos ingleses definidos en `BOOKING_STATUS`.
+- `CitasF2.paymentStatus` debe persistir valores canónicos ingleses definidos en `PAYMENT_STATUS`.
+- Los valores españoles históricos se consideran legacy de lectura hasta EOL.
+- Prohibido escribir nuevos registros con estados en español.
+
+### 12.2 Enums Wix canónicos
+
+```js
+export const BOOKING_STATUS = Object.freeze({
+  CREATED: "CREATED",
+  PENDING: "PENDING",
+  CONFIRMED: "CONFIRMED",
+  DECLINED: "DECLINED",
+  WAITING_LIST: "WAITING_LIST",
+  UPDATED: "UPDATED",
+  CANCELED: "CANCELED",
+  REFUNDED: "REFUNDED",
+});
+
+export const INACTIVE_BOOKING_STATUSES = Object.freeze([
+  BOOKING_STATUS.CANCELED,
+  BOOKING_STATUS.DECLINED,
+  "REJECTED",
+  "NOSHOW",
+]);
+
+export const PAYMENT_STATUS = Object.freeze({
+  UNDEFINED: "UNDEFINED",
+  NOT_PAID: "NOT_PAID",
+  PENDING_PAYMENT: "PENDING_PAYMENT",
+  PENDING_LEDGER: "PENDING_LEDGER",
+  PAID: "PAID",
+  PARTIALLY_PAID: "PARTIALLY_PAID",
+  REFUNDED: "REFUNDED",
+  PARTIALLY_REFUNDED: "PARTIALLY_REFUNDED",
+  EXEMPT: "EXEMPT",
+});
+```
+
+Reglas:
+
+- `UNPAID` no debe usarse como valor persistido canónico.
+- Si aparece `UNPAID`, debe normalizarse a `NOT_PAID`.
+- `REJECTED` y `NOSHOW` pueden aceptarse como estados inactivos legacy/Wix, pero no deben usarse en escritura nueva salvo integración oficial.
+
+### 12.3 Enums de negocio en español
+
+Estos enums permanecen en español por dominio operativo/fiscal:
+
+```text
+PAYMENT_METHOD:
+EFECTIVO
+TARJETA
+BIZUM
+ONLINE
+TARJETA_REGALO
+
+MOVEMENT_TYPE:
+VENTA_EFECTIVO
+VENTA_TARJETA
+VENTA_BIZUM
+VENTA_ONLINE
+VENTA_PRODUCTO
+VENTA_PRODUCTO_ONLINE
+VENTA_TARJETA_REGALO
+CANJE_TARJETA_REGALO
+REEMBOLSO
+DEVOLUCION_SERVICIO
+DEVOLUCION_PRODUCTO
+AJUSTE
+PROPINA
+APORTE
+RETIRO
+GASTO
+PAGO_PROVEEDOR
+ANTICIPO
+FONDO_INICIAL
+
+MOVEMENT_TYPE_INVENTARIO:
+VENTA
+DEVOLUCION
+AJUSTE
+ENTRADA_STOCK
+SALIDA_STOCK
+TRANSFERENCIA
+
+CASH_REGISTER_STATUS:
+ABIERTA
+CERRADA
+
+ITEM_NATURE:
+SERVICIO_PROPIO
+PRODUCTO_VENTA
+PRODUCTO_USO
+GASTO_FIJO
+
+CATALOG_STATES:
+ACTIVO
+INACTIVO
+BORRADOR
+```
+
+### 12.4 Validación runtime obligatoria
+
+El código debe incorporar un módulo central de validación.
+
+Requisito mínimo:
+
+```js
+export function assertValidEnum(value, enumObject, fieldName) {
+  const allowed = Object.values(enumObject);
+  if (!allowed.includes(value)) {
+    throw new Error(
+      `Valor inválido para ${fieldName}: ${value}. Valores permitidos: ${allowed.join(", ")}`
+    );
+  }
+}
+```
+
+Cobertura obligatoria:
+
+- Estados de reserva.
+- Estados de pago.
+- Métodos de pago.
+- Tipos de movimiento de caja.
+- Tipos de movimiento de inventario.
+- Estados de caja.
+- Estados de cierre.
+- Estados de paquetes fiscales.
+- `itemNature`.
+- `status` de catálogo.
+
+Sin validación runtime centralizada, el sistema no puede considerarse listo para despliegue.
+
+---
+
+## 13. HOOKS DE INTEGRIDAD OBJETIVO
+
+`data.js` debe garantizar integridad estructural.
+
+### 13.1 Colecciones append-only
+
+| Colección | `beforeUpdate` | `beforeRemove` |
+|---|---|---|
+| `MovimientosCaja` | Bloqueado | Bloqueado |
+| `MovimientosInventario` | Bloqueado | Bloqueado |
+| `RegistrosHorariosStaff` | Bloqueado | Bloqueado |
+| `HistoricoCierresZ` | Bloqueado | Bloqueado |
+| `LibroAsientosContablesDetalle` | Bloqueado | Bloqueado |
+| `ProcessedWebhookEvents` | Bloqueado | Bloqueado |
+
+### 13.2 Hooks de validación requeridos
+
+| Colección | Hook | Validación |
+|---|---|---|
+| `DatosFiscales` | `beforeInsert`, `beforeUpdate` | NIF, recordType, configuración fiscal |
+| `MapaStaff` | `beforeInsert`, `beforeUpdate` | Integridad Bookings |
+| `CajaActual` | `beforeUpdate` | Solo `CAJA_SEQ` puede tocar contadores |
+| `MovimientosCaja` | `beforeInsert` | Hash, schemaVersion, traceId, enum |
+| `CitasF2` | `beforeInsert`, `beforeUpdate` | Enums, traceId, pairToken |
+| `InventarioStockVenta` | `beforeUpdate` | Coherencia stock disponible |
+| `ServiciosCatalogo` | `beforeInsert`, `beforeUpdate` | Campos fiscales y slug/serviceId |
+
+### 13.3 Colecciones bloqueadas
+
+| Colección | Acción normativa |
+|---|---|
+| `SecuenciaTickets` | Auditar hook; documentar o retirar |
+| `InventarioStockVentaCierre` | Auditar hook; documentar o retirar |
+
+---
+
+## 14. ÍNDICES OBJETIVO
+
+| Colección | Índices normativos |
+|---|---|
+| `ServiciosCatalogo` | `serviceId_unique`, `slug_unique`, `sku_unique`, `active_status`, `categoryId`, `clientHidden` |
+| `CitasF2` | `bookingId_unique`, `pairToken`, `(dateYmd, resourceId)`, `(serviceId, dateYmd)`, `(bookingStatus, paymentStatus)` |
+| `MovimientosCaja` | `numSerieFactura_unique`, `sequenceNumber_unique`, `transactionId_unique`, `recordTimestamp`, `(movementType, recordTimestamp)`, `(thirdPartyId, fechaExpedicionFactura)` |
+| `MapaStaff` | `email` no único |
+| `ProductosCatalogo` | `productId_unique`, `category_active_price` |
+| `ProductosVariantes` | `productId_active` |
+| `ComplementosCatalogo` | `addon_active_category` |
+| `ProveedoresLista` | `supplierId_unique`, `supplier_active_category` |
+| `InventarioStockVenta` | `stock_location_product` |
+| `MovimientosInventario` | `inventory_product_date` |
+| `ComprasProveedores` | `purchase_supplier_status` |
+| `LineasCompraProveedor` | `purchaseLine_purchase` |
+| `UbicacionesInventario` | `location_active_type` |
+| `BookingTransactions` | `booking_transaction_status` |
+| `CajaActual` | `cashRegisterStatus_operationDate` |
+| `SecuenciaTickets` | Pendiente de documentación |
+| `InventarioStockVentaCierre` | Pendiente de documentación |
+
+Regla:
+
+- Todo índice nuevo debe verificarse hasta `ACTIVE`.
+- No se deben superar cupos de índices de usuario sin retirar índices obsoletos con evidencia.
+
+---
+
+## 15. PERMISOS OBJETIVO
+
+Los permisos Velo son capa mínima. El rol de negocio debe validarse internamente.
+
+| Dominio | Permiso Velo mínimo | Rol de negocio requerido |
+|---|---|---|
+| Catálogo público | `Permissions.Anyone` | Ninguno |
+| Disponibilidad | `Permissions.Anyone` | Ninguno |
+| Creación de reserva | `Permissions.Anyone` | Validación interna de negocio |
+| Confirmación de pago | `Permissions.SiteMember` | Rol válido |
+| Cambio de estado de cita | `Permissions.SiteMember` | Rol válido |
+| Caja manual | `Permissions.SiteMember` | `ADMIN`, `GESTION` o cajero autorizado |
+| Cierre Z | `Permissions.SiteMember` | `ADMIN` o `GESTION` |
+| Consulta fiscal | `Permissions.SiteMember` | `ADMIN` o `GESTION` |
+| Libro registro facturas expedidas | `Permissions.Admin` | `ADMIN` |
+| Generación de cierre inventario | `Permissions.Admin` | `ADMIN` |
+| Consulta inventario | `Permissions.SiteMember` | Rol válido |
+| Ajustes de horario | `Permissions.Admin` | `ADMIN` |
+| Fichaje propio | `Permissions.SiteMember` | Staff autenticado |
+| Seguridad / rate limiting | `Permissions.Admin` o interno | Sistema |
+
+Regla crítica:
+
+- No asumir nunca que `Permissions.SiteMember` equivale a permiso de negocio suficiente.
+- Toda operación sensible debe validar `MapaStaff.staffRole` o mecanismo equivalente.
+
+---
+
+## 16. ARQUITECTURA DE MÓDULOS OBJETIVO
+
+```text
+src/backend/
+├── audit.js
+├── eventLog.js
+├── logger.js
+├── mmSecrets.js
+├── responseUtils.js
+├── validation.js
+├── booking/
+│   ├── bookingCore.js
+│   ├── bookingSaga.js
+│   └── bookingUtils.js
+├── cajas.web.js
+├── citasManager.web.js
+├── crons.js
+├── data.js
+├── events.js
+├── fiscalAggregator.web.js
+├── fiscalDocuments.web.js
+├── horario.web.js
+├── internalConfig.js
+├── inventario.web.js
+├── jobs.config
+├── permissions.json
+├── reservas.web.js
+├── security.js
+├── security.web.js
+├── securityEngine.js
+└── staff.js
+```
+
+### 16.1 Módulo nuevo obligatorio
+
+Debe existir:
+
+```text
+validation.js
+```
+
+Responsabilidad:
+
+- Validación de enums.
+- Validación de campos canónicos.
+- Validación de payloads fiscales.
+- Normalización de estados legacy.
+
+### 16.2 Módulos prohibidos / ausentes
+
+No deben tratarse como dependencias activas:
+
+```text
+marianAssistant.web.js
+http-functions.js
+m365GraphSync.js
+bookingServiceSync.js
+contabilidad.js
+facturasRecibidas.web.js
+```
+
+---
+
+## 17. WEBMETHODS OBJETIVO
+
+### 17.1 `reservas.web.js`
+
+```text
+getServiceBySlugOrId
+resolveServiceId
+getAvailableSlots
+getAvailableDays
+getCertifiedDualSlots
+resolveStaffForSlot
+getConfirmedBookingForDisplay
+```
+
+### 17.2 `citasManager.web.js`
+
+```text
+processDualBooking
+confirmPayment
+getCitaByBookingId
+getCitasByPairToken
+updateCitaStatus
+```
+
+### 17.3 `cajas.web.js`
+
+```text
+registerManualTransaction
+getCashierState
+registerZClosing
+registerGiftCardSale
+registerGiftCardRedemption
+getMovimientoByBooking
+```
+
+Funciones internas permitidas:
+
+```text
+registerBookingPayment
+queueFiscalRecovery
+verifyFiscalHashChainIntegrity
+validateFiscalConfig
+executeLedgerWithBackoff
+```
+
+### 17.4 `inventario.web.js`
+
+```text
+getInventoryDashboard
+getInventoryReconciliationQueue
+generateInventoryClosing
+listInventoryClosings
+```
+
+Funciones internas permitidas:
+
+```text
+recordInventoryMovementSafe
+recordOnlineInventoryOrderInternal
+recordOnlineInventoryRefundInternal
+```
+
+### 17.5 `fiscalDocuments.web.js`
+
+```text
+previewManagerPackage
+createManagerPackageVersion
+getManagerPackageHistory
+getPreparedManagerPackages
+downloadManagerPackageVersion
+emailManagerPackageVersion
+```
+
+Función interna canónica:
+
+```text
+prepareScheduledManagerPackages
+```
+
+Regla:
+
+- `prepareScheduledManagerPackages` solo puede existir como implementación válida en `fiscalDocuments.web.js`.
+
+### 17.6 `fiscalAggregator.web.js`
+
+```text
+getQuarterlyTaxSummary
+getLibroRegistroFacturasExpedidas
+```
+
+Funciones internas permitidas:
+
+```text
+getQuarterlyTaxSummaryInternal
+getLibroRegistroFacturasExpedidasInternal
+```
+
+Prohibición:
+
+- `fiscalAggregator.web.js` no debe exportar ni contener `prepareScheduledManagerPackages`.
+- Si existe, debe eliminarse o delegar explícitamente a la implementación canónica.
+
+### 17.7 `horario.web.js`
+
+```text
+getMyStaffContext
+registrarFichaje
+getEstadoJornada
+calcularHorasTrabajadas
+getHistorialFichajes
+registrarAjusteHorario
+getResumenHoras
+```
+
+### 17.8 `security.web.js`
+
+```text
+checkAdminAccess
+checkCajeroAccess
+checkStaffCollaboratorAccess
+```
+
+---
+
+## 18. JOBS PROGRAMADOS OBJETIVO
+
+| Job | Cron Madrid | Timeout | Función |
+|---|---|---|---|
+| `cleanExpiredLocks` | `15 * * * *` | 60s | Purga `SlotLocks` |
+| `cleanupExpiredDualCache` | `20 * * * *` | 60s | Purga `DualSlotCache` |
+| `runPendingCompensationsJob` | `30 * * * *` | 180s | Compensaciones pendientes |
+| `cleanExpiredDaysCache` | `0 1 * * *` | 120s | Caché de días |
+| `cleanExpiredSlotsCache` | `10 1 * * *` | 120s | Caché de slots |
+| `verifyNightlyZClosing` | `20 1 * * *` | 180s | Cierre Z automático |
+| `systemHealthCheck` | `0 7 * * *` | 120s | Salud de BD, secretos y ledger |
+| `cleanAuditLogs` | `0 2 * * 0` | 300s | Retención de logs |
+
+Configuración normativa:
+
+```text
+timeZone: Europe/Madrid
+concurrencyPolicy: Forbid
+maxRetries: 3
+```
+
+Prohibido:
+
+- Jobs de sincronización M365.
+- Jobs de sincronización Bookings-Services.
+- Jobs que escriban en colecciones bloqueadas.
+- Jobs que consuman colecciones reservadas sin aprobación.
+
+---
+
+## 19. FLUJOS DE NEGOCIO NORMATIVOS
+
+### 19.1 Reserva simple
+
+1. Resolver servicio por `slug` o `serviceId`.
+2. Consultar disponibilidad.
+3. Validar slot exacto.
+4. Crear booking en Wix Bookings V2.
+5. Persistir proyección en `CitasF2`.
+6. Registrar pago si procede.
+7. Confirmar solo tras estado oficial Wix.
+
+### 19.2 Reserva dual
+
+1. Certificar par F1/F2 con gap ≤ 120 min.
+2. Bloquear slots en `SlotLocks`.
+3. Generar `pairToken`.
+4. Crear F1.
+5. Crear F2.
+6. Si F2 falla, compensar F1.
+7. Registrar dos filas en `CitasF2`: `DUAL_F1` y `DUAL_F2`.
+8. Nunca confirmar F1 sin F2 creada o compensada.
+
+### 19.3 Venta online
+
+1. Checkout eCom V2.
+2. Webhook de pago.
+3. Idempotencia en `ProcessedWebhookEvents`.
+4. Registrar movimiento `VENTA_ONLINE` en `MovimientosCaja`.
+5. Registrar movimiento de inventario si aplica.
+
+### 19.4 Cancelación / reembolso
+
+1. Webhook oficial.
+2. Actualizar estado canónico.
+3. Registrar movimiento de reembolso en `MovimientosCaja`.
+4. Registrar devolución de inventario si aplica.
+5. Compensar si queda pendiente.
+
+### 19.5 Caja presencial
+
+1. `registerManualTransaction`.
+2. Actualizar `CajaActual`.
+3. Insertar movimiento append-only en `MovimientosCaja`.
+4. Job nocturno `verifyNightlyZClosing`.
+5. Consolidar en `HistoricoCierresZ`.
+
+---
+
+## 20. MATRIZ LEGACY OBJETIVO — TRANSICIÓN CONTROLADA
+
+Política normativa:
+
+1. Toda escritura nueva usa campos canónicos.
+2. La lectura legacy solo se permite mediante adaptadores.
+3. Los alias legacy tienen fecha límite de retirada.
+4. Tras la migración, los alias deben eliminarse del código.
+
+Fecha EOL normativa:
+
+```text
+31/12/2026
+```
+
+### 20.1 Alias de campos
+
+| Legacy | Canónico | Colección |
+|---|---|---|
+| `slugUrl` | `slug` | `ServiciosCatalogo` |
+| `phase2ServiceId`, `linkFases`, `linkedPhasess` | `linkedPhases` | `ServiciosCatalogo` |
+| `staffDisponible`, `disponiblePersonal` | `availableStaff` | `ServiciosCatalogo` |
+| `hiddenClient`, `hiddenCliente`, `ocultoCliente` | `clientHidden` | `ServiciosCatalogo` |
+| `addonIds`, `addOns` | `addOnOptions` | `ServiciosCatalogo` |
+| `addonId` | `addOnId` | `ComplementosCatalogo` |
+| `taxRate` | `tipoImpositivo` + `codigoImpuesto` | Fiscal |
+| `dateYMD`, `ymd`, `date` | `dateYmd` | `CitasF2` |
+| `imageUrl`, `mainMediaUrl` | `mainMedia` | `ServiciosCatalogo` |
+| `amount` | `totalAmount` | `MovimientosCaja`, `CompensacionesPendientes` |
+| `concept` | `operationDescription` | `MovimientosCaja`, `CompensacionesPendientes` |
+| `hash` | `recordHash` | `MovimientosCaja` |
+| `prevHash` | `previousRecordHash` | `MovimientosCaja` |
+| `registeredAt` | `recordTimestamp` | `MovimientosCaja` |
+| `invoiceNumber` | `numSerieFactura` | `MovimientosCaja` |
+| `issueDate` | `fechaExpedicionFactura` | `MovimientosCaja` |
+| `recipientTaxId` | `thirdPartyId` | `MovimientosCaja` |
+| `businessTaxId` | `nifEmisorLegacy` | `DatosFiscales` |
+| `producerTaxId` | `nifProductor` | `DatosFiscales` |
+| `computerSystemId` | `idSistemaInformatico` | `DatosFiscales` |
+| `installationNumber` | `numeroInstalacion` | `DatosFiscales` |
+| `resourceId` en caja | `staffResourceId` | `MovimientosCaja` |
+| `type` en inventario | `movementType` | `MovimientosInventario` |
+| `date`, `hours` en fichajes | `recordedAt`, `recordedTime` | `RegistrosHorariosStaff` |
+
+### 20.2 Estados legacy en `CitasF2`
+
+| Legacy español | Canónico objetivo | Campo |
+|---|---|---|
+| `CONFIRMADO` | `CONFIRMED` | `bookingStatus` |
+| `CANCELADO` | `CANCELED` | `bookingStatus` |
+| `REEMBOLSADO` | `REFUNDED` | `bookingStatus` |
+| `PENDIENTE_PAGO` | `PENDING` o `PENDING_PAYMENT` según dominio | `bookingStatus` / `paymentStatus` |
+| `NO_PAGADO` | `NOT_PAID` | `paymentStatus` |
+| `PAGADO` | `PAID` | `paymentStatus` |
+| `PENDIENTE_ASIENTO` | `PENDING_LEDGER` | `paymentStatus` |
+| `REEMBOLSADO_PARCIAL` | `PARTIALLY_REFUNDED` | `paymentStatus` |
+| `EXENTO` | `EXEMPT` | `paymentStatus` |
+
+Regla:
+
+- Los estados españoles persistidos históricamente deben migrarse a canónico inglés.
+- Durante la transición, se permite lectura adaptada.
+- Prohibida escritura nueva con estados españoles.
+
+### 20.3 IDs que nunca deben cambiarse
+
+```text
+serviceId
+slug
+linkedPhases
+addOnOptions
+addOnId
+dateYmd
+mainMedia
+clientHidden
+availableStaff
+tipoImpositivo
+codigoImpuesto
+itemNature
+bookingId
+resourceId
+staffMemberId
+scheduleId
+orderId
+thirdPartyId
+```
+
+---
+
+## 21. SEGURIDAD OBJETIVO
+
+- Elevación `elevate()` solo para mutaciones nativas Wix.
+- Rate limiting obligatorio en superficies públicas.
+- Secrets Manager obligatorio; prohibido hardcodear secretos.
+- Webhooks con deduplicación en `ProcessedWebhookEvents`.
+- No guardar datos de tarjeta ni credenciales en CMS.
+- Hash chain en ledger fiscal debe verificarse.
+- Toda mutación sensible debe incluir `traceId`.
+- Los permisos Velo no sustituyen el control de rol interno.
+- Las colecciones append-only deben bloquear `update` y `remove` mediante hooks.
+
+---
+
+## 22. CHECKLIST OBLIGATORIO DE ADAPTACIÓN DEL CÓDIGO
+
+Antes de considerar el sistema alineado con este SSOT, el código debe cumplir:
+
+### 22.1 Constantes
+
+- [ ] Eliminar alias `COLLECTIONS`.
+- [ ] Usar exclusivamente `BUSINESS_COLLECTIONS` y `OPERATIONAL_COLLECTIONS`.
+- [ ] Añadir `RESERVED_COLLECTIONS`, `HISTORICAL_COLLECTIONS` y `BLOCKED_UNVERIFIED_COLLECTIONS`.
+- [ ] No consumir colecciones bloqueadas.
+
+### 22.2 Consumidores
+
+- [ ] Confirmar consumidor real de `AlertasOperativas`.
+- [ ] Confirmar consumidor real de `ComplementosCatalogo`.
+- [ ] Confirmar consumidor real de `ProveedoresLista`.
+- [ ] Si no existe consumidor real, degradar formalmente la colección.
+
+### 22.3 Duplicidad funcional
+
+- [ ] Eliminar `prepareScheduledManagerPackages` de `fiscalAggregator.web.js`.
+- [ ] Mantener única implementación válida en `fiscalDocuments.web.js`.
+- [ ] Verificar consumidor/job real.
+
+### 22.4 Enums
+
+- [ ] Implementar `validation.js`.
+- [ ] Validar todos los enums críticos.
+- [ ] Migrar estados españoles legacy a canónico inglés.
+- [ ] Prohibir escritura nueva con estados fuera de enum.
+
+### 22.5 Fiscalidad
+
+- [ ] Separar claramente `MovimientosCaja` y `LibroAsientosContablesDetalle`.
+- [ ] No usar `MovimientosCaja` para asientos contables.
+- [ ] No usar `LibroAsientosContablesDetalle` para caja operativa.
+- [ ] Definir `sourceMovementId` o referencia equivalente cuando un asiento referencie un movimiento.
+
+### 22.6 Colecciones bloqueadas
+
+- [ ] Documentar completamente `SecuenciaTickets` o retirarla.
+- [ ] Documentar completamente `InventarioStockVentaCierre` o retirarla.
+- [ ] Eliminar dependencias nuevas sobre ambas.
+- [ ] Regularizar hooks en `data.js`.
+
+### 22.7 Índices
+
+- [ ] Verificar índices únicos de `MovimientosCaja`.
+- [ ] Verificar índices únicos de `ServiciosCatalogo`.
+- [ ] Verificar índices de `CitasF2`.
+- [ ] Comprobar estado `ACTIVE` tras cualquier creación.
+
+### 22.8 Producción
+
+- [ ] Verificar GUIDs vivos de producción.
+- [ ] Verificar `LOCATION_ID`.
+- [ ] Verificar staff real.
+- [ ] Verificar servicios reales.
+- [ ] Verificar colecciones físicas.
+- [ ] Verificar consumidores reales.
+
+### 22.9 Pruebas
+
+- [ ] Reserva simple.
+- [ ] Reserva dual.
+- [ ] Pago presencial.
+- [ ] Pago online.
+- [ ] Cancelación.
+- [ ] Reembolso.
+- [ ] Devolución de inventario.
+- [ ] Cierre Z.
+- [ ] Generación de libro registro.
+- [ ] Validación de enums inválidos.
+- [ ] Idempotencia de webhooks.
+- [ ] Append-only de ledgers.
+
+---
+
+## 23. CRITERIOS DE ACEPTACIÓN FINAL
+
+El sistema se considerará alineado con este SSOT cuando:
+
+1. No exista alias `COLLECTIONS`.
+2. Todas las colecciones activas tengan consumidor normativo confirmado.
+3. No exista duplicidad de `prepareScheduledManagerPackages`.
+4. Los enums críticos tengan validación runtime centralizada.
+5. Los estados canónicos estén normalizados.
+6. `SecuenciaTickets` e `InventarioStockVentaCierre` estén documentadas, regularizadas o retiradas.
+7. La separación fiscal/contable esté implementada y probada.
+8. Los ledgers sean append-only con hooks reales.
+9. Los índices críticos estén verificados.
+10. Las pruebas de extremo a extremo sean verdes.
+
+Hasta entonces, este documento sigue siendo el objetivo normativo, pero el sistema no debe declararse completamente conforme.
+
+---
+
+## 24. GLOSARIO NORMATIVO
+
+| Término | Significado |
+|---|---|
+| SSOT | Single Source of Truth |
+| Ledger | Registro append-only |
+| Append-only | Solo inserción; sin actualización ni borrado destructivo |
+| PairToken | Clave de idempotencia de reserva dual |
+| LEDGER_V5_FISCAL | Schema normativo del ledger fiscal |
+| EOL | End of Life / fecha límite de retirada |
+| Colección reservada | Colección física sin uso operativo autorizado |
+| Colección histórica | Colección de módulo retirado |
+| Colección bloqueada | Colección no verificada que no puede usarse |
+| Catálogo V1 | Versión oficial de Wix Stores usada en este sitio |
+
+---
+
+## 25. FUENTES OFICIALES WIX
+
+- CMS/Data API: `https://dev.wix.com/docs/api-reference/business-solutions/cms`
+- SDK Data: `https://dev.wix.com/docs/sdk/api-reference/data/introduction`
+- Bookings: `https://dev.wix.com/docs/api-reference/business-solutions/bookings`
+- Stores Catalog V1: `https://dev.wix.com/docs/api-reference/business-solutions/stores/catalog-v1/catalog/query-products`
+- eCommerce: `https://dev.wix.com/docs/api-reference/business-solutions/e-commerce`
+- Colecciones de apps Wix: `https://support.wix.com/es/article/velo-trabajar-con-el-código-y-las-colecciones-de-apps-de-wix`
+
+---
+
+Fin del documento — `BIBLIA TÉCNICA SSOT OBJETIVO v7.0`  
+Regla final: **el código debe adaptarse a esta Biblia; no esta Biblia al código heredado.**
