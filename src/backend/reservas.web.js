@@ -213,8 +213,7 @@ function _structuredError(code, message, traceId, extra) {
   };
 }
 
-/
- * FIX-01 / FIX-02: identidad publica unica slug.
+/* FIX-01 / FIX-02: identidad publica unica slug.
  * Normalizacion segura: sin query, sin hash, sin barras, ultimo segmento,
  * en minusculas. Los GUID no se transforman.
  */
@@ -319,8 +318,7 @@ async function _getStaffDisplayNamePublic(resourceId) {
   }
 }
 
-/
- * B-01 FRONTERA WIX: adaptador unico de estado oficial Bookings -> enum interno.
+/* B-01 FRONTERA WIX: adaptador unico de estado oficial Bookings -> enum interno.
  * Los enums internos se persisten en espanol MAYUSCULAS (BIBLIA 3.2 / D10).
  */
 function _mapWixBookingStatusToInternal(status) {
