@@ -32,34 +32,30 @@ export const STAFF = Object.freeze({
 // CFG-10: Separación estricta Business vs Operacional
 // =============================================================================
 
+// BIBLIA 11 / MATRIZ FASE3: consolidated CMS. MovimientosCaja, MapaStaff,
+// RegistrosHorariosStaff and ServiciosCatalogo are CORE SSOT collections; the
+// grouping below is organizational only (both groups are canonical access
+// points). ControlOperativo absorbs 8 operational collections (ADR-05/FASE3).
 export const BUSINESS_COLLECTIONS = Object.freeze({
-    ALERTAS_OPERATIVAS: "AlertasOperativas",
-    BOOKING_TRANSACTIONS: "BookingTransactions",
     CAJA_ACTUAL: "CajaActual",
     CITAS_F2: "CitasF2",
-    COMPENSACIONES_PENDIENTES: "CompensacionesPendientes",
-    COMPLEMENTOS_CATALOGO: "ComplementosCatalogo",
     DATOS_FISCALES: "DatosFiscales",
     HISTORICO_CIERRES_Z: "HistoricoCierresZ",
     INVENTARIO_STOCK_VENTA: "InventarioStockVenta",
+    CONTROL_OPERATIVO: "ControlOperativo",
+    // Core SSOT (grouping per FASE3 consolidation):
+    MOVIMIENTOS_CAJA: "MovimientosCaja",
+    MAPA_STAFF: "MapaStaff",
+    REGISTROS_HORARIOS_STAFF: "RegistrosHorariosStaff",
+    SERVICIOS_CATALOGO: "ServiciosCatalogo",
+    // Allowed accounting detail collection (BIBLIA 11; NOT the forbidden
+    // AsientosContables parent nor LibroRegistroFacturas* children).
+    LIBRO_ASIENTOS_CONTABLES_DETALLE: "LibroAsientosContablesDetalle",
 });
 
 export const OPERATIONAL_COLLECTIONS = Object.freeze({
-    AVAILABILITY_DAYS_CACHE: "AvailabilityDaysCache",
-    BOOKINGS_SERVICE_SYNC_QUEUE: "BookingsServiceSyncQueue",
-    DUAL_SLOT_CACHE: "DualSlotCache",
-    M365_GRAPH_SYNC_QUEUE: "M365GraphSyncQueue",
-    MAPA_STAFF: "MapaStaff",
-    MOVIMIENTOS_CAJA: "MovimientosCaja",
+    CONTROL_OPERATIVO: "ControlOperativo",
     MOVIMIENTOS_INVENTARIO: "MovimientosInventario",
-    PLAN_CUENTAS_CONTABLES: "PlanCuentasContables",
-    PROCESSED_WEBHOOK_EVENTS: "ProcessedWebhookEvents",
-    PROVEEDORES_LISTA: "ProveedoresLista",
-    RATE_LIMIT_BLOCKS: "RateLimitBlocks",
-    REGISTROS_HORARIOS_STAFF: "RegistrosHorariosStaff",
-    SERVICIOS_CATALOGO: "ServiciosCatalogo",
-    SLOT_LOCKS: "SlotLocks",
-    LIBRO_REGISTRO_FACTURAS_RECIBIDAS: "LibroRegistroFacturasRecibidas",
 });
 
 // BIBLIA 6: record types used to segregate configuration rows inside shared
@@ -71,11 +67,9 @@ export const RECORD_TYPE = Object.freeze({
     TERCERO: "TERCERO",
 });
 
-// Read-only alias kept temporarily for migration of consumers (FASE2 eradication).
-export const COLLECTIONS = Object.freeze({
-    ...BUSINESS_COLLECTIONS,
-    ...OPERATIONAL_COLLECTIONS
-});
+// FASE2: legacy umbrella alias COLLECTIONS ERADICATED (MATRIZ H.5 / BIBLIA 6).
+// Consumers must use BUSINESS_COLLECTIONS / OPERATIONAL_COLLECTIONS /
+// RESERVED_COLLECTIONS / HISTORICAL_COLLECTIONS explicitly.
 
 // BIBLIA 6 / 10: collections that MUST NEVER be queried or written from app code.
 export const FORBIDDEN_COLLECTIONS = Object.freeze([
@@ -96,6 +90,9 @@ export const RESERVED_COLLECTIONS = Object.freeze({
     PRODUCTOS_CATALOGO: "ProductosCatalogo",
     PRODUCTOS_VARIANTES: "ProductosVariantes",
     UBICACIONES_INVENTARIO: "UbicacionesInventario",
+    // ADR-04 degraded (grep evidence: zero backend consumers in src/):
+    COMPLEMENTOS_CATALOGO: "ComplementosCatalogo",
+    PROVEEDORES_LISTA: "ProveedoresLista",
 });
 
 // Queues tied to retired modules (BIBLIA 16.2): read-only historical access.
@@ -110,6 +107,30 @@ export const BLOCKED_UNVERIFIED_COLLECTIONS = Object.freeze([
     "SecuenciaTickets",
     "InventarioStockVentaCierre",
 ]);
+
+// FASE3 (BIBLIA 12 / ADR-05): ControlOperativo is the single 8-in-1 operational
+// control collection. Discriminator field: controlType.
+export const CONTROL_TYPE = Object.freeze({
+    SLOT_LOCK: "SLOT_LOCK",
+    WEBHOOK_EVENT: "WEBHOOK_EVENT",
+    RATE_LIMIT: "RATE_LIMIT",
+    BOOKING_TX: "BOOKING_TX",
+    COMPENSATION: "COMPENSATION",
+    ALERT: "ALERT",
+    DAYS_CACHE: "DAYS_CACHE",
+    DUAL_CACHE: "DUAL_CACHE",
+});
+
+export const CONTROL_STATUS = Object.freeze({
+    ACTIVE: "ACTIVE",
+    PENDING: "PENDING",
+    EXECUTED: "EXECUTED",
+    FAILED: "FAILED",
+    EXPIRED: "EXPIRED",
+    BLOCKED: "BLOCKED",
+    CLOSED: "CLOSED",
+    CANCELLED: "CANCELLED",
+});
 
 
 // =============================================================================
@@ -515,14 +536,24 @@ export const CASH_REGISTER_STATUS = Object.freeze({
 
 export const BOOKING_STATUS = Object.freeze({
     CONFIRMED: "CONFIRMED",
-    PENDING_PAYMENT: "PENDING_PAYMENT",
-    CANCELLED: "CANCELLED",
+    // BIBLIA 12.2 canonico (orthography per plan, not legacy PENDING_PAYMENT).
+    PENDING: "PENDING",
+    CANCELED: "CANCELED",
     REFUNDED: "REFUNDED",
 });
 
+// FASE2: lista de compatibilidad para lecturas de filas legacy persistidas con
+// los valores antiguos del enum (solo lectura; escritura nueva usa BOOKING_*).
+export const LEGACY_BOOKING_STATUS_VALUES = Object.freeze([
+    "PENDING_PAYMENT",
+    "CANCELLED",
+]);
+
 // Lista de estados inactivos para ranking de recursos (CORE-08)
 export const INACTIVE_BOOKING_STATUSES = Object.freeze([
-    "CANCELLED", "DECLINED", "REJECTED", "NOSHOW"
+    "CANCELED", "DECLINED", "REJECTED", "NOSHOW",
+    // legacy read-compat (no usar en escrituras nuevas)
+    "CANCELLED",
 ]);
 
 export const PAYMENT_STATUS = Object.freeze({
@@ -579,7 +610,9 @@ export const JWT = Object.freeze({
 });
 
 export const BOOKING_FIELDS = Object.freeze({
-    STATUS: "status",
+    // ADR-06: canonical physical field is bookingStatus (MATRIZ G). Legacy
+    // "status" rows are migrated by tools/migrate-citasf2-field.js.
+    STATUS: "bookingStatus",
     PAYMENT_STATUS: "paymentStatus",
     PAIR_TOKEN: "pairToken",
     SERVICE_ID: "serviceId",
@@ -847,9 +880,9 @@ export function resolveWithholdingAccount(fiscalRole) {
 export function validateInternalConfig() {
     const issues = [];
 
-    // Verificar colecciones críticas
-    if (!BUSINESS_COLLECTIONS.CITAS_F2 || !OPERATIONAL_COLLECTIONS.SLOT_LOCKS) {
-        issues.push("Colecciones críticas faltantes");
+    // Verificar colecciones criticas (FASE3: SLOT_LOCKS absorbida en ControlOperativo)
+    if (!BUSINESS_COLLECTIONS.CITAS_F2 || !OPERATIONAL_COLLECTIONS.CONTROL_OPERATIVO) {
+        issues.push("Colecciones criticas faltantes");
     }
 
     // Verificar enums críticos

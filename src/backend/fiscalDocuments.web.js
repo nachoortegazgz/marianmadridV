@@ -23,7 +23,7 @@ import wixData from "wix-data";
 import { getSecret } from "wix-secrets-backend";
 
 import { makeTraceId, _safeTrim, withTimeout, _roundMoney } from "public/mmUtils";
-import { COLLECTIONS, SDK_CONFIG } from "backend/internalConfig";
+import { BUSINESS_COLLECTIONS, SDK_CONFIG } from "backend/internalConfig";
 import { SECRETS } from "backend/mmSecrets";
 import { requireMarianManager } from "backend/security";
 import { _toPublicError } from "backend/responseUtils";
@@ -34,7 +34,7 @@ import {
 } from "backend/fiscalAggregator.web";
 
 const CMS_TIMEOUT_MS = Number(SDK_CONFIG?.TIMEOUTS?.CMS_MS) || 15000;
-const DOCS_COL = COLLECTIONS.HISTORICO_CIERRES_Z;
+const DOCS_COL = BUSINESS_COLLECTIONS.HISTORICO_CIERRES_Z;
 const MAX_EMAIL_ATTACHMENT_BYTES = SDK_CONFIG?.DOCUMENTS?.MAX_EMAIL_ATTACHMENT_BYTES || 3145728;
 const MAX_EMAIL_SEND_ATTEMPTS = SDK_CONFIG?.DOCUMENTS?.MAX_EMAIL_SEND_ATTEMPTS || 3;
 const DEFAULT_MANAGER_EMAIL = SDK_CONFIG?.DOCUMENTS?.DEFAULT_MANAGER_EMAIL || "gestion@marianmadrid.es";

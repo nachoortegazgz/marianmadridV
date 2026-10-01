@@ -30,7 +30,12 @@ import wixData from "wix-data";
 import { getSecret } from "wix-secrets-backend";
 
 import {
-    COLLECTIONS,
+    BUSINESS_COLLECTIONS,
+    OPERATIONAL_COLLECTIONS,
+    HISTORICAL_COLLECTIONS,
+    CONTROL_TYPE,
+
+
     SINGLETONS,
     SDK_CONFIG,
     MOVEMENT_TYPE,
@@ -369,7 +374,7 @@ async function _getNextSequence(traceId) {
 
 async function _getLastMovement() {
     const res = await wixData
-        .query(COLLECTIONS.MOVIMIENTOS_CAJA)
+        .query(BUSINESS_COLLECTIONS.MOVIMIENTOS_CAJA)
         .descending("sequenceNumber")
         .limit(1)
         .find({ suppressAuth: true, consistentRead: true });
@@ -382,7 +387,7 @@ async function _getLastMovement() {
 
 async function _assertPeriodNotClosed(operationDate, traceId) {
     const existingZ = await wixData.get(
-        COLLECTIONS.HISTORICO_CIERRES_Z,
+        BUSINESS_COLLECTIONS.HISTORICO_CIERRES_Z,
         `Z_${operationDate}`, { suppressAuth: true }
     ).catch(() => null);
 
@@ -440,8 +445,9 @@ function _resolveFiscalBase({
 
 async function _queueAccountingResync(movement, err, traceId) {
     try {
-        await wixData.insert(COLLECTIONS.COMPENSACIONES_PENDIENTES, {
-            _id: `REC_ACCT_SYNC_${movement.transactionId || "NA"}_${Date.now()}`,
+        await wixData.insert(OPERATIONAL_COLLECTIONS.CONTROL_OPERATIVO, {
+            controlType: CONTROL_TYPE.COMPENSATION,
+            dedupeKey: `REC_ACCT_SYNC_${movement.transactionId || "NA"}_${Date.now()}`,
             kind: "RESYNC_LEDGER_ACCOUNTING",
             transactionId: movement.transactionId || null,
             amount: Number(movement.totalAmount) || 0,
@@ -560,7 +566,7 @@ export const registerManualTransaction = webMethod(Permissions.SiteMember, async
 
         if (transactionId) {
             const existingRes = await wixData
-                .query(COLLECTIONS.MOVIMIENTOS_CAJA)
+                .query(BUSINESS_COLLECTIONS.MOVIMIENTOS_CAJA)
                 .eq("transactionId", transactionId)
                 .limit(1)
                 .find({ suppressAuth: true, consistentRead: true });
@@ -712,7 +718,7 @@ export const registerManualTransaction = webMethod(Permissions.SiteMember, async
                 _createdDate: new Date(),
             };
 
-            const saved = await wixData.insert(COLLECTIONS.MOVIMIENTOS_CAJA, movement, { suppressAuth: true });
+            const saved = await wixData.insert(BUSINESS_COLLECTIONS.MOVIMIENTOS_CAJA, movement, { suppressAuth: true });
             await _updateCajaActual(movement, traceId);
 
             projectLedgerMovementToAccounting(movement)
@@ -756,7 +762,7 @@ export const registerManualTransaction = webMethod(Permissions.SiteMember, async
 
 async function _updateCajaActual(movement, traceId) {
     try {
-        const cajaCol = COLLECTIONS.CAJA_ACTUAL;
+        const cajaCol = BUSINESS_COLLECTIONS.CAJA_ACTUAL;
         let cashRegister = await wixData.get(cajaCol, CASH_REGISTER_ID, { suppressAuth: true }).catch(() => null);
         if (!cashRegister) {
             cashRegister = {
@@ -784,8 +790,9 @@ async function _updateCajaActual(movement, traceId) {
     } catch (err) {
         log.error("_updateCajaActual failed; queuing resync", { traceId, error: err?.message });
         try {
-            await wixData.insert(COLLECTIONS.COMPENSACIONES_PENDIENTES, {
-                _id: `REC_CAJA_SYNC_${movement.transactionId || "NA"}_${Date.now()}`,
+            await wixData.insert(OPERATIONAL_COLLECTIONS.CONTROL_OPERATIVO, {
+                controlType: CONTROL_TYPE.COMPENSATION,
+                dedupeKey: `REC_CAJA_SYNC_${movement.transactionId || "NA"}_${Date.now()}`,
                 kind: "RESYNC_CAJA_BALANCE",
                 transactionId: movement.transactionId || null,
                 amount: Number(movement.accountingAmount) || 0,
@@ -811,7 +818,7 @@ async function _updateCajaActual(movement, traceId) {
 // ============================================================================
 
 async function _enqueueM365Sync(movement, traceId) {
-    const queueCol = COLLECTIONS.M365_GRAPH_SYNC_QUEUE;
+    const queueCol = HISTORICAL_COLLECTIONS.M365_GRAPH_SYNC_QUEUE;
     const payload = {
         eventType: "LEDGER_MOVEMENT",
         correlationId: traceId,
@@ -883,8 +890,9 @@ export async function registerBookingPayment(bookingIds, amount, method, meta = 
 export async function queueFiscalRecovery(recoveryData) {
     const traceId = recoveryData.traceId || makeTraceId("fiscal-rec");
     try {
-        await wixData.insert(COLLECTIONS.COMPENSACIONES_PENDIENTES, {
-            _id: `REC_${recoveryData.transactionId || Date.now()}_${Date.now()}`,
+        await wixData.insert(OPERATIONAL_COLLECTIONS.CONTROL_OPERATIVO, {
+            controlType: CONTROL_TYPE.COMPENSATION,
+            dedupeKey: `REC_${recoveryData.transactionId || Date.now()}_${Date.now()}`,
             bookingIds: recoveryData.bookingIds || null,
             orderId: recoveryData.orderId || null,
             refundId: recoveryData.refundId || null,
@@ -916,7 +924,7 @@ export const getCashierState = webMethod(Permissions.SiteMember, async (options 
     const { traceId } = options;
     try {
         await requireCajero(traceId);
-        const cashRegister = await wixData.get(COLLECTIONS.CAJA_ACTUAL, CASH_REGISTER_ID, { suppressAuth: true }).catch(() => null);
+        const cashRegister = await wixData.get(BUSINESS_COLLECTIONS.CAJA_ACTUAL, CASH_REGISTER_ID, { suppressAuth: true }).catch(() => null);
         return {
             status: "SUCCESS",
             data: cashRegister || {
@@ -947,7 +955,7 @@ export const registerZClosing = webMethod(Permissions.SiteMember, async (diaKey,
         }
 
         const existingZ = await wixData.get(
-            COLLECTIONS.HISTORICO_CIERRES_Z,
+            BUSINESS_COLLECTIONS.HISTORICO_CIERRES_Z,
             `Z_${cleanDiaKey}`, { suppressAuth: true }
         ).catch(() => null);
 
@@ -957,7 +965,7 @@ export const registerZClosing = webMethod(Permissions.SiteMember, async (diaKey,
         }
 
         let allMovements = [];
-        const query = wixData.query(COLLECTIONS.MOVIMIENTOS_CAJA)
+        const query = wixData.query(BUSINESS_COLLECTIONS.MOVIMIENTOS_CAJA)
             .eq("invoiceIssueDate", cleanDiaKey)
             .ascending("sequenceNumber")
             .limit(LEDGER_PAGE_SIZE);
@@ -1109,14 +1117,14 @@ export const registerZClosing = webMethod(Permissions.SiteMember, async (diaKey,
             _createdDate: new Date(),
         };
 
-        const saved = await wixData.insert(COLLECTIONS.HISTORICO_CIERRES_Z, zRecord, { suppressAuth: true });
+        const saved = await wixData.insert(BUSINESS_COLLECTIONS.HISTORICO_CIERRES_Z, zRecord, { suppressAuth: true });
 
-        const cashRegister = await wixData.get(COLLECTIONS.CAJA_ACTUAL, CASH_REGISTER_ID, { suppressAuth: true }).catch(() => null);
+        const cashRegister = await wixData.get(BUSINESS_COLLECTIONS.CAJA_ACTUAL, CASH_REGISTER_ID, { suppressAuth: true }).catch(() => null);
         if (cashRegister) {
             cashRegister.cashRegisterStatus = CASH_REGISTER_STATUS.CLOSED;
             cashRegister.closedAt = new Date();
             cashRegister._updatedDate = new Date();
-            await wixData.save(COLLECTIONS.CAJA_ACTUAL, cashRegister, { suppressAuth: true });
+            await wixData.save(BUSINESS_COLLECTIONS.CAJA_ACTUAL, cashRegister, { suppressAuth: true });
         }
 
         return { status: "SUCCESS", data: saved, error: null };
@@ -1134,7 +1142,7 @@ export async function verifyFiscalHashChainIntegrity(options = {}) {
     const batchSize = Number(options.limit) || LEDGER_PAGE_SIZE;
     const breaks = [];
     try {
-        const movements = await wixData.query(COLLECTIONS.MOVIMIENTOS_CAJA)
+        const movements = await wixData.query(BUSINESS_COLLECTIONS.MOVIMIENTOS_CAJA)
             .ascending("sequenceNumber")
             .limit(batchSize)
             .find({ suppressAuth: true });
@@ -1193,7 +1201,7 @@ export const registerGiftCardSale = webMethod(Permissions.SiteMember, async (pay
         }
 
         const existingRes = await wixData
-            .query(COLLECTIONS.MOVIMIENTOS_CAJA)
+            .query(BUSINESS_COLLECTIONS.MOVIMIENTOS_CAJA)
             .eq("transactionId", `GC_SALE-${giftCardId}`)
             .limit(1)
             .find({ suppressAuth: true, consistentRead: true });
@@ -1287,7 +1295,7 @@ export const registerGiftCardSale = webMethod(Permissions.SiteMember, async (pay
                 _createdDate: new Date(),
             };
 
-            const saved = await wixData.insert(COLLECTIONS.MOVIMIENTOS_CAJA, movement, { suppressAuth: true });
+            const saved = await wixData.insert(BUSINESS_COLLECTIONS.MOVIMIENTOS_CAJA, movement, { suppressAuth: true });
             await _updateCajaActual(movement, traceId);
 
             projectLedgerMovementToAccounting(movement)
@@ -1333,7 +1341,7 @@ export const registerGiftCardRedemption = webMethod(Permissions.SiteMember, asyn
             `GC_REDEEM-${giftCardId}-${bookingId || "NA"}-${amount}-${Date.now()}`;
 
         const existingRedemption = await wixData
-            .query(COLLECTIONS.MOVIMIENTOS_CAJA)
+            .query(BUSINESS_COLLECTIONS.MOVIMIENTOS_CAJA)
             .eq("transactionId", redemptionId)
             .limit(1)
             .find({ suppressAuth: true, consistentRead: true });
@@ -1346,7 +1354,7 @@ export const registerGiftCardRedemption = webMethod(Permissions.SiteMember, asyn
         let taxRate = IVA_RATES.GENERAL;
         if (serviceId) {
             const serviceRes = await wixData
-                .query(COLLECTIONS.SERVICIOS_CATALOGO)
+                .query(BUSINESS_COLLECTIONS.SERVICIOS_CATALOGO)
                 .eq("serviceId", serviceId)
                 .limit(1)
                 .find({ suppressAuth: true })
@@ -1444,7 +1452,7 @@ export const registerGiftCardRedemption = webMethod(Permissions.SiteMember, asyn
                 _createdDate: new Date(),
             };
 
-            const saved = await wixData.insert(COLLECTIONS.MOVIMIENTOS_CAJA, movement, { suppressAuth: true });
+            const saved = await wixData.insert(BUSINESS_COLLECTIONS.MOVIMIENTOS_CAJA, movement, { suppressAuth: true });
             await _updateCajaActual(movement, traceId);
 
             projectLedgerMovementToAccounting(movement)

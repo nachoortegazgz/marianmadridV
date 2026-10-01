@@ -30,7 +30,7 @@ FIXES APLICADOS v5007.8 (heredados):
 import wixData from "wix-data";
 import { getSecret } from "wix-secrets-backend";
 import {
-    OPERATIONAL_COLLECTIONS,
+    BUSINESS_COLLECTIONS,
     SDK_CONFIG,
     MOVEMENT_TYPE,
     ACCOUNTING_ACCOUNT,
@@ -301,19 +301,19 @@ function _findAccountMap(movementType) {
 
 async function _getExisting(journalEntryId) {
     return wixData
-        .get(OPERATIONAL_COLLECTIONS.MOVIMIENTOS_CAJA, journalEntryId, { suppressAuth: true, consistentRead: true })
+        .get(BUSINESS_COLLECTIONS.MOVIMIENTOS_CAJA, journalEntryId, { suppressAuth: true, consistentRead: true })
         .catch(() => null);
 }
 
 async function _insertLineIfMissing(line) {
     const existing = await wixData
-        .get(OPERATIONAL_COLLECTIONS.MOVIMIENTOS_CAJA, line._id, { suppressAuth: true, consistentRead: true })
+        .get(BUSINESS_COLLECTIONS.MOVIMIENTOS_CAJA, line._id, { suppressAuth: true, consistentRead: true })
         .catch(() => null);
 
     if (existing) return { idempotent: true, item: existing };
 
     const inserted = await wixData.insert(
-        OPERATIONAL_COLLECTIONS.MOVIMIENTOS_CAJA, line, { suppressAuth: true }
+        BUSINESS_COLLECTIONS.MOVIMIENTOS_CAJA, line, { suppressAuth: true }
     );
     return { idempotent: false, item: inserted };
 }

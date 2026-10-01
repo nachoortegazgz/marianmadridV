@@ -18,7 +18,8 @@ FIXES APLICADOS v5009-FISCAL-V20.1:
 import wixData from "wix-data";
 
 import {
-    COLLECTIONS,
+    OPERATIONAL_COLLECTIONS,
+    CONTROL_TYPE,
     SDK_CONFIG,
 } from "backend/internalConfig";
 
@@ -167,8 +168,8 @@ export async function logAuditEvent(
 
     try {
         await wixData.insert(
-            COLLECTIONS.ALERTAS_OPERATIVAS,
-            record, { suppressAuth: true }
+            OPERATIONAL_COLLECTIONS.CONTROL_OPERATIVO,
+            _decorateControlAlert(record), { suppressAuth: true }
         );
     } catch (error) {
         log.error("logAuditEvent failed (non-blocking)", {
@@ -177,6 +178,15 @@ export async function logAuditEvent(
             eventType: record.eventType,
         });
     }
+}
+
+function _decorateControlAlert(record) {
+    // FASE3 ADR-05: alerts live in ControlOperativo with discriminator.
+    return {
+        ...record,
+        controlType: CONTROL_TYPE.ALERT,
+        dedupeKey: `ALERT_${record.traceId || record._id || Date.now()}`,
+    };
 }
 
 // =============================================================================
@@ -206,8 +216,8 @@ export async function logAuditEventWithTimeout(
 
     try {
         const insertPromise = wixData.insert(
-            COLLECTIONS.ALERTAS_OPERATIVAS,
-            record, { suppressAuth: true }
+            OPERATIONAL_COLLECTIONS.CONTROL_OPERATIVO,
+            _decorateControlAlert(record), { suppressAuth: true }
         );
 
         const timeoutPromise = new Promise((resolve) => {

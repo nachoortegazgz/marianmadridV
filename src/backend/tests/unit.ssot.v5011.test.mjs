@@ -69,10 +69,15 @@ test('UNIT-GEN-03 date conversion Madrid TZ stable', () => {
 });
 
 test('UNIT-ENUM-01 booking enums aligned with canonical SSOT', () => {
+  // FASE2 BIBLIA 12.2: BOOKING_STATUS canonico en ingles (PENDING/CANCELED);
+  // los antiguos PENDING_PAYMENT/CANCELLED son solo lectura legacy.
   assert.strictEqual(ESTADO_CITA.CONFIRMED, 'CONFIRMED');
-  assert.strictEqual(ESTADO_CITA.PENDING_PAYMENT, 'PENDING_PAYMENT');
-  assert.strictEqual(ESTADO_CITA.CANCELLED, 'CANCELLED');
-  assert.strictEqual(ESTADO_CITA.CANCELED, 'CANCELLED');
+  assert.strictEqual(ESTADO_CITA.PENDING, 'PENDING');
+  assert.strictEqual(ESTADO_CITA.CANCELED, 'CANCELED');
+  assert.strictEqual(IC.BOOKING_STATUS.PENDING_PAYMENT, undefined);
+  assert.strictEqual(IC.BOOKING_STATUS.CANCELLED, undefined);
+  assert.ok(IC.LEGACY_BOOKING_STATUS_VALUES.includes('PENDING_PAYMENT'));
+  assert.ok(IC.LEGACY_BOOKING_STATUS_VALUES.includes('CANCELLED'));
   assert.strictEqual(ESTADO_PAGO.PAID, 'PAID');
   // FASE1-P0: alias UNPAID was eradicated from PAYMENT_STATUS (MATRIZ alias F).
   // Strengthened assertion: the retired key must NOT exist and the canonical
@@ -106,9 +111,11 @@ test('UNIT-STRUCT-01 collections SSOT defined', () => {
   // required list: both are FORBIDDEN (BIBLIA 10) and their keys were retired
   // in FASE1-P0. A dedicated negative assertion below keeps the suite at least
   // as strict as before.
+  // FASE3: DUAL_SLOT_CACHE fue absorbida por ControlOperativo (8-en-1, ADR-05);
+  // la exigencia canonica es CONTROL_OPERATIVO presente en ambos grupos.
   const requiredCollections = [
     'SERVICIOS_CATALOGO', 'MAPA_STAFF', 'CITAS_F2',
-    'DUAL_SLOT_CACHE', 'MOVIMIENTOS_CAJA', 'HISTORICO_CIERRES_Z',
+    'CONTROL_OPERATIVO', 'MOVIMIENTOS_CAJA', 'HISTORICO_CIERRES_Z',
     'REGISTROS_HORARIOS_STAFF',
   ];
   for (const col of requiredCollections) {
@@ -116,8 +123,17 @@ test('UNIT-STRUCT-01 collections SSOT defined', () => {
     assert.strictEqual(typeof COLLECTIONS_MERGED[col], 'string');
     assert.ok(COLLECTIONS_MERGED[col].length > 0);
   }
-  const values = Object.values(COLLECTIONS_MERGED);
+  // CONTROL_OPERATIVO se expone deliberadamente en BUSINESS y OPERATIONAL con
+  // el mismo valor; el chequeo de duplicidad ignora esa clave compartida.
+  const values = Object.entries(COLLECTIONS_MERGED)
+    .filter(([k]) => k !== 'CONTROL_OPERATIVO')
+    .map(([, v]) => v);
   assert.strictEqual(values.length, new Set(values).size, 'duplicate collection values');
+  assert.ok(IC.BUSINESS_COLLECTIONS.CONTROL_OPERATIVO === IC.OPERATIONAL_COLLECTIONS.CONTROL_OPERATIVO);
+  // Negativo FASE3: las 8 colecciones absorbidas ya no son claves canonicas.
+  for (const retired of ['DUAL_SLOT_CACHE', 'AVAILABILITY_DAYS_CACHE', 'SLOT_LOCKS', 'RATE_LIMIT_BLOCKS', 'PROCESSED_WEBHOOK_EVENTS', 'BOOKING_TRANSACTIONS', 'COMPENSACIONES_PENDIENTES', 'ALERTAS_OPERATIVAS']) {
+    assert.strictEqual(COLLECTIONS_MERGED[retired], undefined, `retired key ${retired} must be gone`);
+  }
   // Negative: forbidden keys must NOT be reachable through canonical groups.
   assert.strictEqual(COLLECTIONS_MERGED.CATEGORIAS_SERVICIO, undefined);
   assert.strictEqual(COLLECTIONS_MERGED.LIBRO_REGISTRO_FACTURAS_EXPEDIDAS, undefined);

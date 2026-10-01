@@ -667,7 +667,8 @@ async function _setCitasPaymentState(
 
         return {
           ...currentCita,
-          status: BOOKING_STATUS.CONFIRMED,
+          // ADR-06: campo canonico bookingStatus (no 'status')
+          bookingStatus: BOOKING_STATUS.CONFIRMED,
           paymentStatus: paymentState,
           meta: {
             ...meta,

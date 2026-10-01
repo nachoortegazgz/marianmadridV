@@ -43,6 +43,7 @@ import {
     COMPENSATION_STATUS,
     APP_IDS,
     BOOKING_TYPE,
+    CONTROL_TYPE,
 } from "backend/internalConfig";
 
 import {
@@ -101,10 +102,14 @@ const LOCKTTLMS = Number(CONCURRENCY?.MS_TTL_MUTEX) || 300000;
 const HEARTBEATMS = Number(CONCURRENCY?.MS_LATIDO) || 15000;
 const CITASCOL = BUSINESS_COLLECTIONS.CITAS_F2;
 const SERVICIOSCOL = BUSINESS_COLLECTIONS.SERVICIOS_CATALOGO;
-const COMPENSACIONESCOL = BUSINESS_COLLECTIONS.COMPENSACIONES_PENDIENTES;
+const COMPENSACIONESCOL = OPERATIONAL_COLLECTIONS.CONTROL_OPERATIVO;
 
 const MINUTOS_MAX_HUECO_DUAL =
     Math.max(0, Number(SLOT_SEARCH?.MINUTOS_MAX_HUECO_DUAL || 120));
+
+// FASE3: same source of truth as crons.js runPendingCompensationsJob.
+const MAX_COMPENSATION_ATTEMPTS_SAGA =
+    Math.max(1, Number(CONCURRENCY?.MAX_COMPENSATION_RETRIES) || 3);
 
 const BOOKING_CREATION_TIMEOUT_MS =
     Number(SDK_CONFIG?.TIMEOUTS?.BOOKING_CREATION_MS) || 25000;
@@ -194,18 +199,20 @@ async function _compensateCreatedBookings(createdBookings, traceId) {
             try {
                 await wixData.insert(
                     COMPENSACIONESCOL, {
-                        id: "COMP_" + bookingId + "_" + Date.now(),
+                        controlType: CONTROL_TYPE.COMPENSATION,
+                        dedupeKey: "COMP_" + bookingId + "_" + Date.now(),
                         kind: COMPENSATION_KIND.CANCEL_BOOKING,
                         bookingId: bookingId,
                         phase: booking?.phase || "UNKNOWN",
                         status: COMPENSATION_STATUS.PENDING,
                         attempts: 0,
-                        amount: 0,
+                        maxAttempts: MAX_COMPENSATION_ATTEMPTS_SAGA,
+                        totalAmount: 0,
                         paymentMethod: null,
                         transactionId: null,
                         orderId: null,
                         refundId: null,
-                        concept: "Booking compensation after saga failure",
+                        operationDescription: "Booking compensation after saga failure",
                         movementType: null,
                         alertRequired: true,
                         lastError: cancelErr?.message || "UNKNOWN",
@@ -1009,7 +1016,7 @@ export async function executeBookingSaga(unsafePayload) {
         );
 
         const paymentStatus = isOnline ? PAYMENT_STATUS.PENDING_PAYMENT : PAYMENT_STATUS.NOT_PAID;
-        const citaStatus = isOnline ? BOOKING_STATUS.PENDING_PAYMENT : BOOKING_STATUS.CONFIRMED;
+        const citaStatus = isOnline ? BOOKING_STATUS.PENDING : BOOKING_STATUS.CONFIRMED;
 
         saga.addStep(
             "PersistCitas",
