@@ -1471,3 +1471,88 @@ export const registerGiftCardRedemption = webMethod(Permissions.SiteMember, asyn
         return { status: "ERROR", data: null, error: { code: norm.code || "GC_REDEEM_FAIL", message: norm.message } };
     }
 });
+
+// ============================================================================
+// CONFIRMATION PAGE READ (SSOT-07: page code never queries CMS directly)
+// ============================================================================
+
+// Public DTO whitelist for the Verifactu receipt block. NEVER add: margin,
+// internalNotes, tipoImpositivo, codigoImpuesto, payloadFiscal, nifEmisor,
+// cuentaContable* (BIBLIA 15). recordHash IS allowed here because it is part
+// of the AEAT public verification QR contract (Veri*/Facturae).
+const _MOVEMENT_DTO_FIELDS = Object.freeze([
+    "invoiceNumber",
+    "issuerTaxId",
+    "invoiceIssueDate",
+    "totalAmount",
+    "recordHash",
+    "recordTimestamp",
+    "operationDescription"
+]);
+
+function _toMovementDto(movement) {
+    if (!movement || typeof movement !== "object") return null;
+    const dto = {};
+    for (const key of _MOVEMENT_DTO_FIELDS) {
+        if (movement[key] !== undefined && movement[key] !== null) {
+            dto[key] = movement[key];
+        }
+    }
+    return dto;
+}
+
+/**
+ * getMovimientoByBooking({ bookingId }) -> { ok, data }
+ * Read-only lookup of the append-only ledger movement linked to a booking.
+ */
+export const getMovimientoByBooking = webMethod(
+    Permissions.Anyone,
+    async ({ bookingId } = {}) => {
+        const traceId = makeTraceId("movimiento-by-booking");
+        const cleanId = _safeTrim(bookingId);
+        if (!cleanId) {
+            return { ok: false, data: null, error: "BOOKING_ID_REQUIRED" };
+        }
+        try {
+            // linkedBookingIds stores the canonical serialized value produced
+            // by _linkedBookingValue(); exact match keeps this index-friendly.
+            const expected = _linkedBookingValue([cleanId]);
+            let res = await withTimeout(
+                wixData.query(BUSINESS_COLLECTIONS.MOVIMIENTOS_CAJA)
+                    .eq("linkedBookingIds", expected)
+                    .limit(1)
+                    .find({ suppressAuth: true, consistentRead: true }),
+                FISCAL_SIGNER_TIMEOUT_MS,
+                "getMovimientoByBooking"
+            );
+            let item = res?.items?.[0] || null;
+            if (!item) {
+                // Legacy transition fallback (EOL 31/12/2026): rows written
+                // before V20.1 stored the bare bookingId.
+                res = await withTimeout(
+                    wixData.query(BUSINESS_COLLECTIONS.MOVIMIENTOS_CAJA)
+                        .eq("linkedBookingIds", cleanId)
+                        .limit(1)
+                        .find({ suppressAuth: true }),
+                    FISCAL_SIGNER_TIMEOUT_MS,
+                    "getMovimientoByBookingLegacy"
+                );
+                item = res?.items?.[0] || null;
+                if (item) {
+                    log.warn("legacy linkedBookingIds format read", {
+                        traceId,
+                        movementId: item._id
+                    });
+                }
+            }
+            if (!item) return { ok: false, data: null, error: "NOT_FOUND" };
+            return { ok: true, data: _toMovementDto(item), error: null };
+        } catch (err) {
+            log.warn("getMovimientoByBooking failed", {
+                traceId,
+                error: err?.message
+            });
+            return { ok: false, data: null, error: "READ_FAILED" };
+        }
+    }
+);

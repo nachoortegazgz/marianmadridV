@@ -22,7 +22,9 @@ STANDARDS: G10 ASCII Strict (sin acentos en codigo).
 =============================================================================
 */
 
-import wixData from 'wix-data';
+// FASE4: import wixData retirado (SSOT-07 / frontend minimo): esta pagina no
+// accede directamente al CMS; toda lectura pasa por webMethods (reservas.web,
+// cajas.web). El contrato de pagina no cambio.
 import wixWindow from 'wix-window';
 
 // Web functions reales reemitidas en FASE7 v5010.1 (anteriormente el riesgo

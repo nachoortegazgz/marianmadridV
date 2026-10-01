@@ -31,7 +31,8 @@ import {
   SLOT_SEARCH,
   API,
   STAFF_DEFAULT_NAME,
-  BOOKING_STATUS
+  BOOKING_STATUS,
+  BOOKING_FIELDS
 } from "backend/internalConfig";
 
 import {
@@ -630,6 +631,78 @@ export function _toPublicService(service) {
     linkedPhases: publicService.linkedPhases || null
   };
 }
+
+// ============================================================================
+// CONFIRMATION PAGE READ (SSOT-07: page code never queries CMS directly)
+// ============================================================================
+
+// Public DTO whitelist for the confirmation page. NEVER add: margin,
+// internalNotes, tipoImpositivo, codigoImpuesto, recordHash, previousRecordHash,
+// payloadFiscal, nifEmisor, cuentaContable* (BIBLIA 15 / frontend minimo).
+const _CONFIRMATION_DTO_FIELDS = Object.freeze([
+  "bookingId",
+  "serviceId",
+  "dateYmd",
+  "slotStart",
+  "slotEnd",
+  "resourceId",
+  "pairToken",
+  "totalPrice"
+]);
+
+function _toConfirmationDto(item) {
+  if (!item || typeof item !== "object") return null;
+  const dto = {};
+  for (const key of _CONFIRMATION_DTO_FIELDS) {
+    if (item[key] !== undefined && item[key] !== null) dto[key] = item[key];
+  }
+  // Canonical read with legacy transition fallback (EOL 31/12/2026, ADR-06):
+  const status = item.bookingStatus ?? item.status;
+  if (status !== undefined && status !== null) dto.bookingStatus = status;
+  if (item.paymentStatus !== undefined) dto.paymentStatus = item.paymentStatus;
+  return dto;
+}
+
+/**
+ * getConfirmedBookingForDisplay({ bookingId }) -> { ok, data }
+ * Read-only projection of CitasF2 restricted to display-safe states.
+ */
+export const getConfirmedBookingForDisplay = webMethod(
+  Permissions.Anyone,
+  async ({ bookingId } = {}) => {
+    const traceId = makeTraceId("confirmacion-booking");
+    const cleanId = _safeTrim(bookingId);
+    if (!cleanId) {
+      return { ok: false, data: null, error: "BOOKING_ID_REQUIRED" };
+    }
+    try {
+      const res = await withTimeout(
+        wixData.query(BUSINESS_COLLECTIONS.CITAS_F2)
+          .eq(BOOKING_FIELDS.BOOKING_ID, cleanId)
+          .limit(1)
+          .find({ suppressAuth: true }),
+        Number(SDK_CONFIG?.TIMEOUTS?.API_MS) || 15000,
+        "getConfirmedBookingForDisplay"
+      );
+      const item = res?.items?.[0] || null;
+      if (!item) return { ok: false, data: null, error: "NOT_FOUND" };
+      const status = item.bookingStatus ?? item.status;
+      if (
+        status !== BOOKING_STATUS.CONFIRMED &&
+        status !== BOOKING_STATUS.PENDING
+      ) {
+        return { ok: false, data: null, error: "NOT_CONFIRMED" };
+      }
+      return { ok: true, data: _toConfirmationDto(item), error: null };
+    } catch (err) {
+      log.warn("getConfirmedBookingForDisplay failed", {
+        traceId,
+        error: err?.message
+      });
+      return { ok: false, data: null, error: "READ_FAILED" };
+    }
+  }
+);
 
 // ============================================================================
 // DISPONIBILIDAD SINGLE
