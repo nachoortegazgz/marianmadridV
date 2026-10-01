@@ -17,7 +17,7 @@ FIXES APLICADOS v5009-FISCAL-V20.1:
             (sourceEventId, catalogId, magnitude, thirdPartyId) con
             fallback legacy (eventoOrigenId, catalogoId, terceroId). El
             magnitude se deriva del signo de la cantidad (+1/-1/0).
-  - V20-03: NOTA DE AUDITORIA: el original usa COLLECTIONS.HISTORICO_CIERRES_Z
+  - V20-03: NOTA DE AUDITORIA: el original usa BUSINESS_COLLECTIONS.HISTORICO_CIERRES_Z
             para escribir cierres de inventario (mezcla con cierres Z). Se
             preserva tal cual (bug del original, no de V20.1). El schema
             V20.1-EXPANDED-v2 amplia HistoricoCierresZ para acomodar los
@@ -41,7 +41,8 @@ import { webMethod, Permissions } from "wix-web-module";
 import wixData from "wix-data";
 
 import {
-  COLLECTIONS,
+  BUSINESS_COLLECTIONS, OPERATIONAL_COLLECTIONS,
+
   SDK_CONFIG,
 } from "backend/internalConfig";
 
@@ -65,9 +66,9 @@ import { getSecret } from "wix-secrets-backend";
 import { SECRETS } from "backend/mmSecrets";
 
 const log = logger;
-const INVENTARIO_COL = COLLECTIONS.INVENTARIO_STOCK_VENTA;
-const MOVIMIENTOS_INV_COL = COLLECTIONS.MOVIMIENTOS_INVENTARIO;
-const CIERRE_INV_COL = COLLECTIONS.HISTORICO_CIERRES_Z;
+const INVENTARIO_COL = BUSINESS_COLLECTIONS.INVENTARIO_STOCK_VENTA;
+const MOVIMIENTOS_INV_COL = OPERATIONAL_COLLECTIONS.MOVIMIENTOS_INVENTARIO;
+const CIERRE_INV_COL = BUSINESS_COLLECTIONS.HISTORICO_CIERRES_Z;
 
 // =============================================================================
 // BLOQUE 1 - GET INVENTORY DASHBOARD

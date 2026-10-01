@@ -27,8 +27,12 @@ REGLAS DE MODULO
 */
 
 /* Facade de protocolo: SSOT = public/widgetBridge.js (no redefinir aqui). */
+/* FIX(baseline): widgetBridge exporta MESSAGE_TYPES/PROTOCOL_URLS/PROTOCOL_UI
+   (los alias sin guion MESSAGETYPES/URLS/UI fueron eliminados del bridge).
+   Este facade importaba nombres inexistentes -> SyntaxError en cascada que
+   rompia TODO consumidor de mmUtils (logger, security, fiscalAggregator...). */
 export {
-  MESSAGETYPES as MESSAGE_TYPES,
+  MESSAGE_TYPES,
   PROTOCOL_URLS as URLS,
   PROTOCOL_UI as UI
 } from "public/widgetBridge";

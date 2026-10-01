@@ -25,7 +25,8 @@ import wixData from "wix-data";
 import { availabilityTimeSlots } from "@wix/bookings";
 
 import {
-  COLLECTIONS,
+  BUSINESS_COLLECTIONS,
+
   SDK_CONFIG,
   SLOT_SEARCH,
   API,
@@ -91,7 +92,7 @@ function _normalizeImport2Addon(addon) {
   };
 }
 
-const SERVICIOS_COL = COLLECTIONS.SERVICIOS_CATALOGO;
+const SERVICIOS_COL = BUSINESS_COLLECTIONS.SERVICIOS_CATALOGO;
 const WATCHDOG_TIMEOUT_MS = SDK_CONFIG.TIMEOUTS.WATCHDOG_MS;
 const SERVICE_CACHE_TTL_MS = SDK_CONFIG.CACHE.SERVICES_TTL_MS;
 const DIAS_LIMITE = SLOT_SEARCH.DIAS_LIMITE;
@@ -879,14 +880,14 @@ async function _countStaffLoadForDay(dateYmd, resourceIds, traceId) {
     return loadByResource;
   }
 
-  const cancelled = String(BOOKING_STATUS?.CANCELLED || "CANCELLED");
+  const cancelled = String(BOOKING_STATUS?.CANCELED || "CANCELED");
   const idSet = new Set(ids);
 
   try {
     const result = await withTimeout(
       () =>
         wixData
-          .query(COLLECTIONS.CITAS_F2)
+          .query(BUSINESS_COLLECTIONS.CITAS_F2)
           .eq("dateYmd", ymd)
           .limit(STAFF_LOAD_QUERY_LIMIT)
           .find({ suppressAuth: true }),
@@ -895,8 +896,13 @@ async function _countStaffLoadForDay(dateYmd, resourceIds, traceId) {
     );
 
     for (const item of result?.items || []) {
-      const status = String(item?.status || "").trim().toUpperCase();
-      if (status === cancelled || status === "CANCELED") {
+      // FASE2 ADR-06: lectura canonica primero; fallback legacy solo lectura.
+      const rawStatus = item?.bookingStatus ?? item?.status;
+      if (rawStatus === undefined || rawStatus === null) {
+        log.warn("CitasF2 fila sin bookingStatus (usa legacy status), migrar antes de EOL 31/12/2026", { id: item?._id });
+      }
+      const status = String(rawStatus || "").trim().toUpperCase();
+      if (status === cancelled || status === "CANCELED" || status === "CANCELLED") {
         continue;
       }
 

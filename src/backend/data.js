@@ -25,13 +25,21 @@ FIXES APLICADOS v5009-FISCAL (heredados):
 import wixData from "wix-data";
 
 import {
-    COLLECTIONS,
+    BUSINESS_COLLECTIONS,
+
     EU_VAT_PREFIXES,
     FISCAL_ROLE,
     EVENT_TYPE,
     THIRD_PARTY_TYPE,
     ITEM_NATURE,
+    CONTROL_TYPE,
+    TIMECLOCK_TYPE,
 } from "backend/internalConfig";
+
+import {
+    assertValidEnum,
+    assertCitasF2,
+} from "backend/validation";
 
 import { logger } from "backend/logger";
 
@@ -383,6 +391,15 @@ export function MovimientosCaja_beforeInsert(item) {
         }
     }
 
+    // FASE2 SSOT-12: trazabilidad transaccional obligatoria en toda escritura
+    // del ledger + version de esquema AEAT canonica.
+    if (!_safeTrim(item.traceId)) {
+        _schemaError("traceId obligatorio en MovimientosCaja (SSOT-12)");
+    }
+    if (_safeTrim(item.schemaVersion) !== LEDGER_SCHEMA_VERSION_AEAT) {
+        _schemaError(`schemaVersion debe ser "${LEDGER_SCHEMA_VERSION_AEAT}"`);
+    }
+
     return item;
 }
 
@@ -580,7 +597,7 @@ async function _validateMapaStaffUniqueness(item = {}) {
         }
 
         const existingByResource = await wixData
-            .query(COLLECTIONS.MAPA_STAFF)
+            .query(BUSINESS_COLLECTIONS.MAPA_STAFF)
             .eq("resourceId", resourceId)
             .ne("_id", itemId)
             .limit(1)
@@ -593,7 +610,7 @@ async function _validateMapaStaffUniqueness(item = {}) {
 
     if (staffMemberId) {
         const existingByMember = await wixData
-            .query(COLLECTIONS.MAPA_STAFF)
+            .query(BUSINESS_COLLECTIONS.MAPA_STAFF)
             .eq("staffMemberId", staffMemberId)
             .ne("_id", itemId)
             .limit(1)
@@ -605,16 +622,12 @@ async function _validateMapaStaffUniqueness(item = {}) {
     }
 
     if (email) {
-        const existingByEmail = await wixData
-            .query(COLLECTIONS.MAPA_STAFF)
-            .eq("email", email)
-            .ne("_id", itemId)
-            .limit(1)
-            .find({ suppressAuth: true });
-
-        if (existingByEmail?.items?.length > 0) {
-            _schemaError("email duplicado en MapaStaff");
-        }
+        // ADR-03: el indice de email en MapaStaff NO es unico segun BIBLIA 14.
+        // Se relaja la unicidad de email en el hook; la unicidad canonica se
+        // preserva via resourceId/staffMemberId (bloques superiores).
+        log.warn("MapaStaff email duplicado permitido (ADR-03, indice no unico)", {
+            emailDomain: email.split("@")[1] || "",
+        });
     }
 
     return item;
@@ -706,20 +719,12 @@ export async function LineasAsientoContable_beforeRemove(item) {
 }
 
 async function _validateAccountingLineParent(item = {}) {
-    const journalEntryId = _safeTrim(item.journalEntryId);
+    // FASE3 SSOT-09: AsientosContables es FORBIDDEN; no se lee el padre.
+    // La inmutabilidad se aplica sobre el propio item (estado embebido en la
+    // linea al proyectarse desde el ledger).
+    const parentStatus = _safeTrim(item.parentEntryStatus);
 
-    if (!journalEntryId) {
-        return item;
-    }
-
-    const parentEntry = await wixData
-        .get(
-            COLLECTIONS.ASIENTOS_CONTABLES,
-            journalEntryId, { suppressAuth: true }
-        )
-        .catch(() => null);
-
-    if (parentEntry && _isImmutableStatus(parentEntry.entryStatus)) {
+    if (parentStatus && _isImmutableStatus(parentStatus)) {
         _fiscalError(
             "No se puede modificar o eliminar una linea de asiento POSTED o LOCKED"
         );
@@ -729,32 +734,18 @@ async function _validateAccountingLineParent(item = {}) {
 }
 
 // =============================================================================
-// BLOQUE 9 - SECUENCIA DE TICKETS (deprecada)
+// BLOQUE 9 - SECUENCIA DE TICKETS (RETIRADA, ADR-02)
 // =============================================================================
-
-export async function SecuenciaTickets_beforeUpdate(item) {
-    return item;
-}
+// FASE2/ADR-02: SecuenciaTickets se retira formalmente. La secuencia de tickets
+// vive ahora en CajaActual.CAJA_SEQ; los hooks de la coleccion bloqueada se
+// eliminan por orden del plan (no hay hook que proteger).
 
 // =============================================================================
-// BLOQUE 10 - CIERRES DE INVENTARIO
+// BLOQUE 10 - CIERRES DE INVENTARIO (RETIRADA, ADR-02)
 // =============================================================================
-
-export function InventarioStockVentaCierre_beforeUpdate(item) {
-    if (_safeTrim(item?.closingHash)) {
-        _fiscalError("No se puede modificar un cierre de inventario firmado");
-    }
-
-    return item;
-}
-
-export function InventarioStockVentaCierre_beforeRemove(item) {
-    if (_safeTrim(item?.closingHash)) {
-        _fiscalError("No se puede eliminar un cierre de inventario firmado");
-    }
-
-    return item;
-}
+// FASE2/ADR-02: InventarioStockVentaCierre se retira; el cierre de inventario
+// queda absorbido por HistoricoCierresZ (bloque inventario). Sus hooks se
+// retiraron; la inmutabilidad la garantiza HistoricoCierresZ_beforeUpdate/Remove.
 
 // =============================================================================
 // BLOQUE 11 - DATOS FISCALES
@@ -865,5 +856,110 @@ export function FacturasRecibidas_beforeInsert(item) {
 
 export function FacturasRecibidas_beforeUpdate(item) {
     // No se bloquea el update (permite cambios de estado de pago, adjuntos, etc.)
+    return item;
+}
+
+// =============================================================================
+// BLOQUE 13 - CITAS F2 (hooks SSOT 13.2)
+// =============================================================================
+
+export function CitasF2_beforeInsert(item) {
+    assertCitasF2(item);
+    return item;
+}
+
+export function CitasF2_beforeUpdate(item) {
+    assertCitasF2(item);
+    return item;
+}
+
+// =============================================================================
+// BLOQUE 14 - MOVIMIENTOS INVENTARIO (append-only, SSOT 13.1)
+// =============================================================================
+
+export function MovimientosInventario_beforeUpdate() {
+    _fiscalError("MovimientosInventario es append-only");
+}
+
+export function MovimientosInventario_beforeRemove() {
+    _fiscalError("Borrado prohibido en MovimientosInventario");
+}
+
+// =============================================================================
+// BLOQUE 15 - CONTROL OPERATIVO (8-en-1, ADR-05)
+// =============================================================================
+
+export function ControlOperativo_beforeInsert(item) {
+    if (!item || typeof item !== "object") return item;
+
+    assertValidEnum(item.controlType, CONTROL_TYPE, "controlType");
+
+    if (!_safeTrim(item.dedupeKey)) {
+        _schemaError("dedupeKey obligatorio en ControlOperativo");
+    }
+    if (!_safeTrim(item.traceId)) {
+        _schemaError("traceId obligatorio (SSOT-12)");
+    }
+    if (item.controlType === CONTROL_TYPE.WEBHOOK_EVENT && !_safeTrim(item.eventId)) {
+        _schemaError("WEBHOOK_EVENT exige eventId");
+    }
+
+    return item;
+}
+
+export function ControlOperativo_beforeUpdate(item, context) {
+    const original = context?.original || item;
+    if (_safeTrim(original?.controlType) === CONTROL_TYPE.WEBHOOK_EVENT) {
+        _fiscalError("WEBHOOK_EVENT es append-only (ADR-05)");
+    }
+    return item;
+}
+
+export function ControlOperativo_beforeRemove(item) {
+    if (_safeTrim(item?.controlType) === CONTROL_TYPE.WEBHOOK_EVENT) {
+        _fiscalError("Borrado prohibido en WEBHOOK_EVENT");
+    }
+    return item;
+}
+
+// =============================================================================
+// BLOQUE 16 - INVENTARIO STOCK VENTA (invariante de stock)
+// =============================================================================
+
+export function InventarioStockVenta_beforeUpdate(item) {
+    if (!item || typeof item !== "object") return item;
+
+    const stockOnHand = Number(item.stockOnHand);
+    const stockReserved = Number(item.stockReserved ?? 0);
+    const stockAvailable = Number(item.stockAvailable);
+
+    if (Number.isFinite(stockOnHand) && Number.isFinite(stockAvailable)) {
+        if (Math.abs((stockOnHand - stockReserved) - stockAvailable) > 0.001) {
+            _schemaError(
+                `InventarioStockVenta: stockAvailable (${stockAvailable}) debe ser stockOnHand (${stockOnHand}) - stockReserved (${stockReserved})`
+            );
+        }
+    }
+
+    return item;
+}
+
+// =============================================================================
+// BLOQUE 17 - REGISTROS HORARIOS STAFF (fichajes, SSOT 13 / RD 8/2019)
+// =============================================================================
+
+export function RegistrosHorariosStaff_beforeInsert(item) {
+    if (!item || typeof item !== "object") return item;
+
+    assertValidEnum(item.clockEventType, TIMECLOCK_TYPE, "clockEventType");
+
+    if (item.clockEventType === TIMECLOCK_TYPE.AJUSTE && !_safeTrim(item.adjustmentReason)) {
+        _schemaError("clockEventType=AJUSTE exige adjustmentReason");
+    }
+
+    if (!_safeTrim(item.traceId)) {
+        _schemaError("traceId obligatorio en RegistrosHorariosStaff (SSOT-12)");
+    }
+
     return item;
 }

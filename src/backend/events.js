@@ -37,7 +37,11 @@ import {
 } from "public/mmUtils";
 
 import {
-    COLLECTIONS,
+    BUSINESS_COLLECTIONS,
+    OPERATIONAL_COLLECTIONS,
+    CONTROL_TYPE,
+    CONTROL_STATUS,
+
     APP_IDS,
     MOVEMENT_TYPE,
     PAYMENT_METHOD,
@@ -125,7 +129,7 @@ function _normalizeBookingIds(value) {
     return Array.from(new Set(values.map((id) => String(id || "").trim()).filter(Boolean)));
 }
 
-const PROCESSED_EVENTS_COL = COLLECTIONS.PROCESSED_WEBHOOK_EVENTS;
+const PROCESSED_EVENTS_COL = OPERATIONAL_COLLECTIONS.CONTROL_OPERATIVO;
 const EVENT_TTL_HOURS = 72;
 
 // ============================================================================
@@ -177,9 +181,14 @@ function validateEventStructure(event, requiredFields) {
 async function isEventProcessed(eventId) {
     if (!eventId) return false;
     const normalizedId = _normalizeIdPart(String(eventId), 100);
-    const existing = await wixData.get(PROCESSED_EVENTS_COL, normalizedId, { suppressAuth: true })
+    const existing = await wixData
+        .query(PROCESSED_EVENTS_COL)
+        .eq("controlType", CONTROL_TYPE.WEBHOOK_EVENT)
+        .eq("dedupeKey", normalizedId)
+        .limit(1)
+        .find({ suppressAuth: true })
         .catch(() => null);
-    return !!existing;
+    return !!(existing?.items?.length);
 }
 
 async function markEventAsProcessed(eventId, eventType, traceId, metadata = {}) {
@@ -188,7 +197,9 @@ async function markEventAsProcessed(eventId, eventType, traceId, metadata = {}) 
     const expiryDate = new Date(Date.now() + EVENT_TTL_HOURS * 3600 * 1000);
     try {
         await wixData.insert(PROCESSED_EVENTS_COL, {
-            _id: normalizedId,
+            controlType: CONTROL_TYPE.WEBHOOK_EVENT,
+            dedupeKey: normalizedId,
+            status: CONTROL_STATUS.EXECUTED,
             eventId: String(eventId),
             eventType,
             traceId,
@@ -479,7 +490,7 @@ export async function wixBookingsV2_onBookingCanceled(rawBody) {
 
         // Si la cita previa estaba PAID, generar rectificativa
         const previousCita = await wixData
-            .query(COLLECTIONS.CITAS_F2)
+            .query(BUSINESS_COLLECTIONS.CITAS_F2)
             .eq("bookingId", bookingId)
             .limit(1)
             .find({ suppressAuth: true, suppressHooks: true })
@@ -488,7 +499,7 @@ export async function wixBookingsV2_onBookingCanceled(rawBody) {
 
         if (previousCita && String(previousCita.paymentStatus || "").toUpperCase() === PAYMENT_STATUS.PAID) {
             const originalMovementRes = await wixData
-                .query(COLLECTIONS.MOVIMIENTOS_CAJA)
+                .query(BUSINESS_COLLECTIONS.MOVIMIENTOS_CAJA)
                 .eq("linkedBookingIds", bookingId)
                 .eq("movementType", MOVEMENT_TYPE.VENTA_ONLINE)
                 .limit(1)
@@ -565,7 +576,7 @@ export async function wixBookingsV2_onBookingCanceled(rawBody) {
             }
         }
 
-        await _updateCitaStatus(bookingId, BOOKING_STATUS.CANCELLED, traceId);
+        await _updateCitaStatus(bookingId, BOOKING_STATUS.CANCELED, traceId);
         await markEventAsProcessed(eventId, "BOOKING_CANCELED", traceId, { bookingId });
         return { status: "OK", eventId };
     } catch (error) {
@@ -621,7 +632,7 @@ export async function wixEcom_onOrderPaymentStatusUpdated(rawBody) {
         const transactionId = `ORDER-${orderId}`;
 
         const existingLedgerRes = await withTimeout(
-            wixData.query(COLLECTIONS.MOVIMIENTOS_CAJA)
+            wixData.query(BUSINESS_COLLECTIONS.MOVIMIENTOS_CAJA)
                 .eq("transactionId", transactionId)
                 .limit(1)
                 .find({ suppressAuth: true, consistentRead: true }),
@@ -825,7 +836,7 @@ export async function wixEcom_onOrderRefunded(rawBody) {
         const originalTransactionId = `ORDER-${orderId}`;
 
         const originalMovementRes = await withTimeout(
-            wixData.query(COLLECTIONS.MOVIMIENTOS_CAJA)
+            wixData.query(BUSINESS_COLLECTIONS.MOVIMIENTOS_CAJA)
                 .eq("transactionId", originalTransactionId)
                 .limit(1)
                 .find({ suppressAuth: true, consistentRead: true }),
@@ -999,7 +1010,7 @@ export async function wixEcom_onOrderRefunded(rawBody) {
         }
 
         const refundsRes = await withTimeout(
-            wixData.query(COLLECTIONS.MOVIMIENTOS_CAJA)
+            wixData.query(BUSINESS_COLLECTIONS.MOVIMIENTOS_CAJA)
                 .eq("orderId", orderId)
                 .eq("movementType", MOVEMENT_TYPE.REEMBOLSO)
                 .limit(100)
@@ -1056,7 +1067,7 @@ export async function wixEcom_onOrderCanceled(rawBody) {
         );
 
         for (const bId of bookingIds) {
-            await _updateCitaStatus(bId, BOOKING_STATUS.CANCELLED, traceId);
+            await _updateCitaStatus(bId, BOOKING_STATUS.CANCELED, traceId);
         }
 
         await markEventAsProcessed(eventId, "ORDER_CANCELED", traceId, { orderId, bookingIds });

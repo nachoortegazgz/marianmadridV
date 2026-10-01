@@ -20,7 +20,11 @@ import wixData from "wix-data";
 import { currentMember } from "wix-members-backend";
 
 import {
-    COLLECTIONS,
+    BUSINESS_COLLECTIONS,
+    OPERATIONAL_COLLECTIONS,
+    CONTROL_TYPE,
+    CONTROL_STATUS,
+
     SDK_CONFIG,
     COLLABORATOR_ROLES,
     STAFF_ACCESS,
@@ -158,7 +162,7 @@ async function _queryActiveStaffByEmail(email, traceId) {
 
     try {
         const result = await wixData
-            .query(COLLECTIONS.MAPA_STAFF)
+            .query(BUSINESS_COLLECTIONS.MAPA_STAFF)
             .eq("email", normalizedEmail)
             .eq("active", true)
             .limit(1)
@@ -313,9 +317,9 @@ export async function isKeyPersistentlyBlocked(surface, key) {
 
     try {
         const result = await wixData
-            .query(COLLECTIONS.RATE_LIMIT_BLOCKS)
-            .eq("surface", normalizedSurface)
-            .eq("key", normalizedKey)
+            .query(OPERATIONAL_COLLECTIONS.CONTROL_OPERATIVO)
+            .eq("controlType", CONTROL_TYPE.RATE_LIMIT)
+            .eq("dedupeKey", `${normalizedSurface}|${normalizedKey}`)
             .gt("expiresAt", new Date())
             .limit(1)
             .find({ suppressAuth: true });
@@ -360,9 +364,9 @@ export async function registerPersistentBlock(
 
     try {
         const existing = await wixData
-            .query(COLLECTIONS.RATE_LIMIT_BLOCKS)
-            .eq("surface", normalizedSurface)
-            .eq("key", normalizedKey)
+            .query(OPERATIONAL_COLLECTIONS.CONTROL_OPERATIVO)
+            .eq("controlType", CONTROL_TYPE.RATE_LIMIT)
+            .eq("dedupeKey", `${normalizedSurface}|${normalizedKey}`)
             .gt("expiresAt", new Date())
             .limit(1)
             .find({ suppressAuth: true });
@@ -376,10 +380,14 @@ export async function registerPersistentBlock(
         }
 
         await wixData.insert(
-            COLLECTIONS.RATE_LIMIT_BLOCKS, {
+            OPERATIONAL_COLLECTIONS.CONTROL_OPERATIVO, {
+                controlType: CONTROL_TYPE.RATE_LIMIT,
+                dedupeKey: `${normalizedSurface}|${normalizedKey}`,
+                status: CONTROL_STATUS.BLOCKED,
                 _id: blockId,
+                traceId: traceId || `rate-${blockId}`,
                 surface: normalizedSurface,
-                key: normalizedKey,
+                requesterKey: normalizedKey,
                 expiresAt,
             }, { suppressAuth: true }
         );

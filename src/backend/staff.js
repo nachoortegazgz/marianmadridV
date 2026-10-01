@@ -18,7 +18,8 @@ FIXES APLICADOS v5009-FISCAL-V20.1:
 import wixData from "wix-data";
 
 import {
-    COLLECTIONS,
+    BUSINESS_COLLECTIONS,
+
     SDK_CONFIG,
     STAFF_DEFAULT_NAME,
 } from "backend/internalConfig";
@@ -129,7 +130,7 @@ async function _queryAllActiveStaff() {
     const items = [];
 
     let result = await wixData
-        .query(COLLECTIONS.MAPA_STAFF)
+        .query(BUSINESS_COLLECTIONS.MAPA_STAFF)
         .eq("active", true)
         .limit(STAFF_QUERY_PAGE_SIZE)
         .find({ suppressAuth: true });

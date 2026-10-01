@@ -29,11 +29,17 @@ import wixData from "wix-data";
 import { getStaffScheduleId } from "backend/staff";
 import { logger } from "backend/logger";
 import {
-    COLLECTIONS,
+    OPERATIONAL_COLLECTIONS,
+    BUSINESS_COLLECTIONS,
     CONCURRENCY,
     SDK_CONFIG,
     API,
     INACTIVE_BOOKING_STATUSES,
+    BOOKING_TYPE,
+    BOOKING_STATUS,
+    PAYMENT_STATUS,
+    CONTROL_TYPE,
+    CONTROL_STATUS,
 } from "backend/internalConfig";
 import {
     _safeTrim,
@@ -308,14 +314,14 @@ export async function getCheckoutUrlSafe(checkoutSessionOrId) {
 }
 
 // =============================================================================
-// BLOQUE 8 - MUTEX LOCKS (SlotLocks)
+// BLOQUE 8 - MUTEX LOCKS (ControlOperativo SLOT_LOCK, FASE3 ADR-05)
 // =============================================================================
 
 const MS_TTL_MUTEX = Number(CONCURRENCY?.MS_TTL_MUTEX);
 if (!Number.isFinite(MS_TTL_MUTEX) || MS_TTL_MUTEX <= 0) {
     throw new Error("MS_TTL_MUTEX must be positive");
 }
-const LOCKS_COL = COLLECTIONS.SLOT_LOCKS;
+const CONTROL_COL = OPERATIONAL_COLLECTIONS.CONTROL_OPERATIVO;
 
 export function _safeLockId(key) {
     const k = String(key || "").trim();
@@ -333,7 +339,7 @@ async function _getLock(slotClave) {
     const k = String(slotClave || "");
     if (!k) return null;
     const item = await wixData
-        .get(LOCKS_COL, _safeLockId(k), { suppressAuth: true, consistentRead: true })
+        .get(CONTROL_COL, _safeLockId(k), { suppressAuth: true, consistentRead: true })
         .catch(() => null);
     if (!item) return null;
     if (item.expiresAt) item.expiresAt = _toDateSafe(item.expiresAt);
@@ -355,8 +361,12 @@ function _buildLockDocument(slotClave, lockOwnerId, ttlMs, existing) {
     return {
         ...(existing || {}),
         _id: _safeLockId(slotClave),
+        controlType: CONTROL_TYPE.SLOT_LOCK,
+        dedupeKey: String(slotClave),
+        status: CONTROL_STATUS.ACTIVE,
         slotKey: String(slotClave),
         lockOwnerId: String(lockOwnerId || makeTraceId("lock")),
+        traceId: String(lockOwnerId || makeTraceId("lock")),
         expiresAt: new Date(Date.now() + (Number(ttlMs) || MS_TTL_MUTEX)),
         _createdDate: existing?._createdDate ? _toDateSafe(existing._createdDate) || now : now,
         _updatedDate: now,
@@ -369,7 +379,7 @@ export async function _lockSlotKeyOrFail(slotClave, lockOwnerId, ttlMs) {
     if (!k || !owner) return { ok: false, message: "LOCK_KEY_OR_OWNER_INVALID" };
 
     try {
-        await wixData.insert(LOCKS_COL, _buildLockDocument(k, owner, ttlMs), { suppressAuth: true });
+        await wixData.insert(CONTROL_COL, _buildLockDocument(k, owner, ttlMs), { suppressAuth: true });
         return { ok: true, acquired: true };
     } catch (error) {
         if (!_isDuplicateItemError(error)) {
@@ -385,9 +395,9 @@ export async function _lockSlotKeyOrFail(slotClave, lockOwnerId, ttlMs) {
         const expiresAt = _toDateSafe(existing?.expiresAt);
         const expired = expiresAt ? expiresAt.getTime() < Date.now() : false;
         if (expired && existing?._id) {
-            await wixData.remove(LOCKS_COL, existing._id, { suppressAuth: true }).catch(() => null);
+            await wixData.remove(CONTROL_COL, existing._id, { suppressAuth: true }).catch(() => null);
             try {
-                await wixData.insert(LOCKS_COL, _buildLockDocument(k, owner, ttlMs), { suppressAuth: true });
+                await wixData.insert(CONTROL_COL, _buildLockDocument(k, owner, ttlMs), { suppressAuth: true });
                 return { ok: true, acquired: true, reclaimed: true };
             } catch (_) {
                 return { ok: false, message: "LOCK_HELD_BY_ANOTHER_OWNER" };
@@ -403,7 +413,7 @@ export async function _unlockSlotKey(slotClave, lockOwnerId) {
     if (!existing) return { ok: true, missing: true };
     const currentOwner = _getLockOwnerId(existing);
     if (!owner || currentOwner !== owner) return { ok: false, skipped: true };
-    await wixData.remove(LOCKS_COL, existing._id, { suppressAuth: true });
+    await wixData.remove(CONTROL_COL, existing._id, { suppressAuth: true });
     return { ok: true };
 }
 
@@ -414,7 +424,7 @@ export async function _renewLock(slotClave, lockOwnerId, ttlMs) {
         if (!existing) return { ok: false };
         const currentOwner = _getLockOwnerId(existing);
         if (!owner || currentOwner !== owner) return { ok: false };
-        await wixData.update(LOCKS_COL, _buildLockDocument(slotClave, owner, ttlMs, existing), { suppressAuth: true });
+        await wixData.update(CONTROL_COL, _buildLockDocument(slotClave, owner, ttlMs, existing), { suppressAuth: true });
         return { ok: true };
     } catch (error) {
         log.error("_renewLock failed", { slotClave, error: error?.message });
@@ -449,10 +459,10 @@ export function _buildLockKeys(phases, resourceId) {
 }
 
 // =============================================================================
-// BLOQUE 10 - TRANSACCIONES IDEMPOTENTES (BookingTransactions)
+// BLOQUE 10 - TRANSACCIONES IDEMPOTENTES (ControlOperativo BOOKING_TX, FASE3)
 // =============================================================================
 
-const TRANSACTIONS_COL = COLLECTIONS.BOOKING_TRANSACTIONS;
+const TRANSACTIONS_COL = OPERATIONAL_COLLECTIONS.CONTROL_OPERATIVO;
 const TRANSACTION_POLL_BASE_MS = Number(CONCURRENCY?.TRANSACTION_POLL_BASE_MS) || 250;
 const TRANSACTION_MAX_WAIT_MS = Number(CONCURRENCY?.TRANSACTION_MAX_WAIT_MS) || 3000;
 
@@ -471,6 +481,8 @@ export async function _initTransaction(pairToken, payloadHash, traceId) {
             TRANSACTIONS_COL,
             {
                 _id: id,
+                controlType: CONTROL_TYPE.BOOKING_TX,
+                dedupeKey: id,
                 pairToken: id,
                 status: "PENDING",
                 payloadHash,
@@ -526,10 +538,13 @@ export async function _completeTransaction(pairToken, result, traceId) {
     const doc = {
         ...(existing || {}),
         _id: id,
+        controlType: CONTROL_TYPE.BOOKING_TX,
+        dedupeKey: id,
         pairToken: id,
         status: "COMPLETED",
         result,
         ownerTraceId: String(traceId || existing?.ownerTraceId || ""),
+        traceId: String(traceId || existing?.traceId || ""),
         _updatedDate: new Date(),
         _createdDate: existing?._createdDate || new Date(),
     };
@@ -545,9 +560,13 @@ export async function _failTransaction(pairToken, errorMessage) {
     const doc = {
         ...(existing || {}),
         _id: id,
+        controlType: CONTROL_TYPE.BOOKING_TX,
+        dedupeKey: id,
         pairToken: id,
         status: "FAILED",
         error: String(errorMessage || "UNKNOWN_ERROR"),
+        lastError: String(errorMessage || "UNKNOWN_ERROR"),
+        traceId: String(existing?.traceId || makeTraceId("tx-fail")),
         _updatedDate: new Date(),
         _createdDate: existing?._createdDate || new Date(),
     };
@@ -559,7 +578,21 @@ export async function _failTransaction(pairToken, errorMessage) {
 // BLOQUE 11 - PERSISTENCIA EN CITAS_F2
 // =============================================================================
 
-const CITAS_COL = COLLECTIONS.CITAS_F2;
+const CITAS_COL = BUSINESS_COLLECTIONS.CITAS_F2;
+
+// Resolve legacy/canonical bookingType into the canonical enum for NEW writes.
+// Read adapters elsewhere keep tolerating legacy values until EOL 31/12/2026.
+function normalizeBookingTypeForWrite(p) {
+    const raw = p.tipo || p.bookingType || "";
+    const up = String(raw).toUpperCase().replace(/[^A-Z0-9]/g, "");
+    if (up === "DUALF1" || up === "DUALF2") return BOOKING_TYPE[up];
+    if (up === "SIMPLE" || up === "NORMAL" || up === "") return BOOKING_TYPE.SIMPLE;
+    // Legacy ambiguous dual markers resolved by pair presence (MATRIZ H.5):
+    if (up === "DUAL" || up === "LINKED" || up === "MULTIPHASE") {
+        return p.pairToken ? BOOKING_TYPE.DUALF1 : BOOKING_TYPE.SIMPLE;
+    }
+    return BOOKING_TYPE.SIMPLE;
+}
 
 export async function _persistBooking(params, traceId) {
     const p = params || {};
@@ -590,8 +623,53 @@ export async function _persistBooking(params, traceId) {
     const startLocal = getMadridLocalStringNoZ(startDateObj);
     const dateYmd = startLocal ? startLocal.slice(0, 10) : "";
     const now = new Date();
-    const metaPago = String(p.paymentStatus || p.meta?.paymentStatus || "UNPAID").toUpperCase();
-    const statusCita = String(p.status || (metaPago === "PENDING_PAYMENT" ? "PENDING_PAYMENT" : "CONFIRMED"));
+    // FASE1-P0: canonical PAYMENT_STATUS/BOOKING_STATUS (MATRIZ alias F
+    // eradicated: no literal "UNPAID" in new writes). Transitional READ of
+    // legacy persisted values happens via normalizePaymentStatusForWrite.
+    const rawPago = String(p.paymentStatus || p.meta?.paymentStatus || "").toUpperCase();
+    const metaPago = normalizePaymentStatusForWrite(rawPago) || PAYMENT_STATUS.NOT_PAID;
+    const statusCita = String(p.status || (metaPago === PAYMENT_STATUS.PENDING_PAYMENT ? BOOKING_STATUS.PENDING : BOOKING_STATUS.CONFIRMED));
+
+    // Transitional read-only normalizer (EOL 31/12/2026): maps known legacy
+    // payment values to canonical PAYMENT_STATUS; unknown values return "" so
+    // the caller falls back to NOT_PAID with an explicit warn. Never invents
+    // data; used ONLY on the write boundary to sanitize inbound legacy payloads.
+    function normalizePaymentStatusForWrite(raw) {
+        if (!raw) return "";
+        switch (raw) {
+            case "UNPAID":
+            case "NOPAGADO":
+                log.warn("legacy paymentStatus normalized on write", { raw, canonical: PAYMENT_STATUS.NOT_PAID });
+                return PAYMENT_STATUS.NOT_PAID;
+            case "NOT_PAID": return PAYMENT_STATUS.NOT_PAID;
+            case "PAGADO":
+                log.warn("legacy paymentStatus normalized on write", { raw, canonical: PAYMENT_STATUS.PAID });
+                return PAYMENT_STATUS.PAID;
+            case "PAID": return PAYMENT_STATUS.PAID;
+            case "PENDIENTEPAGO":
+                log.warn("legacy paymentStatus normalized on write", { raw, canonical: PAYMENT_STATUS.PENDING_PAYMENT });
+                return PAYMENT_STATUS.PENDING_PAYMENT;
+            case "PENDING_PAYMENT": return PAYMENT_STATUS.PENDING_PAYMENT;
+            case "PENDIENTEASIENTO":
+                log.warn("legacy paymentStatus normalized on write", { raw, canonical: PAYMENT_STATUS.PENDING_LEDGER });
+                return PAYMENT_STATUS.PENDING_LEDGER;
+            case "PENDING_LEDGER": return PAYMENT_STATUS.PENDING_LEDGER;
+            case "REEMBOLSADO":
+                log.warn("legacy paymentStatus normalized on write", { raw, canonical: PAYMENT_STATUS.REFUNDED });
+                return PAYMENT_STATUS.REFUNDED;
+            case "REFUNDED": return PAYMENT_STATUS.REFUNDED;
+            case "REEMBOLSADOPARCIAL":
+                log.warn("legacy paymentStatus normalized on write", { raw, canonical: PAYMENT_STATUS.PARTIALLY_REFUNDED });
+                return PAYMENT_STATUS.PARTIALLY_REFUNDED;
+            case "PARTIALLY_REFUNDED": return PAYMENT_STATUS.PARTIALLY_REFUNDED;
+            case "EXENTO":
+                log.warn("legacy paymentStatus normalized on write", { raw, canonical: PAYMENT_STATUS.EXEMPT });
+                return PAYMENT_STATUS.EXEMPT;
+            default:
+                log.warn("unknown paymentStatus on write, defaulting NOT_PAID", { raw });
+                return "";
+        }
+    }
 
     let normalizedMeta = p.meta || {};
     if (typeof normalizedMeta === "string") {
@@ -612,7 +690,7 @@ export async function _persistBooking(params, traceId) {
         startDate: startDateObj,
         endDate: endDateObj,
         dateYmd,
-        bookingType: p.tipo || p.bookingType || "simple",
+        bookingType: normalizeBookingTypeForWrite(p),
         status: statusCita,
         paymentStatus: metaPago,
         meta: normalizedMeta,
@@ -622,8 +700,7 @@ export async function _persistBooking(params, traceId) {
         _updatedDate: now,
     };
 
-    const normalizedBookingType = String(doc.bookingType || "simple").toLowerCase();
-    if (["dual", "linked", "multi_phase", "dual_f1", "dual_f2"].includes(normalizedBookingType) && !doc.pairToken) {
+    if ((doc.bookingType === BOOKING_TYPE.DUALF1 || doc.bookingType === BOOKING_TYPE.DUALF2) && !doc.pairToken) {
         throw new Error("Missing pairToken for linked booking");
     }
 
@@ -698,10 +775,10 @@ export async function _updateCitaSafe(bookingId, updater, traceId, operation) {
 }
 
 // =============================================================================
-// BLOQUE 13 - DUAL CACHE
+// BLOQUE 13 - DUAL CACHE (ControlOperativo DUAL_CACHE, FASE3)
 // =============================================================================
 
-const DUAL_CACHE_COL = COLLECTIONS.DUAL_SLOT_CACHE;
+const DUAL_CACHE_COL = OPERATIONAL_COLLECTIONS.CONTROL_OPERATIVO;
 
 export async function _getDualPairFromCache(pairToken, traceId, expected = {}) {
     if (!pairToken) return null;
@@ -709,6 +786,7 @@ export async function _getDualPairFromCache(pairToken, traceId, expected = {}) {
     const res = await wixData
         .query(DUAL_CACHE_COL)
         .eq("_id", String(pairToken))
+        .eq("controlType", CONTROL_TYPE.DUAL_CACHE)
         .limit(1)
         .find({ suppressAuth: true })
         .catch(() => null);
@@ -910,6 +988,7 @@ export async function getCertifiedDualSlotsOptimized(serviceId, resourceId, date
 
         const cached = await wixData
             .query(DUAL_CACHE_COL)
+            .eq("controlType", CONTROL_TYPE.DUAL_CACHE)
             .eq("serviceId", serviceId)
             .eq("dateYmd", dateYmd)
             .eq("status", "ACTIVE")

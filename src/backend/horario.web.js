@@ -28,7 +28,8 @@ import wixData from "wix-data";
 import { currentMember } from "wix-members-backend";
 
 import {
-  COLLECTIONS,
+  BUSINESS_COLLECTIONS,
+
   TIMECLOCK_TYPE,
   SDK_CONFIG,
 } from "backend/internalConfig";
@@ -48,8 +49,8 @@ import { _toPublicError } from "backend/responseUtils";
 import { findStaff } from "backend/staff";
 
 const log = logger;
-const REGISTROS_COL = COLLECTIONS.REGISTROS_HORARIOS_STAFF;
-const MAPA_STAFF_COL = COLLECTIONS.MAPA_STAFF;
+const REGISTROS_COL = BUSINESS_COLLECTIONS.REGISTROS_HORARIOS_STAFF;
+const MAPA_STAFF_COL = BUSINESS_COLLECTIONS.MAPA_STAFF;
 
 // =============================================================================
 // BLOQUE 1 - HELPERS INTERNOS
