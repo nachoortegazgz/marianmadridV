@@ -1,6 +1,6 @@
 /**
  * MODULE: pages/calendario-2.js
- * VERSION: v5010-SERVICE-CONTRACT-ALIGNED
+ * VERSION: v5011-SERVICE-CONTRACT-CANONICAL
  */
 
 import wixLocation from "wix-location-frontend";
@@ -29,7 +29,7 @@ import { createWidgetBridge } from "public/widgetBridge";
 import { processDualBooking } from "backend/citasManager.web";
 
 let currentServiceId = "";
-let currentSlugUrl = "";
+let currentSlug = "";
 let currentService = null;
 let bridge = null;
 
@@ -38,7 +38,7 @@ function parseUrlParams() {
 
   return {
     serviceId: _safeTrim(query.serviceId || ""),
-    slugUrl: _safeSlugOrId(query.slugUrl || ""),
+    slug: _safeSlugOrId(query.slug || ""),
     referral: _safeTrim(query.referral || ""),
     addOnIds: _safeTrim(query.addOnIds || "")
       .split(",")
@@ -49,19 +49,19 @@ function parseUrlParams() {
 
 function resolveServiceFromParams(params) {
   const serviceId = _safeTrim(params.serviceId);
-  const slugUrl = _safeSlugOrId(params.slugUrl);
+  const slug = _safeSlugOrId(params.slug);
 
   if (serviceId && _looksLikeGuid(serviceId)) {
     return {
       serviceId,
-      slugUrl: slugUrl || ""
+      slug
     };
   }
 
-  if (slugUrl) {
+  if (slug) {
     return {
       serviceId: "",
-      slugUrl
+      slug
     };
   }
 
@@ -92,7 +92,10 @@ function createResultError(code, message) {
   return {
     status: "ERROR",
     data: null,
-    error: { code, message }
+    error: {
+      code,
+      message
+    }
   };
 }
 
@@ -104,7 +107,10 @@ function getReferenceId(value) {
   if (value && typeof value === "object") {
     return _safeTrim(
       value.id ||
+      value.addOnId ||
+      value.serviceId ||
       value.referenceId ||
+      value.nativeId ||
       value.value ||
       ""
     );
@@ -116,159 +122,120 @@ function getReferenceId(value) {
 function getActiveServiceLookup() {
   return (
     currentService?.serviceId ||
-    currentService?.slugUrl ||
+    currentService?.slug ||
     currentServiceId ||
-    currentSlugUrl
+    currentSlug
   );
 }
 
-function filterAllowedAddonIds(service, requestedIds) {
+function getAddOnOptions(service) {
+  if (!service || typeof service !== "object") {
+    return [];
+  }
+
+  return Array.isArray(service.addOnOptions)
+    ? service.addOnOptions
+    : [];
+}
+
+function filterAllowedAddOnIds(service, requestedIds) {
   if (!Array.isArray(requestedIds)) {
     return [];
   }
 
-  const addons = Array.isArray(service?.addons)
-    ? service.addons
-    : Array.isArray(service?.metadata?.addons)
-      ? service.metadata.addons
-      : [];
-
-  const allowed = new Set();
-
-  for (const addon of addons) {
-    const id = getReferenceId(
-      typeof addon === "string"
-        ? addon
-        : addon?.addonId ||
-          addon?.id ||
-          addon?.referenceId
-    );
-
-    if (id) {
-      allowed.add(id);
-    }
-  }
+  const allowedIds = new Set(
+    getAddOnOptions(service)
+      .map((addOn) => getReferenceId(addOn))
+      .filter(Boolean)
+  );
 
   return Array.from(
     new Set(
       requestedIds
         .map(_safeTrim)
-        .filter((id) => id && allowed.has(id))
+        .filter((id) => id && allowedIds.has(id))
     )
   ).slice(0, 21);
 }
 
 function normalizeService(data, params) {
-  const metadata =
-    data.metadata &&
-    typeof data.metadata === "object"
-      ? data.metadata
-      : {};
+  if (!data || typeof data !== "object") {
+    throw new Error(
+      "El servicio recibido no es válido."
+    );
+  }
 
-  const serviceId = getReferenceId(data.serviceId);
-  const slugUrl = _safeSlugOrId(
-    data.slugUrl ||
-    params.slugUrl ||
-    currentSlugUrl
+  const serviceId = getReferenceId(
+    data.serviceId
+  );
+
+  const slug = _safeSlugOrId(
+    data.slug ||
+    params.slug ||
+    currentSlug
   );
 
   if (!_looksLikeGuid(serviceId)) {
     throw new Error(
-      "El servicio no tiene un serviceId valido."
+      "El servicio no tiene un serviceId válido."
     );
   }
 
-  if (!slugUrl) {
+  if (!slug) {
     throw new Error(
-      "El servicio no tiene un slugUrl valido."
+      "El servicio no tiene un slug válido."
     );
   }
 
-  const imageUrl = _safeTrim(
-    data.mainMedia ||
-    data.imageUrl ||
-    metadata.mainMedia ||
-    metadata.imageUrl ||
-    ""
-  );
+  const addOnOptions = Array.isArray(
+    data.addOnOptions
+  )
+    ? data.addOnOptions
+    : [];
 
-  const addons = Array.isArray(data.addons)
-    ? data.addons
-    : Array.isArray(metadata.addons)
-      ? metadata.addons
+  const linkedPhases = Array.isArray(
+    data.linkedPhases
+  )
+    ? data.linkedPhases
+    : data.linkedPhases
+      ? [data.linkedPhases]
       : [];
 
   return {
-    ...data,
-
     serviceId,
-    slugUrl,
-
-    title: _safeTrim(
-      data.title ||
-      data.tituloServicio ||
-      metadata.tituloServicio ||
-      ""
-    ),
-
-    description: _safeTrim(
-      data.description ||
-      metadata.description ||
-      ""
-    ),
-
-    location: _safeTrim(
-      data.location ||
-      metadata.location ||
-      ""
-    ),
-
+    slug,
+    title: _safeTrim(data.title || ""),
+    description: _safeTrim(data.description || ""),
+    location: _safeTrim(data.location || ""),
     totalDuration: Number(
-      data.totalDuration ??
-      metadata.totalDuration ??
-      0
+      data.totalDuration ?? 0
     ),
-
     price: Number(
-      data.price ??
-      metadata.price ??
-      0
+      data.price ?? 0
     ),
-
-    mainMedia: imageUrl,
-    imageUrl,
-    addons,
-
-    allowCombine:
-      data.allowCombine === true ||
-      metadata.allowCombine === true,
-
-    phase2ServiceId: getReferenceId(
-      data.phase2ServiceId ||
-      data.linkedPhases ||
-      metadata.phase2ServiceId
+    mainMedia: _safeTrim(
+      data.mainMedia || ""
     ),
-
-    metadata: {
-      ...metadata,
-      mainMedia: imageUrl,
-      imageUrl,
-      addons
-    },
-
+    addOnOptions,
+    linkedPhases,
+    availableStaff: Array.isArray(
+      data.availableStaff
+    )
+      ? data.availableStaff
+      : [],
+    clientHidden: data.clientHidden === true,
+    allowCombine: data.allowCombine === true,
     referral: params.referral,
-    preselectedAddonIds: params.addOnIds,
+    preselectedAddOnIds: params.addOnIds,
     timeZone: "Europe/Madrid",
     currencyCode: _safeTrim(
-      data.currency ||
-      metadata.currency ||
-      "EUR"
+      data.currencyCode || "EUR"
     ).toUpperCase()
   };
 }
 
 async function loadServiceContext(params) {
-  const lookup = currentServiceId || currentSlugUrl;
+  const lookup = currentServiceId || currentSlug;
   const result = await getServiceBySlugOrId(lookup);
 
   if (
@@ -289,7 +256,7 @@ async function loadServiceContext(params) {
   );
 
   currentServiceId = currentService.serviceId;
-  currentSlugUrl = currentService.slugUrl;
+  currentSlug = currentService.slug;
 
   return currentService;
 }
@@ -301,7 +268,8 @@ async function handleNavigation(payload) {
 
   if (target === "SERVICIOS") {
     wixLocation.to(
-      URLS?.SERVICIOS || "/reserva-online"
+      URLS?.SERVICIOS ||
+      "/reserva-online"
     );
     return;
   }
@@ -320,7 +288,7 @@ async function handleAvailability(payload, reply) {
       MESSAGE_TYPES.AVAIL,
       createResultError(
         "SERVICE_CONTEXT_NOT_READY",
-        "El servicio todavia se esta cargando."
+        "El servicio todavía se está cargando."
       ),
       payload
     );
@@ -331,7 +299,7 @@ async function handleAvailability(payload, reply) {
     payload.action || ""
   ).toLowerCase();
 
-  const addOnIds = filterAllowedAddonIds(
+  const addOnIds = filterAllowedAddOnIds(
     currentService,
     payload.addOnIds
   );
@@ -381,18 +349,22 @@ async function handleAvailability(payload, reply) {
     } else {
       result = createResultError(
         "INVALID_AVAILABILITY_REQUEST",
-        "Solicitud de disponibilidad no valida."
+        "Solicitud de disponibilidad no válida."
       );
     }
 
     reply(
       MESSAGE_TYPES.AVAIL,
       {
-        ...(result || createResultError(
-          "EMPTY_AVAILABILITY_RESPONSE",
-          "No se recibio disponibilidad."
-        )),
-        requestSequence: payload.requestSequence || 0
+        ...(
+          result ||
+          createResultError(
+            "EMPTY_AVAILABILITY_RESPONSE",
+            "No se recibió disponibilidad."
+          )
+        ),
+        requestSequence:
+          payload.requestSequence || 0
       },
       payload
     );
@@ -414,7 +386,7 @@ async function handleSelection(payload, reply) {
       MESSAGE_TYPES.SELECT,
       createResultError(
         "SERVICE_CONTEXT_NOT_READY",
-        "El servicio todavia se esta cargando."
+        "El servicio todavía se está cargando."
       ),
       payload
     );
@@ -438,14 +410,14 @@ async function handleSelection(payload, reply) {
       MESSAGE_TYPES.SELECT,
       createResultError(
         "INVALID_SLOT",
-        "El intervalo seleccionado no es valido."
+        "El intervalo seleccionado no es válido."
       ),
       payload
     );
     return;
   }
 
-  const addOnIds = filterAllowedAddonIds(
+  const addOnIds = filterAllowedAddOnIds(
     currentService,
     payload.addOnIds
   );
@@ -465,10 +437,11 @@ async function handleSelection(payload, reply) {
 
     reply(
       MESSAGE_TYPES.SELECT,
-      result || createResultError(
-        "STAFF_RESOLVE_FAILED",
-        "No se pudo validar el profesional."
-      ),
+      result ||
+        createResultError(
+          "STAFF_RESOLVE_FAILED",
+          "No se pudo validar el profesional."
+        ),
       payload
     );
   } catch (error) {
@@ -491,7 +464,7 @@ async function handleBooking(message, reply, traceId) {
       MESSAGE_TYPES.BOOK,
       createResultError(
         "SERVICE_CONTEXT_NOT_READY",
-        "El servicio todavia se esta cargando."
+        "El servicio todavía se está cargando."
       ),
       payload
     );
@@ -504,12 +477,15 @@ async function handleBooking(message, reply, traceId) {
       ? payload.bookingData
       : payload;
 
-  if (!bookingData || typeof bookingData !== "object") {
+  if (
+    !bookingData ||
+    typeof bookingData !== "object"
+  ) {
     reply(
       MESSAGE_TYPES.BOOK,
       createResultError(
         "INVALID_BOOKING_PAYLOAD",
-        "Los datos de la reserva no son validos."
+        "Los datos de la reserva no son válidos."
       ),
       payload
     );
@@ -517,12 +493,12 @@ async function handleBooking(message, reply, traceId) {
   }
 
   if (currentService.allowCombine) {
-    const f2 = bookingData.slotF2;
+    const slotF2 = bookingData.slotF2;
 
     if (
-      !f2 ||
-      !_safeTrim(f2.localStartDate) ||
-      !_safeTrim(f2.localEndDate)
+      !slotF2 ||
+      !_safeTrim(slotF2.localStartDate) ||
+      !_safeTrim(slotF2.localEndDate)
     ) {
       reply(
         MESSAGE_TYPES.BOOK,
@@ -536,25 +512,24 @@ async function handleBooking(message, reply, traceId) {
     }
   }
 
-  const addOnIds = filterAllowedAddonIds(
+  const addOnIds = filterAllowedAddOnIds(
     currentService,
     bookingData.addOnIds
   );
 
   const requestPayload = {
     ...bookingData,
-
-    // Identidades normalizadas y no modificables por el widget.
     serviceId: currentService.serviceId,
-    slugUrl: currentService.slugUrl,
-
+    slug: currentService.slug,
     addOnIds,
     traceId
   };
 
   try {
     const result = await withTimeout(
-      () => processDualBooking(requestPayload),
+      () => processDualBooking(
+        requestPayload
+      ),
       UI?.FRONTEND_API_TIMEOUT_MS || 60000,
       "processDualBooking"
     );
@@ -563,7 +538,7 @@ async function handleBooking(message, reply, traceId) {
       result ||
       createResultError(
         "EMPTY_BOOKING_RESPONSE",
-        "No se recibio respuesta de la reserva."
+        "No se recibió respuesta de la reserva."
       );
 
     reply(
@@ -578,7 +553,8 @@ async function handleBooking(message, reply, traceId) {
     ) {
       await wixWindow.openLightbox(
         "ConfirmacionReserva",
-        bookingResult.data || bookingResult
+        bookingResult.data ||
+          bookingResult
       );
     }
   } catch (error) {
@@ -594,22 +570,29 @@ async function handleBooking(message, reply, traceId) {
 }
 
 $w.onReady(async () => {
-  const traceId = makeTraceId("calendario");
+  const traceId = makeTraceId(
+    "calendario"
+  );
+
   const params = parseUrlParams();
-  const resolved = resolveServiceFromParams(params);
+  const resolved = resolveServiceFromParams(
+    params
+  );
 
   if (!resolved) {
     console.error(
-      "[calendario-2] Identidad de servicio invalida",
+      "[calendario-2] Identidad de servicio inválida",
       { traceId }
     );
     return;
   }
 
   currentServiceId = resolved.serviceId;
-  currentSlugUrl = resolved.slugUrl;
+  currentSlug = resolved.slug;
 
-  const widget = $w("#htmlWidgetCalendario");
+  const widget = $w(
+    "#htmlWidgetCalendario"
+  );
 
   if (
     !widget ||
@@ -625,11 +608,20 @@ $w.onReady(async () => {
 
   try {
     bridge = createWidgetBridge(widget, {
-      onContextReady: () => loadServiceContext(params),
+      onContextReady: () =>
+        loadServiceContext(params),
 
-      onWidgetMessage: async (message, reply) => {
-        const type = getMessageType(message);
-        const payload = getPayload(message);
+      onWidgetMessage: async (
+        message,
+        reply
+      ) => {
+        const type = getMessageType(
+          message
+        );
+
+        const payload = getPayload(
+          message
+        );
 
         if (type === MESSAGE_TYPES.NAV) {
           await handleNavigation(payload);
@@ -637,17 +629,27 @@ $w.onReady(async () => {
         }
 
         if (type === MESSAGE_TYPES.AVAIL) {
-          await handleAvailability(payload, reply);
+          await handleAvailability(
+            payload,
+            reply
+          );
           return;
         }
 
         if (type === MESSAGE_TYPES.SELECT) {
-          await handleSelection(payload, reply);
+          await handleSelection(
+            payload,
+            reply
+          );
           return;
         }
 
         if (type === MESSAGE_TYPES.BOOK) {
-          await handleBooking(message, reply, traceId);
+          await handleBooking(
+            message,
+            reply,
+            traceId
+          );
           return;
         }
 
@@ -657,14 +659,17 @@ $w.onReady(async () => {
         ) {
           console.warn(
             "[calendario-2] Mensaje no soportado",
-            { traceId, type }
+            {
+              traceId,
+              type
+            }
           );
         }
       },
 
       onError: (error) => {
         console.error(
-          "[calendario-2] Error de comunicacion",
+          "[calendario-2] Error de comunicación",
           {
             traceId,
             message: error?.message
@@ -680,7 +685,7 @@ $w.onReady(async () => {
     }
   } catch (error) {
     console.error(
-      "[calendario-2] Error de inicializacion",
+      "[calendario-2] Error de inicialización",
       {
         traceId,
         message: error?.message
@@ -688,4 +693,3 @@ $w.onReady(async () => {
     );
   }
 });
-
