@@ -297,3 +297,14 @@ $ grep -rn 'includes("f2")' src/ -> 0
 # suites 0
 # pass 24
 # fail 0
+
+=== FASE1 cierre (sesion 4) ===
+$ node tools/migrate-booking-type.js --input /tmp/citasf2-sample.json -> total 4, migrations 3 (NORMAL->SIMPLE, DUAL tok1->DUALF1/DUALF2), ambiguous 1 (a4 sin pairToken, NO se escribe)
+\$ grep -rn '"UNPAID"' booking/ citasManager fiscalAggregator data.js -> solo caso de normalizacion legacy en escritura (adapter documentado), cero escrituras nuevas con UNPAID
+# tests 24
+# pass 24
+# fail 0
+ artifacts/evidencia/fase1.md       |  7 ++++++
+ src/backend/booking/bookingCore.js | 51 ++++++++++++++++++++++++++++++++++++--
+ src/backend/internalConfig.js      |  1 +
+ 3 files changed, 57 insertions(+), 2 deletions(-)

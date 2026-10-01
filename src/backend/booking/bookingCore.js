@@ -36,6 +36,8 @@ import {
     API,
     INACTIVE_BOOKING_STATUSES,
     BOOKING_TYPE,
+    BOOKING_STATUS,
+    PAYMENT_STATUS,
 } from "backend/internalConfig";
 import {
     _safeTrim,
@@ -606,8 +608,53 @@ export async function _persistBooking(params, traceId) {
     const startLocal = getMadridLocalStringNoZ(startDateObj);
     const dateYmd = startLocal ? startLocal.slice(0, 10) : "";
     const now = new Date();
-    const metaPago = String(p.paymentStatus || p.meta?.paymentStatus || "UNPAID").toUpperCase();
-    const statusCita = String(p.status || (metaPago === "PENDING_PAYMENT" ? "PENDING_PAYMENT" : "CONFIRMED"));
+    // FASE1-P0: canonical PAYMENT_STATUS/BOOKING_STATUS (MATRIZ alias F
+    // eradicated: no literal "UNPAID" in new writes). Transitional READ of
+    // legacy persisted values happens via normalizePaymentStatusForWrite.
+    const rawPago = String(p.paymentStatus || p.meta?.paymentStatus || "").toUpperCase();
+    const metaPago = normalizePaymentStatusForWrite(rawPago) || PAYMENT_STATUS.NOT_PAID;
+    const statusCita = String(p.status || (metaPago === PAYMENT_STATUS.PENDING_PAYMENT ? BOOKING_STATUS.PENDING_PAYMENT : BOOKING_STATUS.CONFIRMED));
+
+    // Transitional read-only normalizer (EOL 31/12/2026): maps known legacy
+    // payment values to canonical PAYMENT_STATUS; unknown values return "" so
+    // the caller falls back to NOT_PAID with an explicit warn. Never invents
+    // data; used ONLY on the write boundary to sanitize inbound legacy payloads.
+    function normalizePaymentStatusForWrite(raw) {
+        if (!raw) return "";
+        switch (raw) {
+            case "UNPAID":
+            case "NOPAGADO":
+                log.warn("legacy paymentStatus normalized on write", { raw, canonical: PAYMENT_STATUS.NOT_PAID });
+                return PAYMENT_STATUS.NOT_PAID;
+            case "NOT_PAID": return PAYMENT_STATUS.NOT_PAID;
+            case "PAGADO":
+                log.warn("legacy paymentStatus normalized on write", { raw, canonical: PAYMENT_STATUS.PAID });
+                return PAYMENT_STATUS.PAID;
+            case "PAID": return PAYMENT_STATUS.PAID;
+            case "PENDIENTEPAGO":
+                log.warn("legacy paymentStatus normalized on write", { raw, canonical: PAYMENT_STATUS.PENDING_PAYMENT });
+                return PAYMENT_STATUS.PENDING_PAYMENT;
+            case "PENDING_PAYMENT": return PAYMENT_STATUS.PENDING_PAYMENT;
+            case "PENDIENTEASIENTO":
+                log.warn("legacy paymentStatus normalized on write", { raw, canonical: PAYMENT_STATUS.PENDING_LEDGER });
+                return PAYMENT_STATUS.PENDING_LEDGER;
+            case "PENDING_LEDGER": return PAYMENT_STATUS.PENDING_LEDGER;
+            case "REEMBOLSADO":
+                log.warn("legacy paymentStatus normalized on write", { raw, canonical: PAYMENT_STATUS.REFUNDED });
+                return PAYMENT_STATUS.REFUNDED;
+            case "REFUNDED": return PAYMENT_STATUS.REFUNDED;
+            case "REEMBOLSADOPARCIAL":
+                log.warn("legacy paymentStatus normalized on write", { raw, canonical: PAYMENT_STATUS.PARTIALLY_REFUNDED });
+                return PAYMENT_STATUS.PARTIALLY_REFUNDED;
+            case "PARTIALLY_REFUNDED": return PAYMENT_STATUS.PARTIALLY_REFUNDED;
+            case "EXENTO":
+                log.warn("legacy paymentStatus normalized on write", { raw, canonical: PAYMENT_STATUS.EXEMPT });
+                return PAYMENT_STATUS.EXEMPT;
+            default:
+                log.warn("unknown paymentStatus on write, defaulting NOT_PAID", { raw });
+                return "";
+        }
+    }
 
     let normalizedMeta = p.meta || {};
     if (typeof normalizedMeta === "string") {

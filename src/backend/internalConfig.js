@@ -532,6 +532,7 @@ export const PAYMENT_STATUS = Object.freeze({
     PAID: "PAID",
     REFUNDED: "REFUNDED",
     PARTIALLY_REFUNDED: "PARTIALLY_REFUNDED",
+    EXEMPT: "EXEMPT",
 });
 
 export const COLLABORATOR_ROLES = Object.freeze({
