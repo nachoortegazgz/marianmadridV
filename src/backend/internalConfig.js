@@ -20,9 +20,10 @@ export const STAFF = Object.freeze({
     ]),
 
     RESOURCE_TO_DISPLAY: Object.freeze({
-        "e556070a-6d6a-402e-8422-11133033ea76": "Marian Madrid",
-        "07f7344f-e7e4-4c53-854b-47fd82ac8d40": "Andrea",
-        "9b905bfd-1a09-485d-9273-a24a20dfe648": "Alba",
+        // BIBLIA 3.2 canonical display names.
+        "e556070a-6d6a-402e-8422-11133033ea76": "MARIAN MADRID",
+        "07f7344f-e7e4-4c53-854b-47fd82ac8d40": "ANDREA STAFF",
+        "9b905bfd-1a09-485d-9273-a24a20dfe648": "ALBA STAFF",
     }),
 });
 
@@ -35,14 +36,12 @@ export const BUSINESS_COLLECTIONS = Object.freeze({
     ALERTAS_OPERATIVAS: "AlertasOperativas",
     BOOKING_TRANSACTIONS: "BookingTransactions",
     CAJA_ACTUAL: "CajaActual",
-    CATEGORIAS_SERVICIO: "CategoriasServicio",
     CITAS_F2: "CitasF2",
     COMPENSACIONES_PENDIENTES: "CompensacionesPendientes",
     COMPLEMENTOS_CATALOGO: "ComplementosCatalogo",
     DATOS_FISCALES: "DatosFiscales",
     HISTORICO_CIERRES_Z: "HistoricoCierresZ",
     INVENTARIO_STOCK_VENTA: "InventarioStockVenta",
-    LIBRO_REGISTRO_FACTURAS_EXPEDIDAS: "LibroRegistroFacturasExpedidas",
 });
 
 export const OPERATIONAL_COLLECTIONS = Object.freeze({
@@ -63,11 +62,55 @@ export const OPERATIONAL_COLLECTIONS = Object.freeze({
     LIBRO_REGISTRO_FACTURAS_RECIBIDAS: "LibroRegistroFacturasRecibidas",
 });
 
-// Alias de solo lectura para compatibilidad interna estricta (no usar en nuevo código)
+// BIBLIA 6: record types used to segregate configuration rows inside shared
+// collections (e.g. DatosFiscales CONFIG_SISTEMA marker).
+export const RECORD_TYPE = Object.freeze({
+    CONFIG_SISTEMA: "CONFIG_SISTEMA",
+    MOVIMIENTO: "MOVIMIENTO",
+    FACTURA: "FACTURA",
+    TERCERO: "TERCERO",
+});
+
+// Read-only alias kept temporarily for migration of consumers (FASE2 eradication).
 export const COLLECTIONS = Object.freeze({
     ...BUSINESS_COLLECTIONS,
     ...OPERATIONAL_COLLECTIONS
 });
+
+// BIBLIA 6 / 10: collections that MUST NEVER be queried or written from app code.
+export const FORBIDDEN_COLLECTIONS = Object.freeze([
+    "AsientosContables",
+    "EventosSistemaFacturacion",
+    "FacturasRecibidas",
+    "ConfiguracionFiscal",
+    "LibroRegistroFacturasRecibidas",
+    "PlanCuentasContables",
+    "CategoriasServicio",
+    "LibroRegistroFacturasExpedidas",
+]);
+
+// Stores-catalog collections managed outside the SSOT core (inventory domain).
+export const RESERVED_COLLECTIONS = Object.freeze({
+    COMPRAS_PROVEEDORES: "ComprasProveedores",
+    LINEAS_COMPRA_PROVEEDOR: "LineasCompraProveedor",
+    PRODUCTOS_CATALOGO: "ProductosCatalogo",
+    PRODUCTOS_VARIANTES: "ProductosVariantes",
+    UBICACIONES_INVENTARIO: "UbicacionesInventario",
+});
+
+// Queues tied to retired modules (BIBLIA 16.2): read-only historical access.
+export const HISTORICAL_COLLECTIONS = Object.freeze({
+    BOOKINGS_SERVICE_SYNC_QUEUE: "BookingsServiceSyncQueue",
+    M365_GRAPH_SYNC_QUEUE: "M365GraphSyncQueue",
+});
+
+// Collections formally retired by the consolidated CMS; blocked until schema
+// evidence confirms removal (ADR-02).
+export const BLOCKED_UNVERIFIED_COLLECTIONS = Object.freeze([
+    "SecuenciaTickets",
+    "InventarioStockVentaCierre",
+]);
+
 
 // =============================================================================
 // BLOQUE 3 - WIX APP IDS & API KEYS
@@ -355,15 +398,13 @@ export const VALIDATION_STATUS = Object.freeze({
     PENDING: "PENDIENTE",
 });
 
+// BIBLIA 11.2 / MATRIZ: canonical booking types (SIMPLE/DUALF1/DUALF2).
+// Legacy values NORMAL/DUAL/... are READ-ONLY migration inputs handled by
+// normalizeBookingType(); new writes MUST use these three values only.
 export const BOOKING_TYPE = Object.freeze({
-    NORMAL: "NORMAL",
-    DUAL: "DUAL",
-    PACKAGE: "PAQUETE",
-    SUBSCRIPTION: "SUSCRIPCION",
-    RESCHEDULE: "REENVIAR",
-    CANCELLED: "CANCELADO",
-    COMPLETED: "COMPLETADO",
-    NO_SHOW: "AUSENTE",
+    SIMPLE: "SIMPLE",
+    DUALF1: "DUALF1",
+    DUALF2: "DUALF2",
 });
 
 export const CHANNEL_TYPE = Object.freeze({
@@ -485,7 +526,6 @@ export const INACTIVE_BOOKING_STATUSES = Object.freeze([
 ]);
 
 export const PAYMENT_STATUS = Object.freeze({
-    UNPAID: "UNPAID",
     NOT_PAID: "NOT_PAID",
     PENDING_PAYMENT: "PENDING_PAYMENT",
     PENDING_LEDGER: "PENDING_LEDGER",
@@ -882,27 +922,29 @@ export function enumIn(value, enumObject) {
     return Object.values(enumObject).some(v => String(v).trim().toUpperCase() === stringValue);
 }
 
-/**
- * Normaliza el tipo de reserva a valores canónicos.
- */
+// READ-ONLY migration normalizer (EOL 31/12/2026): maps legacy persisted
+// values to the canonical BIBLIA 11.2 enum. New writes must use BOOKING_TYPE
+// directly; this function never invents data, it only resolves known aliases.
 export function normalizeBookingType(type) {
-    if (!type) return BOOKING_TYPE.NORMAL;
-    const normalized = String(type).toUpperCase();
-    if (normalized === 'DUAL' || normalized === 'PAIR') return BOOKING_TYPE.DUAL;
-    if (normalized === 'PACKAGE' || normalized === 'PAQUETE') return BOOKING_TYPE.PACKAGE;
-    if (normalized === 'CANCELLED' || normalized === 'CANCELADO') return BOOKING_TYPE.CANCELLED;
-    return BOOKING_TYPE.NORMAL;
+    if (!type) return BOOKING_TYPE.SIMPLE;
+    const normalized = String(type).toUpperCase().replace(/[^A-Z0-9]/g, "");
+    if (normalized === "SIMPLE" || normalized === "NORMAL") return BOOKING_TYPE.SIMPLE;
+    if (normalized === "DUALF1" || normalized === "DUAL_F1" || normalized === "DUAL") return BOOKING_TYPE.DUALF1;
+    if (normalized === "DUALF2" || normalized === "DUAL_F2") return BOOKING_TYPE.DUALF2;
+    // Unknown legacy value: keep SIMPLE as safe default and let callers log.
+    return BOOKING_TYPE.SIMPLE;
 }
 
 /**
- * Verifica si un tipo de reserva es DUAL.
+ * True when a (possibly legacy) booking type resolves to a dual phase.
  */
 export function isDualBookingType(type) {
-    return normalizeBookingType(type) === BOOKING_TYPE.DUAL;
+    const t = normalizeBookingType(type);
+    return t === BOOKING_TYPE.DUALF1 || t === BOOKING_TYPE.DUALF2;
 }
 
 /**
- * Valida formato GUID/UUID.
+ * Validates GUID/UUID format.
  */
 export function isValidGuid(guid) {
     if (typeof guid !== 'string') return false;

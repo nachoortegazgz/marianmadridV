@@ -29,11 +29,13 @@ import wixData from "wix-data";
 import { getStaffScheduleId } from "backend/staff";
 import { logger } from "backend/logger";
 import {
-    COLLECTIONS,
+    OPERATIONAL_COLLECTIONS,
+    BUSINESS_COLLECTIONS,
     CONCURRENCY,
     SDK_CONFIG,
     API,
     INACTIVE_BOOKING_STATUSES,
+    BOOKING_TYPE,
 } from "backend/internalConfig";
 import {
     _safeTrim,
@@ -315,7 +317,7 @@ const MS_TTL_MUTEX = Number(CONCURRENCY?.MS_TTL_MUTEX);
 if (!Number.isFinite(MS_TTL_MUTEX) || MS_TTL_MUTEX <= 0) {
     throw new Error("MS_TTL_MUTEX must be positive");
 }
-const LOCKS_COL = COLLECTIONS.SLOT_LOCKS;
+const LOCKS_COL = OPERATIONAL_COLLECTIONS.SLOT_LOCKS;
 
 export function _safeLockId(key) {
     const k = String(key || "").trim();
@@ -452,7 +454,7 @@ export function _buildLockKeys(phases, resourceId) {
 // BLOQUE 10 - TRANSACCIONES IDEMPOTENTES (BookingTransactions)
 // =============================================================================
 
-const TRANSACTIONS_COL = COLLECTIONS.BOOKING_TRANSACTIONS;
+const TRANSACTIONS_COL = BUSINESS_COLLECTIONS.BOOKING_TRANSACTIONS;
 const TRANSACTION_POLL_BASE_MS = Number(CONCURRENCY?.TRANSACTION_POLL_BASE_MS) || 250;
 const TRANSACTION_MAX_WAIT_MS = Number(CONCURRENCY?.TRANSACTION_MAX_WAIT_MS) || 3000;
 
@@ -559,7 +561,21 @@ export async function _failTransaction(pairToken, errorMessage) {
 // BLOQUE 11 - PERSISTENCIA EN CITAS_F2
 // =============================================================================
 
-const CITAS_COL = COLLECTIONS.CITAS_F2;
+const CITAS_COL = BUSINESS_COLLECTIONS.CITAS_F2;
+
+// Resolve legacy/canonical bookingType into the canonical enum for NEW writes.
+// Read adapters elsewhere keep tolerating legacy values until EOL 31/12/2026.
+function normalizeBookingTypeForWrite(p) {
+    const raw = p.tipo || p.bookingType || "";
+    const up = String(raw).toUpperCase().replace(/[^A-Z0-9]/g, "");
+    if (up === "DUALF1" || up === "DUALF2") return BOOKING_TYPE[up];
+    if (up === "SIMPLE" || up === "NORMAL" || up === "") return BOOKING_TYPE.SIMPLE;
+    // Legacy ambiguous dual markers resolved by pair presence (MATRIZ H.5):
+    if (up === "DUAL" || up === "LINKED" || up === "MULTIPHASE") {
+        return p.pairToken ? BOOKING_TYPE.DUALF1 : BOOKING_TYPE.SIMPLE;
+    }
+    return BOOKING_TYPE.SIMPLE;
+}
 
 export async function _persistBooking(params, traceId) {
     const p = params || {};
@@ -612,7 +628,7 @@ export async function _persistBooking(params, traceId) {
         startDate: startDateObj,
         endDate: endDateObj,
         dateYmd,
-        bookingType: p.tipo || p.bookingType || "simple",
+        bookingType: normalizeBookingTypeForWrite(p),
         status: statusCita,
         paymentStatus: metaPago,
         meta: normalizedMeta,
@@ -622,8 +638,7 @@ export async function _persistBooking(params, traceId) {
         _updatedDate: now,
     };
 
-    const normalizedBookingType = String(doc.bookingType || "simple").toLowerCase();
-    if (["dual", "linked", "multi_phase", "dual_f1", "dual_f2"].includes(normalizedBookingType) && !doc.pairToken) {
+    if ((doc.bookingType === BOOKING_TYPE.DUALF1 || doc.bookingType === BOOKING_TYPE.DUALF2) && !doc.pairToken) {
         throw new Error("Missing pairToken for linked booking");
     }
 
@@ -701,7 +716,7 @@ export async function _updateCitaSafe(bookingId, updater, traceId, operation) {
 // BLOQUE 13 - DUAL CACHE
 // =============================================================================
 
-const DUAL_CACHE_COL = COLLECTIONS.DUAL_SLOT_CACHE;
+const DUAL_CACHE_COL = OPERATIONAL_COLLECTIONS.DUAL_SLOT_CACHE;
 
 export async function _getDualPairFromCache(pairToken, traceId, expected = {}) {
     if (!pairToken) return null;

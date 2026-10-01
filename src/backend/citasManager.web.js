@@ -26,13 +26,14 @@ import wixData from "wix-data";
 import { orders } from "wix-ecom-backend";
 
 import {
-  COLLECTIONS,
+  BUSINESS_COLLECTIONS,
   SDK_CONFIG,
   APP_IDS,
   BOOKING_STATUS,
   PAYMENT_STATUS,
   PAYMENT_METHOD,
-  SLOT_SEARCH
+  SLOT_SEARCH,
+  BOOKING_TYPE
 } from "backend/internalConfig";
 
 import {
@@ -70,7 +71,7 @@ import {
 
 const log = logger;
 
-const CITAS_COL = COLLECTIONS.CITAS_F2;
+const CITAS_COL = BUSINESS_COLLECTIONS.CITAS_F2;
 const API_TIMEOUT_MS =
   Number(SDK_CONFIG?.TIMEOUTS?.API_MS) || 15000;
 
@@ -865,9 +866,7 @@ async function _revalidateDualInputSlots(
       const meta = _getCitaMeta(cita);
 
       return !(
-        String(cita?.bookingType || "")
-          .toLowerCase()
-          .includes("f2") ||
+        cita?.bookingType === BOOKING_TYPE.DUALF2 ||
         meta.linkedF1BookingId
       );
     }) || citas[0];
@@ -877,9 +876,7 @@ async function _revalidateDualInputSlots(
       const meta = _getCitaMeta(cita);
 
       return (
-        String(cita?.bookingType || "")
-          .toLowerCase()
-          .includes("f2") ||
+        cita?.bookingType === BOOKING_TYPE.DUALF2 ||
         Boolean(meta.linkedF1BookingId)
       );
     }) || citas[1];

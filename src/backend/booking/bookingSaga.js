@@ -31,7 +31,8 @@ import { elevate } from "wix-auth";
 import wixData from "wix-data";
 
 import {
-    COLLECTIONS,
+    OPERATIONAL_COLLECTIONS,
+    BUSINESS_COLLECTIONS,
     CONCURRENCY,
     SDK_CONFIG,
     SLOT_SEARCH,
@@ -41,6 +42,7 @@ import {
     COMPENSATION_KIND,
     COMPENSATION_STATUS,
     APP_IDS,
+    BOOKING_TYPE,
 } from "backend/internalConfig";
 
 import {
@@ -97,9 +99,9 @@ const log = logger;
 
 const LOCKTTLMS = Number(CONCURRENCY?.MS_TTL_MUTEX) || 300000;
 const HEARTBEATMS = Number(CONCURRENCY?.MS_LATIDO) || 15000;
-const CITASCOL = COLLECTIONS.CITAS_F2;
-const SERVICIOSCOL = COLLECTIONS.SERVICIOS_CATALOGO;
-const COMPENSACIONESCOL = COLLECTIONS.COMPENSACIONES_PENDIENTES;
+const CITASCOL = BUSINESS_COLLECTIONS.CITAS_F2;
+const SERVICIOSCOL = BUSINESS_COLLECTIONS.SERVICIOS_CATALOGO;
+const COMPENSACIONESCOL = BUSINESS_COLLECTIONS.COMPENSACIONES_PENDIENTES;
 
 const MINUTOS_MAX_HUECO_DUAL =
     Math.max(0, Number(SLOT_SEARCH?.MINUTOS_MAX_HUECO_DUAL || 120));
@@ -1006,7 +1008,7 @@ export async function executeBookingSaga(unsafePayload) {
             async function () {}
         );
 
-        const paymentStatus = isOnline ? PAYMENT_STATUS.PENDING_PAYMENT : PAYMENT_STATUS.UNPAID;
+        const paymentStatus = isOnline ? PAYMENT_STATUS.PENDING_PAYMENT : PAYMENT_STATUS.NOT_PAID;
         const citaStatus = isOnline ? BOOKING_STATUS.PENDING_PAYMENT : BOOKING_STATUS.CONFIRMED;
 
         saga.addStep(
@@ -1047,7 +1049,7 @@ export async function executeBookingSaga(unsafePayload) {
                     startDate: getUtcDateFromMadridLocal(f1LocalStart),
                     endDate: getUtcDateFromMadridLocal(f1LocalEnd),
                     dateYmd: f1LocalStart.slice(0, 10),
-                    bookingType: isDual ? "DUAL_F1" : "SIMPLE",
+                    bookingType: isDual ? BOOKING_TYPE.DUALF1 : BOOKING_TYPE.SIMPLE,
                     status: citaStatus,
                     paymentStatus: paymentStatus,
                     pairToken: pairToken,
@@ -1087,7 +1089,7 @@ export async function executeBookingSaga(unsafePayload) {
                         startDate: getUtcDateFromMadridLocal(f2LocalStart),
                         endDate: getUtcDateFromMadridLocal(f2LocalEnd),
                         dateYmd: f2LocalStart.slice(0, 10),
-                        bookingType: "DUAL_F2",
+                        bookingType: BOOKING_TYPE.DUALF2,
                         status: citaStatus,
                         paymentStatus: paymentStatus,
                         pairToken: pairToken,
