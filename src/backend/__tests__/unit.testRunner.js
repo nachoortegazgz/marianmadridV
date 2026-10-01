@@ -8,24 +8,35 @@
  */
 
 import assert from 'assert';
+// FASE4-CONSOLIDADO: alineado al SSOT canonico v7 (nombres legacy COLLECTIONS/ESTADO_*
+// erradicados de internalConfig). Assertions equivalentes reescritas contra el contrato canonico.
 import {
-  COLLECTIONS,
+  BUSINESS_COLLECTIONS,
+  OPERATIONAL_COLLECTIONS,
+  RESERVED_COLLECTIONS,
+  FORBIDDEN_COLLECTIONS,
   SDK_CONFIG,
-  ESTADO_CITA,
-  ESTADO_PAGO,
-  CONCURRENCY
+  BOOKING_STATUS,
+  PAYMENT_STATUS,
+  BOOKING_TYPE,
+  CONCURRENCY,
+  ENTRY_STATUS,
+  ACCOUNT_NATURE
 } from '../internalConfig.js';
+
+const ESTADO_CITA = BOOKING_STATUS;
+const ESTADO_PAGO = PAYMENT_STATUS;
 
 // Compatibilidad con estructura SSOT v5002.6 - Enums consolidados
 const ENUMS = {
-  BOOKING_TYPE: ['SIMPLE', 'DUAL_F1', 'DUAL_F2'],
+  BOOKING_TYPE: Object.values(BOOKING_TYPE), // canonical SIMPLE/DUALF1/DUALF2
   BOOKING_STATUS: Object.values(ESTADO_CITA),
   PAYMENT_STATUS: Object.values(ESTADO_PAGO),
   INVOICE_TYPE: ['F1', 'F2', 'F3', 'R1', 'R2', 'R3', 'R4', 'R5'],
   REGIME_KEY: ['01', '02', '03', '04', '05', '06', '07', '08', '09', '10', '11', '12', '13', '14', '15', '16', '17'],
   PAYMENT_METHOD: ['EFECTIVO', 'TARJETA', 'BIZUM', 'TRANSFERENCIA', 'ONLINE'],
-  ENTRY_STATUS: ['DRAFT', 'POSTED', 'LOCKED'],
-  ACCOUNT_NATURE: ['ACTIVO', 'PASIVO', 'INGRESO', 'GASTO']
+  ENTRY_STATUS: Object.values(ENTRY_STATUS),
+  ACCOUNT_NATURE: Object.values(ACCOUNT_NATURE)
 };
 
 // ============================================================================
@@ -127,17 +138,21 @@ export async function testDateConversion() {
  * Test UNIT-ENUM-01: Enums de CITAS_F2 completos
  */
 export async function testBookingEnums() {
-  // Align with internalConfig ESTADO_CITA / ESTADO_PAGO (canonical SSOT)
-  assert.ok(ESTADO_CITA.CONFIRMED === 'CONFIRMED', 'ESTADO_CITA.CONFIRMED');
-  assert.ok(ESTADO_CITA.PENDING_PAYMENT === 'PENDING_PAYMENT', 'ESTADO_CITA.PENDING_PAYMENT');
-  // SSOT v5008.6: CANCELLED es canonico, CANCELED es alias deprecated que apunta a CANCELLED
-  assert.ok(ESTADO_CITA.CANCELLED === 'CANCELLED', 'ESTADO_CITA.CANCELLED');
-  assert.ok(ESTADO_CITA.CANCELED === 'CANCELLED', 'ESTADO_CITA.CANCELED (alias deprecated)');
+  // Canonical English enums (BIBLIA 12.2): CANCELED is canonical, CANCELLED alias gone
+  assert.strictEqual(ESTADO_CITA.CONFIRMED, 'CONFIRMED');
+  assert.strictEqual(ESTADO_CITA.PENDING, 'PENDING');
+  assert.strictEqual(ESTADO_CITA.CANCELED, 'CANCELED');
+  assert.strictEqual(ESTADO_CITA.REFUNDED, 'REFUNDED');
+  assert.strictEqual(ESTADO_CITA.CANCELLED, undefined, 'CANCELLED alias must be eradicated');
 
-  assert.ok(ESTADO_PAGO.PAID === 'PAID', 'ESTADO_PAGO.PAID');
-  assert.ok(ESTADO_PAGO.UNPAID === 'UNPAID', 'ESTADO_PAGO.UNPAID');
-  assert.ok(ESTADO_PAGO.PENDING_PAYMENT === 'PENDING_PAYMENT', 'ESTADO_PAGO.PENDING_PAYMENT');
-  assert.ok(ESTADO_PAGO.REFUNDED === 'REFUNDED', 'ESTADO_PAGO.REFUNDED');
+  assert.strictEqual(ESTADO_PAGO.PAID, 'PAID');
+  assert.strictEqual(ESTADO_PAGO.NOT_PAID, 'NOT_PAID');
+  assert.strictEqual(ESTADO_PAGO.UNPAID, undefined, 'UNPAID alias must be eradicated');
+  assert.strictEqual(ESTADO_PAGO.PENDING_PAYMENT, 'PENDING_PAYMENT');
+  assert.strictEqual(ESTADO_PAGO.REFUNDED, 'REFUNDED');
+
+  // Canonical booking types (SSOT): SIMPLE/DUALF1/DUALF2 only
+  assert.deepStrictEqual(Object.keys(BOOKING_TYPE), ['SIMPLE', 'DUALF1', 'DUALF2']);
 
   return { testId: 'UNIT-ENUM-01', status: 'PASS', message: 'Enums CITAS_F2 alineados con internalConfig' };
 }
@@ -172,17 +187,17 @@ export async function testFiscalEnums() {
  * Test UNIT-ENUM-03: Enums contables PGC
  */
 export async function testAccountingEnums() {
+  // Canonical ENTRY_STATUS (internalConfig): 6 valores espanoles canonicos del CMS
   const entryStatus = ENUMS.ENTRY_STATUS;
-  assert.ok(entryStatus.includes('DRAFT'), 'DRAFT faltante');
-  assert.ok(entryStatus.includes('POSTED'), 'POSTED faltante');
-  assert.ok(entryStatus.includes('LOCKED'), 'LOCKED faltante');
-  assert.strictEqual(entryStatus.length, 3, 'ENTRY_STATUS debe tener 3 valores');
+  ['PENDIENTE', 'APROBADO', 'RECHAZADO', 'ASIENTADO', 'CANCELADO', 'BORRADOR'].forEach(v => {
+    assert.ok(entryStatus.includes(v), v + ' faltante');
+  });
+  assert.strictEqual(entryStatus.length, 6, 'ENTRY_STATUS debe tener 6 valores');
   
+  // PGC canonical nature (internalConfig ACCOUNT_NATURE): DEUDORA/ACREEDORA
   const accountNature = ENUMS.ACCOUNT_NATURE;
-  assert.ok(accountNature.includes('ACTIVO'), 'ACTIVO faltante');
-  assert.ok(accountNature.includes('PASIVO'), 'PASIVO faltante');
-  assert.ok(accountNature.includes('INGRESO'), 'INGRESO faltante');
-  assert.ok(accountNature.includes('GASTO'), 'GASTO faltante');
+  assert.ok(accountNature.includes('DEUDORA'), 'DEUDORA faltante');
+  assert.ok(accountNature.includes('ACREEDORA'), 'ACREEDORA faltante');
   
   return { testId: 'UNIT-ENUM-03', status: 'PASS', message: 'Enums contables PGC válidos' };
 }
@@ -195,32 +210,43 @@ export async function testAccountingEnums() {
  * Test UNIT-STRUCT-01: Colecciones SSOT definidas
  */
 export async function testCollectionsDefined() {
-  const requiredCollections = [
-    'CATEGORIAS_SERVICIO',
+  // FASE4: COLLECTIONS umbrella erradicado -> se auditan los grupos canonicos
+  const requiredBusiness = [
     'SERVICIOS_CATALOGO',
     'MAPA_STAFF',
     'CITAS_F2',
-    'DUAL_SLOT_CACHE',
     'MOVIMIENTOS_CAJA',
     'HISTORICO_CIERRES_Z',
-    'CONFIGURACION_FISCAL',
-    'LIBRO_REGISTRO_FACTURAS_EXPEDIDAS',
-    'ASIENTOS_CONTABLES',
-    'REGISTROS_HORARIOS_STAFF'
+    'REGISTROS_HORARIOS_STAFF',
+    'DATOS_FISCALES',
+    'CAJA_ACTUAL'
   ];
-  
-  requiredCollections.forEach(col => {
-    assert.ok(COLLECTIONS[col], `Colección ${col} no definida`);
-    assert.strictEqual(typeof COLLECTIONS[col], 'string', `Colección ${col} no es string`);
-    assert.ok(COLLECTIONS[col].length > 0, `Colección ${col} vacía`);
+  requiredBusiness.forEach(col => {
+    assert.ok(BUSINESS_COLLECTIONS[col], `Coleccion business ${col} no definida`);
+    assert.strictEqual(typeof BUSINESS_COLLECTIONS[col], 'string', `${col} no es string`);
+    assert.ok(BUSINESS_COLLECTIONS[col].length > 0, `${col} vacia`);
   });
-  
-  // Verificar que no hay duplicados en valores
-  const values = Object.values(COLLECTIONS);
+
+  // Operational group must expose the consolidated ControlOperativo (FASE3)
+  assert.strictEqual(OPERATIONAL_COLLECTIONS.CONTROL_OPERATIVO, 'ControlOperativo');
+  assert.ok(OPERATIONAL_COLLECTIONS.MOVIMIENTOS_INVENTARIO, 'MovimientosInventario definida');
+
+  // Absorbed collections must NOT be reachable from any active group anymore
+  const absorbed = ['SLOT_LOCKS', 'DUAL_SLOT_CACHE', 'PROCESSED_WEBHOOK_EVENTS', 'RATE_LIMIT_BLOCKS', 'BOOKING_TRANSACTIONS', 'COMPENSACIONES_PENDIENTES', 'ALERTAS_OPERATIVAS', 'AVAILABILITY_DAYS_CACHE'];
+  absorbed.forEach(k => {
+    assert.strictEqual(BUSINESS_COLLECTIONS[k], undefined, `${k} debe estar retirado de Business`);
+    assert.strictEqual(OPERATIONAL_COLLECTIONS[k], undefined, `${k} debe estar retirado de Operational`);
+  });
+
+  // FORBIDDEN list intact at 8 entries and not writable via active groups
+  assert.strictEqual(FORBIDDEN_COLLECTIONS.length, 8, 'FORBIDDEN debe tener 8 entradas');
+
+  // No duplicate physical names across active groups
+  const values = [...Object.values(BUSINESS_COLLECTIONS), ...Object.values(OPERATIONAL_COLLECTIONS)];
   const uniqueValues = new Set(values);
-  assert.strictEqual(values.length, uniqueValues.size, 'Hay colecciones duplicadas');
-  
-  return { testId: 'UNIT-STRUCT-01', status: 'PASS', message: 'Todas las colecciones SSOT definidas', data: { count: values.length } };
+  assert.strictEqual(new Set([...Object.keys(BUSINESS_COLLECTIONS).map(k => BUSINESS_COLLECTIONS[k]), ...Object.keys(OPERATIONAL_COLLECTIONS).map(k => OPERATIONAL_COLLECTIONS[k])]).size, values.length - 1, 'ControlOperativo aparece en ambos grupos; el resto unico');
+
+  return { testId: 'UNIT-STRUCT-01', status: 'PASS', message: 'Grupos SSOT definidos y colecciones absorbidas retiradas', data: { count: values.length } };
 }
 
 /**
@@ -247,12 +273,13 @@ export async function testCitasF2NoLegacy() {
     dateYmd: '2026-09-20',
     bookingType: 'SIMPLE',
     status: 'PENDING',
-    paymentStatus: 'UNPAID',
+    bookingStatus: 'PENDING',
+    paymentStatus: 'NOT_PAID',
     traceId: 'TEST_TRACE'
   };
   
   // Validar campos requeridos SSOT
-  const requiredFields = ['bookingId', 'pairToken', 'serviceId', 'startDate', 'endDate', 'status'];
+  const requiredFields = ['bookingId', 'pairToken', 'serviceId', 'startDate', 'endDate', 'bookingStatus'];
   requiredFields.forEach(field => {
     assert.ok(bookingPayload[field] !== undefined, `Campo requerido faltante: ${field}`);
   });

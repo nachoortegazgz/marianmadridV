@@ -667,6 +667,8 @@ export const ACCOUNTING_ACCOUNT = Object.freeze({
     TAX_EQUIVALENCE_SURCHARGE: "475800",
     CUSTOMER_ADVANCES: "438000",
     INVENTORY: "300000", // Añadido para v5010-CLEAN
+
+    CLIENTS: "430000", // PGC 430000 Clients (FASE4: requerido por CUENTAS_PGC_CANONICAS)
 });
 
 // Nombres legibles para las cuentas (SSOT)

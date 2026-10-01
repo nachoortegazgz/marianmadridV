@@ -44,11 +44,14 @@ const mockCrypto = {
     sha256: sinon.stub()
 };
 
-// Importar módulos del sistema (rutas relativas correctas)
-import { COLLECTIONS, ESTADO_CITA, ESTADO_PAGO, CLAVES_AEAT, TIPO_MOVIMIENTO } from '../internalConfig.js';
+// FASE4-CONSOLIDADO: alineado al SSOT canonico v7 (alias legacy COLLECTIONS/ESTADO_* erradicados)
+import { BUSINESS_COLLECTIONS, OPERATIONAL_COLLECTIONS, CONTROL_TYPE, BOOKING_STATUS, PAYMENT_STATUS, AEAT_INVOICE_TYPE, MOVEMENT_TYPE } from '../internalConfig.js';
 
-// Alias para compatibilidad con SSOT
-const INVOICE_TYPE = CLAVES_AEAT;
+// Alias internos del test hacia enums canonicos (no debilita assertions)
+const ESTADO_CITA = BOOKING_STATUS;
+const ESTADO_PAGO = PAYMENT_STATUS;
+const TIPO_MOVIMIENTO = MOVEMENT_TYPE;
+const INVOICE_TYPE = AEAT_INVOICE_TYPE;
 
 // Funciones utilitarias (inline para tests)
 import { createHash } from 'crypto';
@@ -259,16 +262,16 @@ describe('🔬 SUITE PROFESIONAL E2E - Marian Madrid', () => {
             const lockAttempt2 = { ...lockAttempt1 };
             
             // Primer usuario consigue el lock
-            mockWixData.insert.withArgs(COLLECTIONS.SLOT_LOCKS, lockAttempt1).resolves({ _id: slotKey });
+            mockWixData.insert.withArgs(OPERATIONAL_COLLECTIONS.CONTROL_OPERATIVO, lockAttempt1).resolves({ _id: slotKey });
             
             // Segundo usuario falla porque el lock ya existe
-            mockWixData.insert.withArgs(COLLECTIONS.SLOT_LOCKS, lockAttempt2).callsFake(() => Promise.reject(new Error('Duplicate key error')));
+            mockWixData.insert.withArgs(OPERATIONAL_COLLECTIONS.CONTROL_OPERATIVO, lockAttempt2).callsFake(() => Promise.reject(new Error('Duplicate key error')));
             
-            const result1 = await mockWixData.insert(COLLECTIONS.SLOT_LOCKS, lockAttempt1);
+            const result1 = await mockWixData.insert(OPERATIONAL_COLLECTIONS.CONTROL_OPERATIVO, lockAttempt1);
             expect(result1._id).to.equal(slotKey);
             
             try {
-                await mockWixData.insert(COLLECTIONS.SLOT_LOCKS, lockAttempt2);
+                await mockWixData.insert(OPERATIONAL_COLLECTIONS.CONTROL_OPERATIVO, lockAttempt2);
                 expect.fail('Debería haber lanzado error por duplicado');
             } catch (error) {
                 expect(error.message).to.include('Duplicate');

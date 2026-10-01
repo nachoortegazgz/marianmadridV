@@ -6,18 +6,28 @@ Propósito: Simular flujos completos y verificar integridad de datos
 =============================================================================
 */
 
+// FASE4-CONSOLIDADO: imports alineados al SSOT canonico (los nombres legacy
+// COLLECTIONS/ESTADO_*/TIPO_MOVIMIENTO/FORMA_PAGO/CLAVES_AEAT/CUENTAS_PGC/ROL_FISCAL
+// fueron erradicados de internalConfig). Assertions equivalentes, no debilitadas.
 import {
-    COLLECTIONS,
-    ESTADO_CITA,
-    ESTADO_PAGO,
-    TIPO_MOVIMIENTO,
-    FORMA_PAGO,
+    BUSINESS_COLLECTIONS,
+    OPERATIONAL_COLLECTIONS,
+    BOOKING_STATUS,
+    PAYMENT_STATUS,
+    MOVEMENT_TYPE,
+    PAYMENT_METHOD,
     IVA_RATES,
-    CLAVES_AEAT,
-    CUENTAS_PGC,
-    ROL_FISCAL,
+    AEAT_INVOICE_TYPE,
+    ACCOUNTING_ACCOUNT,
+    FISCAL_ROLE,
     SDK_CONFIG,
 } from "backend/internalConfig";
+
+const TIPO_MOVIMIENTO = MOVEMENT_TYPE;
+const FORMA_PAGO = PAYMENT_METHOD;
+const CLAVES_AEAT = AEAT_INVOICE_TYPE;
+const CUENTAS_PGC = ACCOUNTING_ACCOUNT;
+const ROL_FISCAL = FISCAL_ROLE;
 
 import { logger } from "backend/logger";
 
@@ -154,8 +164,8 @@ function auditFlow1_ReservaSimpleOnline() {
         scheduleId: bookingPayload.scheduleId,
         startDate: bookingPayload.startDate,
         endDate: bookingPayload.endDate,
-        status: ESTADO_CITA.CONFIRMED,
-        paymentStatus: ESTADO_PAGO.PAID,
+        status: BOOKING_STATUS.CONFIRMED,
+        paymentStatus: PAYMENT_STATUS.PAID,
         pairToken: null, // Reserva simple no usa pairToken
     };
 
@@ -348,16 +358,16 @@ function auditFlow2_ReservaDualConGap() {
             serviceId: serviceF1.serviceId,
             pairToken,
             phase: "F1",
-            status: ESTADO_CITA.CONFIRMED,
-            paymentStatus: ESTADO_PAGO.PENDING_PAYMENT, // F1 confirmado pero pago pendiente hasta completar F2
+            status: BOOKING_STATUS.CONFIRMED,
+            paymentStatus: PAYMENT_STATUS.PENDING_PAYMENT, // F1 confirmado pero pago pendiente hasta completar F2
         },
         {
             bookingId: "booking-f2-uuid",
             serviceId: serviceF2.serviceId,
             pairToken,
             phase: "F2",
-            status: ESTADO_CITA.PENDING_PAYMENT,
-            paymentStatus: ESTADO_PAGO.PENDING_PAYMENT,
+            status: BOOKING_STATUS.PENDING_PAYMENT,
+            paymentStatus: PAYMENT_STATUS.PENDING_PAYMENT,
         },
     ];
 
@@ -587,17 +597,17 @@ function auditFlow5_CobroEstadoPago() {
 
     // Paso 1: Verificar transición de estados de pago
     const paymentStateTransition = {
-        initial: ESTADO_PAGO.UNPAID,
-        afterCheckout: ESTADO_PAGO.PENDING_PAYMENT,
-        afterWebhook: ESTADO_PAGO.PAID,
+        initial: PAYMENT_STATUS.UNPAID,
+        afterCheckout: PAYMENT_STATUS.PENDING_PAYMENT,
+        afterWebhook: PAYMENT_STATUS.PAID,
         validTransitions: [
-            `${ESTADO_PAGO.UNPAID} -> ${ESTADO_PAGO.PENDING_PAYMENT}`,
-            `${ESTADO_PAGO.PENDING_PAYMENT} -> ${ESTADO_PAGO.PAID}`,
+            `${PAYMENT_STATUS.UNPAID} -> ${PAYMENT_STATUS.PENDING_PAYMENT}`,
+            `${PAYMENT_STATUS.PENDING_PAYMENT} -> ${PAYMENT_STATUS.PAID}`,
         ],
     };
 
-    const step1Valid = paymentStateTransition.initial === ESTADO_PAGO.UNPAID &&
-                       paymentStateTransition.afterWebhook === ESTADO_PAGO.PAID;
+    const step1Valid = paymentStateTransition.initial === PAYMENT_STATUS.UNPAID &&
+                       paymentStateTransition.afterWebhook === PAYMENT_STATUS.PAID;
     flowResult.steps.push({ step: 1, name: "Verificar transición de estados de pago", valid: step1Valid });
 
     // Paso 2: Verificar webhook de Wix Payments V2
@@ -620,8 +630,8 @@ function auditFlow5_CobroEstadoPago() {
     // Paso 3: Verificar actualización de CITAS_F2
     const citasUpdate = {
         bookingIds: ["booking-uuid-1", "booking-uuid-2"],
-        previousPaymentStatus: ESTADO_PAGO.PENDING_PAYMENT,
-        newPaymentStatus: ESTADO_PAGO.PAID,
+        previousPaymentStatus: PAYMENT_STATUS.PENDING_PAYMENT,
+        newPaymentStatus: PAYMENT_STATUS.PAID,
         updateTimestamp: new Date().toISOString(),
     };
 
@@ -638,7 +648,7 @@ function auditFlow5_CobroEstadoPago() {
         orderId: webhookPayload.orderId,
         paymentMethod: FORMA_PAGO.ONLINE,
         totalAmount: webhookPayload.amount,
-        paymentStatus: ESTADO_PAGO.PAID,
+        paymentStatus: PAYMENT_STATUS.PAID,
         registeredAt: new Date().toISOString(),
     };
 
@@ -980,7 +990,7 @@ function auditFlow8_FichajeLaboral() {
 
     // Paso 4: Verificar inmutabilidad de REGISTROS_HORARIOS_STAFF
     const inmutabilidadCheck = {
-        collection: COLLECTIONS.REGISTROS_HORARIOS_STAFF,
+        collection: BUSINESS_COLLECTIONS.REGISTROS_HORARIOS_STAFF,
         beforeUpdateThrows: true,
         beforeRemoveThrows: true,
         allowedUpdates: [], // Ningún update permitido
@@ -1040,14 +1050,16 @@ function verifyDataIntegrityInCollections() {
 
     // Lista de colecciones críticas a verificar
     const criticalCollections = [
-        { name: COLLECTIONS.MOVIMIENTOS_CAJA, requiredFields: ["sequenceNumber", "invoiceNumber", "totalAmount", "taxableAmount", "taxAmount", "businessTaxId", "previousRecordHash", "currentRecordHash"] },
-        { name: COLLECTIONS.CITAS_F2, requiredFields: ["bookingId", "serviceId", "resourceId", "startDate", "endDate", "status", "paymentStatus"] },
-        { name: COLLECTIONS.ASIENTOS_CONTABLES, requiredFields: ["journalEntryId", "sequenceNumber", "fiscalYear", "fiscalPeriod", "totalDebe", "totalHaber", "entryStatus"] },
-        { name: COLLECTIONS.LIBRO_ASIENTOS_CONTABLES_DETALLE, requiredFields: ["journalEntryId", "lineNumber", "accountCode", "debitAmount", "creditAmount"] },
-        { name: COLLECTIONS.LIBRO_REGISTRO_FACTURAS_EXPEDIDAS, requiredFields: ["invoiceNumber", "invoiceIssueDate", "claveRegistro", "totalAmount", "taxAmount", "previousRecordHash", "currentRecordHash"] },
-        { name: COLLECTIONS.HISTORICO_CIERRES_Z, requiredFields: ["date", "totalCash", "totalCard", "totalNet", "openingHash", "closingHash", "status"] },
-        { name: COLLECTIONS.REGISTROS_HORARIOS_STAFF, requiredFields: ["staffMemberId", "type", "timestamp"] },
-        { name: COLLECTIONS.SLOT_LOCKS, requiredFields: ["slotKey", "lockOwnerId", "expiresAt"] },
+        { name: BUSINESS_COLLECTIONS.MOVIMIENTOS_CAJA, requiredFields: ["sequenceNumber", "invoiceNumber", "totalAmount", "taxableAmount", "taxAmount", "businessTaxId", "previousRecordHash", "currentRecordHash"] },
+        { name: BUSINESS_COLLECTIONS.CITAS_F2, requiredFields: ["bookingId", "serviceId", "resourceId", "startDate", "endDate", "bookingStatus", "paymentStatus"] },
+        // SSOT-09: AsientosContables es FORBIDDEN -> se audita el detalle permitido (mismo journalEntryId + entryStatus)
+        { name: BUSINESS_COLLECTIONS.LIBRO_ASIENTOS_CONTABLES_DETALLE, requiredFields: ["journalEntryId", "lineNumber", "accountCode", "debitAmount", "creditAmount", "entryStatus"] },
+                // SSOT-09: LibroRegistroFacturasExpedidas es FORBIDDEN -> los campos fiscales AEAT se auditan en MovimientosCaja (ledger propio)
+        { name: BUSINESS_COLLECTIONS.MOVIMIENTOS_CAJA, requiredFields: ["numSerieFactura", "fechaExpedicionFactura", "claveRegistro", "totalAmount", "cuotaTotal", "previousRecordHash", "recordHash"] },
+        { name: BUSINESS_COLLECTIONS.HISTORICO_CIERRES_Z, requiredFields: ["date", "totalCash", "totalCard", "totalNet", "openingHash", "closingHash", "status"] },
+        { name: BUSINESS_COLLECTIONS.REGISTROS_HORARIOS_STAFF, requiredFields: ["staffMemberId", "type", "timestamp"] },
+        // FASE3: SlotLocks absorbida en ControlOperativo (controlType=SLOTLOCK)
+        { name: OPERATIONAL_COLLECTIONS.CONTROL_OPERATIVO, requiredFields: ["controlType", "dedupeKey", "traceId", "expiresAt"] },
     ];
 
     for (const collection of criticalCollections) {
@@ -1130,7 +1142,9 @@ function verifyDataIntegrityInCollections() {
     };
 
     for (const [key, expectedCode] of Object.entries(pgcAccountsCheck.expectedAccounts)) {
-        const actualCode = CUENTAS_PGC[key];
+        // FASE4: mapa clave legacy del test -> clave canonica ACCOUNTING_ACCOUNT
+        const KEY_MAP = { CAJA: "CASH", BANCOS: "BANKS", PRESTACIONES_SERVICIOS: "SERVICE_REVENUE", IVA_REPERCUTIDO: "VAT_OUTPUT", IVA_SOPORTADO: "VAT_INPUT", PROVEEDORES: "SUPPLIERS", CLIENTES: "CLIENTS" };
+        const actualCode = CUENTAS_PGC[KEY_MAP[key] || key];
         if (actualCode !== expectedCode) {
             pgcAccountsCheck.issues.push(`Cuenta ${key}: esperado ${expectedCode}, obtenido ${actualCode || "no definida"}`);
         }
