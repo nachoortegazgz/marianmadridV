@@ -1,0 +1,757 @@
+From 25044b08e59c7e4cb2da817a270987d52a3ecb6a Mon Sep 17 00:00:00 2001
+From: Wix Remote Machine <support@wix.com>
+Date: Wed, 30 Sep 2026 02:49:04 +0000
+Subject: [PATCH] Enforce canonical CMS identifiers without legacy aliases
+
+---
+ src/backend/__tests__/dynamic.e2e.test.js   |  2 +-
+ src/backend/booking/bookingCore.js          | 10 +--
+ src/backend/booking/bookingSaga.js          | 16 ++--
+ src/backend/booking/bookingUtils.js         |  4 +-
+ src/backend/reservas.web.js                 | 56 ++++++-------
+ src/pages/Calendario de reservas 2.q39h6.js | 26 +++---
+ src/pages/Pagina de servicio 2.xnfr4.js     | 92 ++++++++++-----------
+ 7 files changed, 103 insertions(+), 103 deletions(-)
+
+diff --git a/src/backend/__tests__/dynamic.e2e.test.js b/src/backend/__tests__/dynamic.e2e.test.js
+index c7ddcae..b37a5cd 100644
+--- a/src/backend/__tests__/dynamic.e2e.test.js
++++ b/src/backend/__tests__/dynamic.e2e.test.js
+@@ -95,7 +95,7 @@ function skipWithoutLoader(t) {
+ 
+ export async function DYN_01() { // huella canonica dual es determinista y sensible a los 8 campos
+   const base = {
+-    serviceId: GUID_A, linkedPhases: GUID_B, dateYMD: '2026-09-20',
++    serviceId: GUID_A, linkedPhases: GUID_B, dateYmd: '2026-09-20',
+     f1Start: '2026-09-20T10:00:00', f1End: '2026-09-20T10:30:00',
+     f2Start: '2026-09-20T10:45:00', f2End: '2026-09-20T11:15:00',
+     resourceId: GUID_C
+diff --git a/src/backend/booking/bookingCore.js b/src/backend/booking/bookingCore.js
+index 90cb3a0..e492ead 100644
+--- a/src/backend/booking/bookingCore.js
++++ b/src/backend/booking/bookingCore.js
+@@ -25,7 +25,7 @@ FIXES APLICADOS v5009-FISCAL-V20.2:
+              _buildPairFingerprint + _buildPairTokenDeterministic son la
+              UNICA fuente de verdad. reservas.web.js y bookingSaga.js deben
+              importarlas (ver parches de consumo mas abajo). Incluye los 8
+-             campos exigidos: serviceId, linkedPhases, dateYMD, f1Start,
++             campos exigidos: serviceId, linkedPhases, dateYmd, f1Start,
+              f1End, f2Start, f2End, resourceId.
+              _generatePairToken(traceId) queda SOLO como legacy no
+              determinista (no usar para correlacion dual).
+@@ -1072,15 +1072,15 @@ const CANCELLED_PAYMENT_ALIASES = Object.freeze([
+     "CANCELADO", "CANCELED",
+ ]);
+ 
+-export async function _rankResourcesByLoad(resourceIds, dateYMD, traceId) {
++export async function _rankResourcesByLoad(resourceIds, dateYmd, traceId) {
+     const input = Array.isArray(resourceIds) ?
+         Array.from(new Set(resourceIds.map((id) => _safeTrim(id)).filter(_looksLikeGuid))) : [];
+ 
+     if (input.length < 2) return input;
+ 
+-    const day = _safeTrim(dateYMD);
++    const day = _safeTrim(dateYmd);
+     if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) {
+-        log.warn("_rankResourcesByLoad: invalid dateYMD", { dateYMD: day, traceId });
++        log.warn("_rankResourcesByLoad: invalid dateYmd", { dateYmd: day, traceId });
+         return input;
+     }
+ 
+@@ -1138,7 +1138,7 @@ export async function _rankResourcesByLoad(resourceIds, dateYMD, traceId) {
+     } catch (error) {
+         log.warn("_rankResourcesByLoad failed; preserving availability order", {
+             traceId,
+-            dateYMD: day,
++            dateYmd: day,
+             error: error?.message,
+         });
+         return input;
+diff --git a/src/backend/booking/bookingSaga.js b/src/backend/booking/bookingSaga.js
+index 8ba423a..08bc028 100644
+--- a/src/backend/booking/bookingSaga.js
++++ b/src/backend/booking/bookingSaga.js
+@@ -253,7 +253,7 @@ function _resolveUnifiedPairToken({
+         const fingerprint = _buildPairFingerprint({
+             serviceId: serviceId,
+             linkedPhases: linkedPhases,
+-            dateYMD: _safeTrim(f1Start).slice(0, 10),
++            dateYmd: _safeTrim(f1Start).slice(0, 10),
+             f1Start: f1Start,
+             f1End: f1End,
+             f2Start: f2Start,
+@@ -704,10 +704,10 @@ function _detectAddons(unsafePayload, metaCita, serviceConfig, traceId) {
+     const rawAddons =
+         unsafePayload?.nativeAddonIds ||
+         unsafePayload?.addOnIds ||
+-        unsafePayload?.addonIds ||
++        unsafePayload?.addOnIds ||
+         metaCita?.nativeAddonIds ||
+         metaCita?.addOnIds ||
+-        metaCita?.addonIds ||
++        metaCita?.addOnIds ||
+         [];
+ 
+     const requested = Array.isArray(rawAddons)
+@@ -772,11 +772,11 @@ function _detectAddons(unsafePayload, metaCita, serviceConfig, traceId) {
+  * Se exponen ambas claves porque el contrato del Writer V2 ha usado
+  * historicamente addOnIds y selectedAddOns.
+  */
+-function _buildAddonSlotFields(addonIds) {
+-    if (!Array.isArray(addonIds) || addonIds.length === 0) return {};
++function _buildAddonSlotFields(addOnIds) {
++    if (!Array.isArray(addOnIds) || addOnIds.length === 0) return {};
+     return {
+-        addOnIds: addonIds.slice(),
+-        selectedAddOns: addonIds.slice(),
++        addOnIds: addOnIds.slice(),
++        selectedAddOns: addOnIds.slice(),
+     };
+ }
+ 
+@@ -1065,7 +1065,7 @@ export async function executeBookingSaga(unsafePayload) {
+             f2Start: isDual ? f2LocalStart : null,
+             f2End: isDual ? f2LocalEnd : null,
+             requestedResourceId: requestedResourceId || null,
+-            addonIds: detectedAddonIds,
++            addOnIds: detectedAddonIds,
+             traceId: traceId,
+         });
+ 
+diff --git a/src/backend/booking/bookingUtils.js b/src/backend/booking/bookingUtils.js
+index c044770..4d823c9 100644
+--- a/src/backend/booking/bookingUtils.js
++++ b/src/backend/booking/bookingUtils.js
+@@ -105,7 +105,7 @@ export function cleanGuidList(value) {
+ export function _buildPairFingerprint({
+     serviceId,
+     linkedPhases,
+-    dateYMD,
++    dateYmd,
+     f1Start,
+     f1End,
+     f2Start,
+@@ -115,7 +115,7 @@ export function _buildPairFingerprint({
+     return [
+         _safeTrim(serviceId) || "",
+         _safeTrim(linkedPhases) || "",
+-        _safeTrim(dateYMD) || "",
++        _safeTrim(dateYmd) || "",
+         _safeTrim(f1Start) || "",
+         _safeTrim(f1End) || "",
+         _safeTrim(f2Start) || "",
+diff --git a/src/backend/reservas.web.js b/src/backend/reservas.web.js
+index 18e0f99..b075690 100644
+--- a/src/backend/reservas.web.js
++++ b/src/backend/reservas.web.js
+@@ -6,7 +6,7 @@
+  * STANDARDS: G10 ASCII Strict.
+  *
+  * ALINEACION SSOT (BIBLIA v5009-V20-FINAL-CONSOLIDATED-v4, apartado 4.3):
+- *  - FIX-01 Identidad publica unica: slug. Se retira slugUrl del contrato.
++ *  - FIX-01 Identidad publica unica: slug. Se retira slug del contrato.
+  *  - FIX-02 Normalizacion segura del slug (query, hash, barras, ultimo segmento).
+  *  - FIX-03 Consulta separada: GUID -> serviceId / slug -> slug.
+  *  - FIX-04 Se retira el fallback GUID imposible dentro de la rama no-GUID.
+@@ -15,7 +15,7 @@
+  *  - FIX-07 Contrato frontend/backend alineado (raiz + metadata).
+  *  - FIX-08 price y currency expuestos en raiz y en metadata.
+  *  - FIX-09 title, description, tagLine expuestos en raiz.
+- *  - FIX-10 mainMedia e imageUrl expuestos de forma compatible.
++ *  - FIX-10 mainMedia e mainMedia expuestos de forma compatible.
+  *  - FIX-11 Complementos normalizados desde addOnOptions (campo canonico 4.3).
+  *  - FIX-12 linkedPhases sigue siendo GUID de Bookings (no se convierte a slug).
+  *  - FIX-13 SERVICELOCATIONMISMATCH preservado como error estructurado.
+@@ -381,7 +381,7 @@ function _normalizeImport2Addon(addon) {
+   if (!addon || typeof addon !== "object") return null;
+   return {
+     ...addon,
+-    id: safeTrim(addon.id || addon.id || addon.addonId),
++    id: safeTrim(addon.id || addon.id || addon.addOnId),
+     nombre: _safeTrim(addon.nombre || addon.name || addon.title),
+     precio: Number(addon.precio ?? addon.price ?? 0) || 0
+   };
+@@ -723,7 +723,7 @@ export async function _mapServiceImport2ToUX(service, traceId) {
+     category,
+     location,
+     mainMedia,
+-    imageUrl: mainMedia,
++    mainMedia: mainMedia,
+     addOnOptions,
+ 
+     // H-07: fuente unica availableStaff (4.3 fila 18).
+@@ -761,7 +761,7 @@ export async function _mapServiceImport2ToUX(service, traceId) {
+       estado: status,
+       addons: addOnOptions,
+       addonsPrecio: addOnOptions.map((addon) => Number(addon?.precio || 0)),
+-      imageUrl: mainMedia,
++      mainMedia: mainMedia,
+       mainMedia,
+       pricingModel,
+       pricing: { base: price, currency },
+@@ -984,9 +984,9 @@ export function _toPublicService(service) {
+ 
+ export const getAvailableSlots = webMethod(
+   Permissions.Anyone,
+-  async (serviceIdOrSlug, resourceId, dateYMD, addonIds) => {
++  async (serviceIdOrSlug, resourceId, dateYmd, addOnIds) => {
+     const traceId = makeTraceId("available-slots");
+-    const safeAddonIds = Array.isArray(addonIds) ? addonIds : [];
++    const safeAddonIds = Array.isArray(addOnIds) ? addOnIds : [];
+ 
+     try {
+       const serviceResult = await _getServiceBySlugOrIdInternal(serviceIdOrSlug, traceId);
+@@ -1030,7 +1030,7 @@ export const getAvailableSlots = webMethod(
+         );
+       }
+ 
+-      const ymd = _safeTrim(dateYMD);
++      const ymd = _safeTrim(dateYmd);
+       if (!_isValidMadridYmd(ymd)) {
+         return _structuredError(
+           ERRORCODES.INVALIDDATE,
+@@ -1081,7 +1081,7 @@ export const getAvailableSlots = webMethod(
+         data: {
+           slots,
+           serviceId,
+-          dateYMD: ymd,
++          dateYmd: ymd,
+           resourceId: requestedResourceId[0] || null
+         },
+         error: null
+@@ -1090,7 +1090,7 @@ export const getAvailableSlots = webMethod(
+       log.warn("getAvailableSlots failed", {
+         traceId,
+         serviceIdOrSlug: _safeTrim(serviceIdOrSlug),
+-        dateYMD: _safeTrim(dateYMD),
++        dateYmd: _safeTrim(dateYmd),
+         message: error?.message
+       });
+       return _structuredError(
+@@ -1108,9 +1108,9 @@ export const getAvailableSlots = webMethod(
+ 
+ export const getAvailableDays = webMethod(
+   Permissions.Anyone,
+-  async (serviceIdOrSlug, resourceId, year, month, addonIds) => {
++  async (serviceIdOrSlug, resourceId, year, month, addOnIds) => {
+     const traceId = makeTraceId("available-days");
+-    const safeAddonIds = Array.isArray(addonIds) ? addonIds : [];
++    const safeAddonIds = Array.isArray(addOnIds) ? addOnIds : [];
+ 
+     try {
+       const serviceResult = await _getServiceBySlugOrIdInternal(serviceIdOrSlug, traceId);
+@@ -1218,8 +1218,8 @@ export const getAvailableDays = webMethod(
+ // B-01: campo canonico bookingStatus (4.6 fila 15) y enum interno CANCELADO.
+ // ============================================================================
+ 
+-async function _countStaffLoadForDay(dateYMD, resourceIds, traceId) {
+-  const ymd = _safeTrim(dateYMD);
++async function _countStaffLoadForDay(dateYmd, resourceIds, traceId) {
++  const ymd = _safeTrim(dateYmd);
+   const ids = cleanGuidList(resourceIds);
+   const loadByResource = {};
+ 
+@@ -1260,7 +1260,7 @@ async function _countStaffLoadForDay(dateYMD, resourceIds, traceId) {
+   } catch (error) {
+     log.warn("_countStaffLoadForDay failed; using zero loads", {
+       traceId,
+-      dateYMD: ymd,
++      dateYmd: ymd,
+       message: error?.message
+     });
+   }
+@@ -1272,9 +1272,9 @@ async function _countStaffLoadForDay(dateYMD, resourceIds, traceId) {
+ // DISPONIBILIDAD DUAL (PATCH-02: pairToken determinista via huella canonica)
+ // ============================================================================
+ 
+-export async function _getCertifiedDualSlotsInternal(serviceId, resourceId, dateYMD, addonIds) {
++export async function _getCertifiedDualSlotsInternal(serviceId, resourceId, dateYmd, addOnIds) {
+   const traceId = makeTraceId("dual-slots");
+-  const safeAddonIds = Array.isArray(addonIds) ? addonIds : [];
++  const safeAddonIds = Array.isArray(addOnIds) ? addOnIds : [];
+   const serviceRes = await _getServiceBySlugOrIdInternal(serviceId, traceId);
+ 
+   if (serviceRes?.status !== "SUCCESS" || !serviceRes?.data) {
+@@ -1301,7 +1301,7 @@ export async function _getCertifiedDualSlotsInternal(serviceId, resourceId, date
+     );
+   }
+ 
+-  const ymd = _safeTrim(dateYMD);
++  const ymd = _safeTrim(dateYmd);
+   if (!_isValidMadridYmd(ymd)) {
+     return _structuredError(
+       ERRORCODES.INVALIDDATE,
+@@ -1429,7 +1429,7 @@ export async function _getCertifiedDualSlotsInternal(serviceId, resourceId, date
+       const pairToken = _buildPairTokenDeterministic({
+         serviceId: service.serviceId,
+         linkedPhases: service.linkedPhases,
+-        dateYMD: ymd,
++        dateYmd: ymd,
+         f1Start,
+         f1End,
+         f2Start,
+@@ -1449,7 +1449,7 @@ export async function _getCertifiedDualSlotsInternal(serviceId, resourceId, date
+         pairToken,
+         serviceId: service.serviceId,
+         linkedPhases: service.linkedPhases,
+-        dateYMD: ymd,
++        dateYmd: ymd,
+         gapMinutes,
+         exposureDuration: Number(service.exposureDuration || 0) || 0,
+         totalDuration: Number(service.totalDuration || 0) || 0
+@@ -1462,7 +1462,7 @@ export async function _getCertifiedDualSlotsInternal(serviceId, resourceId, date
+ 
+ export const getCertifiedDualSlots = webMethod(
+   Permissions.Anyone,
+-  async (serviceIdOrSlug, resourceId, dateYMD, addonIds) => {
++  async (serviceIdOrSlug, resourceId, dateYmd, addOnIds) => {
+     try {
+       const resolved = await _resolveServiceIdInternal(serviceIdOrSlug);
+       if (!resolved) {
+@@ -1471,7 +1471,7 @@ export const getCertifiedDualSlots = webMethod(
+           "Service identifier not found."
+         );
+       }
+-      return await _getCertifiedDualSlotsInternal(resolved, resourceId, dateYMD, addonIds);
++      return await _getCertifiedDualSlotsInternal(resolved, resourceId, dateYmd, addOnIds);
+     } catch (error) {
+       return {
+         status: "ERROR",
+@@ -1493,11 +1493,11 @@ export async function _resolveStaffForSlotInternal({
+   f2Start,
+   f2End,
+   requestedResourceId,
+-  addonIds,
++  addOnIds,
+   traceId
+ }) {
+   const activeTraceId = traceId || makeTraceId("staff-resolve");
+-  const safeAddonIds = Array.isArray(addonIds) ? addonIds : [];
++  const safeAddonIds = Array.isArray(addOnIds) ? addOnIds : [];
+   const resolved = await _resolveServiceIdInternal(serviceId);
+ 
+   if (!resolved) {
+@@ -1570,7 +1570,7 @@ export async function _resolveStaffForSlotInternal({
+ 
+ export const resolveStaffForSlot = webMethod(
+   Permissions.Anyone,
+-  async (serviceIdOrSlug, start, resourceId, addonIds, end) => {
++  async (serviceIdOrSlug, start, resourceId, addOnIds, end) => {
+     try {
+       const resolved = await _resolveServiceIdInternal(serviceIdOrSlug);
+       if (!resolved) {
+@@ -1587,7 +1587,7 @@ export const resolveStaffForSlot = webMethod(
+         f2Start: null,
+         f2End: null,
+         requestedResourceId: resourceId,
+-        addonIds,
++        addOnIds,
+         traceId: makeTraceId("staff-resolve-wm")
+       });
+     } catch (error) {
+@@ -1604,7 +1604,7 @@ export const resolveStaffForSlot = webMethod(
+ // INVALIDACION DE CACHES
+ // ============================================================================
+ 
+-export async function _invalidateCachesInternal(serviceId, dateYMD, resourceId, traceId) {
++export async function _invalidateCachesInternal(serviceId, dateYmd, resourceId, traceId) {
+   try {
+     const sid = _safeTrim(serviceId);
+ 
+@@ -1620,7 +1620,7 @@ export async function _invalidateCachesInternal(serviceId, dateYMD, resourceId,
+     log.info("_invalidateCachesInternal", {
+       traceId,
+       serviceId: sid || null,
+-      dateYMD: _safeTrim(dateYMD) || null,
++      dateYmd: _safeTrim(dateYmd) || null,
+       resourceId: _safeTrim(resourceId) || null
+     });
+ 
+diff --git a/src/pages/Calendario de reservas 2.q39h6.js b/src/pages/Calendario de reservas 2.q39h6.js
+index c5278a6..fa954cd 100644
+--- a/src/pages/Calendario de reservas 2.q39h6.js	
++++ b/src/pages/Calendario de reservas 2.q39h6.js	
+@@ -10,12 +10,12 @@ BASE NORMATIVA:
+ 
+ DECISIONES DE ALINEACION (Fase 1):
+   1. Cero alias legacy en lectura de URL y payloads:
+-       slugUrl        -> ELIMINADO (CAMBIO.txt 3 / R19: slug unico)
+-       addonIds       -> addOnIds  (clave tecnica ComplementosCatalogo: addOnId)
+-       addonId        -> addOnId
+-       dateYMD        -> dateYmd   (BIBLIA 4.6 / 4.8)
+-       imageUrl       -> mainMedia (clave tecnica ServiciosCatalogo)
+-       phase2ServiceId<- linkedPhases (REFERENCE, GUID Wix preservado)
++       slug        -> ELIMINADO (CAMBIO.txt 3 / R19: slug unico)
++       addOnIds       -> addOnIds  (clave tecnica ComplementosCatalogo: addOnId)
++       addOnId        -> addOnId
++       dateYmd        -> dateYmd   (BIBLIA 4.6 / 4.8)
++       mainMedia       -> mainMedia (clave tecnica ServiciosCatalogo)
++       linkedPhases<- linkedPhases (REFERENCE, GUID Wix preservado)
+   2. Cero spread del DTO backend: proyeccion por lista blanca. Ningun campo
+      fiscal, de coste o de notas internas (tipoImpositivo, codigoImpuesto,
+      claveRegimen, cuentaContable*, costPrice, margin, internalNotes) entra
+@@ -167,7 +167,7 @@ const PUBLIC_SERVICE_FIELDS = Object.freeze([
+   "description",
+   "tagLine",
+   "mainMedia",
+-  "imageUrl",
++  "mainMedia",
+   "price",
+   "currency",
+   "totalDuration",
+@@ -176,7 +176,7 @@ const PUBLIC_SERVICE_FIELDS = Object.freeze([
+   "exposureDuration",
+   "durationRange",
+   "allowCombine",
+-  "phase2ServiceId",
++  "linkedPhases",
+   "addOns",
+   "location",
+   "serviceType",
+@@ -494,7 +494,7 @@ function normalizeService(data, params) {
+     description: text(data.description),
+     tagLine: text(data.tagLine),
+     mainMedia,
+-    imageUrl: mainMedia,
++    mainMedia: mainMedia,
+     price: number(data.price, 0),
+     currency: text(data.currency, SITE.CURRENCY).toUpperCase(),
+     totalDuration,
+@@ -503,7 +503,7 @@ function normalizeService(data, params) {
+     exposureDuration,
+     durationRange: data.durationRange ?? null,
+     allowCombine,
+-    phase2ServiceId: allowCombine ? linkedPhaseId : "",
++    linkedPhases: allowCombine ? linkedPhaseId : "",
+     addOns,
+     location: text(data.location),
+     serviceType: text(data.serviceType),
+@@ -528,12 +528,12 @@ function normalizeService(data, params) {
+       description: text(data.description),
+       tagLine: text(data.tagLine),
+       mainMedia,
+-      imageUrl: mainMedia,
++      mainMedia: mainMedia,
+       price: number(data.price, 0),
+       currency: text(data.currency, SITE.CURRENCY).toUpperCase(),
+       totalDuration,
+       allowCombine,
+-      phase2ServiceId: allowCombine ? linkedPhaseId : "",
++      linkedPhases: allowCombine ? linkedPhaseId : "",
+       addOns
+     }
+   };
+@@ -807,7 +807,7 @@ function createCalendarController({ traceId, widget, params }) {
+     return {
+       serviceId: state.service.serviceId,
+       slug: state.service.slug,
+-      phase2ServiceId: state.service.phase2ServiceId,
++      linkedPhases: state.service.linkedPhases,
+       allowCombine: state.service.allowCombine,
+       slotF1: bookingData.slotF1 ?? null,
+       slotF2: state.service.allowCombine ? bookingData.slotF2 ?? null : null,
+diff --git a/src/pages/Pagina de servicio 2.xnfr4.js b/src/pages/Pagina de servicio 2.xnfr4.js
+index 3a2d194..d0c52e5 100644
+--- a/src/pages/Pagina de servicio 2.xnfr4.js	
++++ b/src/pages/Pagina de servicio 2.xnfr4.js	
+@@ -29,7 +29,7 @@ ALINEACION DE IDs TECNICAS APLICADA (Fase 1):
+                                 status, clientHidden, itemNature, serviceType,
+                                 onlinePayment, inPersonPayment, depositType,
+                                 depositAmount, pricingModel, recomendaciones
+-  Claves legacy toleradas     : slugUrl, tituloServicio, addOnOptions, addonId
++  Claves legacy toleradas     : slug, tituloServicio, addOnOptions, addOnId
+                                 (SOLO lectura; nunca escritura - CAMBIO.txt)
+   Claves visibles NO usadas   : servicioID, titulo, principalMedia, duracionTotal,
+                                 permitirCombinacion, fasesVinculadas, disponibleStaff,
+@@ -93,7 +93,7 @@ const PUBLIC_SERVICE_FIELDS = Object.freeze([
+   "description",
+   "tagLine",
+   "mainMedia",
+-  "imageUrl",
++  "mainMedia",
+   "price",
+   "currency",
+   "totalDuration",
+@@ -102,7 +102,7 @@ const PUBLIC_SERVICE_FIELDS = Object.freeze([
+   "exposureDuration",
+   "durationRange",
+   "allowCombine",
+-  "phase2ServiceId",
++  "linkedPhases",
+   "addons",
+   "location",
+   "serviceType",
+@@ -263,8 +263,8 @@ function getServiceSlug(service) {
+   if (!service || typeof service !== "object") {
+     return "";
+   }
+-  // slug = identidad publica (BIBLIAV 10). slugUrl es legacy de lectura.
+-  return _safeSlugOrId(text(pick(service, "slug", ["slugUrl"])));
++  // slug = identidad publica (BIBLIAV 10). slug es legacy de lectura.
++  return _safeSlugOrId(text(pick(service, "slug", ["slug"])));
+ }
+ 
+ function getServiceImage(service) {
+@@ -278,7 +278,7 @@ function getServiceImage(service) {
+       : {};
+ 
+   // Clave tecnica canonica: mainMedia (visible: principalMedia).
+-  return text(pick(service, "mainMedia", ["imageUrl"]) || pick(metadata, "mainMedia", ["imageUrl"]));
++  return text(pick(service, "mainMedia", ["mainMedia"]) || pick(metadata, "mainMedia", ["mainMedia"]));
+ }
+ 
+ /** Aritmetica dual SSOT: totalDuration = phase1 + exposure + phase2. */
+@@ -315,8 +315,8 @@ function normalizeAddon(entry) {
+     return null;
+   }
+ 
+-  // Canonico: addOnId. Legacy de lectura: addonId / id / nativeId.
+-  const addOnId = text(pick(entry, "addOnId", ["addonId", "nativeId", "id", "_id"]));
++  // Canonico: addOnId. Legacy de lectura: addOnId / id / nativeId.
++  const addOnId = text(pick(entry, "addOnId", ["addOnId", "nativeId", "id", "_id"]));
+   if (!addOnId) {
+     return null;
+   }
+@@ -354,7 +354,7 @@ function normalizeAddons(data, metadata) {
+ function normalizeService(data) {
+   const serviceId = getServiceId(data);
+   const slug = getServiceSlug(data);
+-  const imageUrl = getServiceImage(data);
++  const mainMedia = getServiceImage(data);
+ 
+   if (!_looksLikeGuid(serviceId)) {
+     throw new Error("El servicio no tiene un serviceId valido.");
+@@ -380,7 +380,7 @@ function normalizeService(data) {
+   }
+ 
+   // linkedPhases: REFERENCE con GUID Wix. Nunca se convierte a slug.
+-  const phase2ServiceId = getReferenceId(
++  const linkedPhases = getReferenceId(
+     pick(data, "linkedPhases", ["linkFases", "linkedPhasess"]) ||
+     sourceMetadata.linkedPhases
+   );
+@@ -405,14 +405,14 @@ function normalizeService(data) {
+     price: num(pick(data, "price", ["precio"]) ?? sourceMetadata.price, 0),
+     currency: text(pick(data, "currency", ["moneda"]), DEFAULT_CURRENCY),
+ 
+-    mainMedia: imageUrl,
+-    imageUrl,
++    mainMedia: mainMedia,
++    mainMedia,
+ 
+     serviceType: text(pick(data, "serviceType", ["servicioTipo"])),
+     itemNature: text(pick(data, "itemNature", ["naturalezaItem"])),
+ 
+     allowCombine,
+-    phase2ServiceId: allowCombine && _looksLikeGuid(phase2ServiceId) ? phase2ServiceId : "",
++    linkedPhases: allowCombine && _looksLikeGuid(linkedPhases) ? linkedPhases : "",
+ 
+     onlinePayment: bool(pick(data, "onlinePayment", ["pagoOnline"]), false),
+     inPersonPayment: bool(pick(data, "inPersonPayment", ["pagoPresencial"]), true),
+@@ -445,12 +445,12 @@ function normalizeService(data) {
+     durationRange: metadata.durationRange,
+     price: metadata.price,
+     currency: metadata.currency,
+-    mainMedia: imageUrl,
+-    imageUrl,
++    mainMedia: mainMedia,
++    mainMedia,
+     serviceType: metadata.serviceType,
+     addons: normalizeAddons(data, sourceMetadata),
+     allowCombine: metadata.allowCombine,
+-    phase2ServiceId: metadata.phase2ServiceId,
++    linkedPhases: metadata.linkedPhases,
+     onlinePayment: metadata.onlinePayment,
+     inPersonPayment: metadata.inPersonPayment,
+     depositType: metadata.depositType,
+@@ -488,11 +488,11 @@ async function resolveServiceLookup() {
+   const query = wixLocation.query || {};
+ 
+   // Orden canonico: slug (publico) -> serviceId (tecnico Wix).
+-  // slugUrl queda como alias legacy de lectura (CAMBIO.txt 3, retirada V5010).
++  // slug queda como alias legacy de lectura (CAMBIO.txt 3, retirada V5010).
+   const candidates = [
+     query.slug,
+     query.serviceId,
+-    query.slugUrl
++    query.slug
+   ];
+ 
+   for (const candidate of candidates) {
+@@ -526,8 +526,8 @@ function getAddonIds(payload) {
+       payload.addons
+         .map((addon) => {
+           if (addon && typeof addon === "object") {
+-            // Canonico: addOnId (ComplementosCatalogo). Legacy: addonId / id.
+-            return text(addon.addOnId || addon.nativeId || addon.addonId || addon.id);
++            // Canonico: addOnId (ComplementosCatalogo). Legacy: addOnId / id.
++            return text(addon.addOnId || addon.nativeId || addon.addOnId || addon.id);
+           }
+           return text(addon);
+         })
+@@ -548,10 +548,10 @@ function buildBookingUrl(service, payload) {
+     "referral=servicio-2"
+   ];
+ 
+-  const addonIds = getAddonIds(payload);
++  const addOnIds = getAddonIds(payload);
+ 
+-  if (addonIds.length) {
+-    query.push(`addOnIds=${encodeURIComponent(addonIds.join(","))}`);
++  if (addOnIds.length) {
++    query.push(`addOnIds=${encodeURIComponent(addOnIds.join(","))}`);
+   }
+ 
+   return `${base}?${query.join("&")}`;
+@@ -722,7 +722,7 @@ ALINEACION DE IDs TECNICAS APLICADA (Fase 1):
+                                 status, clientHidden, itemNature, serviceType,
+                                 onlinePayment, inPersonPayment, depositType,
+                                 depositAmount, pricingModel, recomendaciones
+-  Claves legacy toleradas     : slugUrl, tituloServicio, addOnOptions, addonId
++  Claves legacy toleradas     : slug, tituloServicio, addOnOptions, addOnId
+                                 (SOLO lectura; nunca escritura - CAMBIO.txt)
+   Claves visibles NO usadas   : servicioID, titulo, principalMedia, duracionTotal,
+                                 permitirCombinacion, fasesVinculadas, disponibleStaff,
+@@ -786,7 +786,7 @@ const PUBLICSERVICEFIELDS = Object.freeze([
+   "description",
+   "tagLine",
+   "mainMedia",
+-  "imageUrl",
++  "mainMedia",
+   "price",
+   "currency",
+   "totalDuration",
+@@ -795,7 +795,7 @@ const PUBLICSERVICEFIELDS = Object.freeze([
+   "exposureDuration",
+   "durationRange",
+   "allowCombine",
+-  "phase2ServiceId",
++  "linkedPhases",
+   "addons",
+   "location",
+   "serviceType",
+@@ -902,8 +902,8 @@ function getServiceSlug(service) {
+   if (!service || typeof service !== "object") {
+     return "";
+   }
+-  // slug = identidad publica (BIBLIAV 10). slugUrl es legacy de lectura.
+-  return _safeSlugOrId(text(pick(service, "slug", ["slugUrl"])));
++  // slug = identidad publica (BIBLIAV 10). slug es legacy de lectura.
++  return _safeSlugOrId(text(pick(service, "slug", ["slug"])));
+ }
+ 
+ function getServiceImage(service) {
+@@ -917,7 +917,7 @@ function getServiceImage(service) {
+       : {};
+ 
+   // Clave tecnica canonica: mainMedia (visible: principalMedia).
+-  return text(pick(service, "mainMedia", ["imageUrl"]) || pick(metadata, "mainMedia", ["imageUrl"]));
++  return text(pick(service, "mainMedia", ["mainMedia"]) || pick(metadata, "mainMedia", ["mainMedia"]));
+ }
+ 
+ / Aritmetica dual SSOT: totalDuration = phase1 + exposure + phase2. */
+@@ -954,8 +954,8 @@ function normalizeAddon(entry) {
+     return null;
+   }
+ 
+-  // Canonico: addOnId. Legacy de lectura: addonId / id / nativeId.
+-  const addOnId = text(pick(entry, "addOnId", ["addonId", "nativeId", "id", "_id"]));
++  // Canonico: addOnId. Legacy de lectura: addOnId / id / nativeId.
++  const addOnId = text(pick(entry, "addOnId", ["addOnId", "nativeId", "id", "_id"]));
+   if (!addOnId) {
+     return null;
+   }
+@@ -993,7 +993,7 @@ function normalizeAddons(data, metadata) {
+ function normalizeService(data) {
+   const serviceId = getServiceId(data);
+   const slug = getServiceSlug(data);
+-  const imageUrl = getServiceImage(data);
++  const mainMedia = getServiceImage(data);
+ 
+   if (!_looksLikeGuid(serviceId)) {
+     throw new Error("El servicio no tiene un serviceId valido.");
+@@ -1019,7 +1019,7 @@ function normalizeService(data) {
+   }
+ 
+   // linkedPhases: REFERENCE con GUID Wix. Nunca se convierte a slug.
+-  const phase2ServiceId = getReferenceId(
++  const linkedPhases = getReferenceId(
+     pick(data, "linkedPhases", ["linkFases", "linkedPhasess"]) ||
+     sourceMetadata.linkedPhases
+   );
+@@ -1044,14 +1044,14 @@ function normalizeService(data) {
+     price: num(pick(data, "price", ["precio"]) ?? sourceMetadata.price, 0),
+     currency: text(pick(data, "currency", ["moneda"]), DEFAULT_CURRENCY),
+ 
+-    mainMedia: imageUrl,
+-    imageUrl,
++    mainMedia: mainMedia,
++    mainMedia,
+ 
+     serviceType: text(pick(data, "serviceType", ["servicioTipo"])),
+     itemNature: text(pick(data, "itemNature", ["naturalezaItem"])),
+ 
+     allowCombine,
+-    phase2ServiceId: allowCombine && _looksLikeGuid(phase2ServiceId) ? phase2ServiceId : "",
++    linkedPhases: allowCombine && _looksLikeGuid(linkedPhases) ? linkedPhases : "",
+ 
+     onlinePayment: bool(pick(data, "onlinePayment", ["pagoOnline"]), false),
+     inPersonPayment: bool(pick(data, "inPersonPayment", ["pagoPresencial"]), true),
+@@ -1084,12 +1084,12 @@ function normalizeService(data) {
+     durationRange: metadata.durationRange,
+     price: metadata.price,
+     currency: metadata.currency,
+-    mainMedia: imageUrl,
+-    imageUrl,
++    mainMedia: mainMedia,
++    mainMedia,
+     serviceType: metadata.serviceType,
+     addons: normalizeAddons(data, sourceMetadata),
+     allowCombine: metadata.allowCombine,
+-    phase2ServiceId: metadata.phase2ServiceId,
++    linkedPhases: metadata.linkedPhases,
+     onlinePayment: metadata.onlinePayment,
+     inPersonPayment: metadata.inPersonPayment,
+     depositType: metadata.depositType,
+@@ -1127,11 +1127,11 @@ async function resolveServiceLookup() {
+   const query = wixLocation.query || {};
+ 
+   // Orden canonico: slug (publico) -> serviceId (tecnico Wix).
+-  // slugUrl queda como alias legacy de lectura (CAMBIO.txt 3, retirada V5010).
++  // slug queda como alias legacy de lectura (CAMBIO.txt 3, retirada V5010).
+   const candidates = [
+     query.slug,
+     query.serviceId,
+-    query.slugUrl
++    query.slug
+   ];
+ 
+   for (const candidate of candidates) {
+@@ -1165,8 +1165,8 @@ function getAddonIds(payload) {
+       payload.addons
+         .map((addon) => {
+           if (addon && typeof addon === "object") {
+-            // Canonico: addOnId (ComplementosCatalogo). Legacy: addonId / id.
+-            return text(addon.addOnId || addon.nativeId || addon.addonId || addon.id);
++            // Canonico: addOnId (ComplementosCatalogo). Legacy: addOnId / id.
++            return text(addon.addOnId || addon.nativeId || addon.addOnId || addon.id);
+           }
+           return text(addon);
+         })
+@@ -1187,10 +1187,10 @@ function buildBookingUrl(service, payload) {
+     "referral=servicio-2"
+   ];
+ 
+-  const addonIds = getAddonIds(payload);
++  const addOnIds = getAddonIds(payload);
+ 
+-  if (addonIds.length) {
+-    query.push(addOnIds=${encodeURIComponent(addonIds.join(","))});
++  if (addOnIds.length) {
++    query.push(addOnIds=${encodeURIComponent(addOnIds.join(","))});
+   }
+ 
+   return ${base}?${query.join("&")};
+-- 
+2.39.5
+
